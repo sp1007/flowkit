@@ -36,6 +36,109 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
   return true; // keep channel open for async reply
 });
 
+chrome.runtime.onMessage.addListener(
+
+  (msg, _, reply) => {
+
+    if (
+      msg.type !==
+      'GET_MEDIA_URL'
+    ) {
+
+      return;
+
+    }
+
+    const {
+
+      requestId,
+
+      mediaId
+
+    } = msg;
+
+    const handler = (e) => {
+
+      if (
+
+        e.detail.requestId
+        !== requestId
+
+      ) {
+
+        return;
+
+      }
+
+      window.removeEventListener(
+
+        'GET_MEDIA_URL_RESULT',
+
+        handler
+
+      );
+
+      clearTimeout(timer);
+
+      reply(e.detail);
+
+    };
+
+    const timer =
+      setTimeout(() => {
+
+        window.removeEventListener(
+
+          'GET_MEDIA_URL_RESULT',
+
+          handler
+
+        );
+
+        reply({
+
+          error:
+
+            'MEDIA_TIMEOUT'
+
+        });
+
+      }, 15000);
+
+    window.addEventListener(
+
+      'GET_MEDIA_URL_RESULT',
+
+      handler
+
+    );
+
+    window.dispatchEvent(
+
+      new CustomEvent(
+
+        'GET_MEDIA_URL',
+
+        {
+
+          detail: {
+
+            requestId,
+
+            mediaId
+
+          }
+
+        }
+
+      )
+
+    );
+
+    return true;
+
+  });
+
 // ─── TRPC Media URL Monitor ─────────────────────────────────
 // Forward intercepted TRPC responses with media URLs to background.js
 window.addEventListener('TRPC_MEDIA_URLS', (e) => {
@@ -45,5 +148,5 @@ window.addEventListener('TRPC_MEDIA_URLS', (e) => {
     type: 'TRPC_MEDIA_URLS',
     trpcUrl: url,
     body,
-  }).catch(() => {});
+  }).catch(() => { });
 });

@@ -54,3 +54,5 @@ curl -s http://127.0.0.1:8100/health
 | `/fk-thumbnail-guide` | Thumbnail design reference |
 | `/fk-import-voice` | Import existing voice template |
 | `/fk-dashboard` | Live statusline setup |
+| `/fk-timeline-resolve` | Export DaVinci Resolve XML timeline from scene images |
+| `/sp-create-story` | Convert story chapter to reading video (location-based scenes, Colab TTS) |

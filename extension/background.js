@@ -28,15 +28,15 @@ let metrics = {
 const _VISIBLE_TYPES = new Set(['GEN_IMG', 'GEN_VID', 'GEN_VID_REF', 'UPSCALE', 'TRACKING', 'URL_REFRESH']);
 
 function _classifyApiUrl(url) {
-  if (url.includes('uploadImage'))                     return 'UPLOAD';
-  if (url.includes('batchGenerateImages'))              return 'GEN_IMG';
-  if (url.includes('UpsampleVideo'))                   return 'UPSCALE';
-  if (url.includes('ReferenceImages'))                 return 'GEN_VID_REF';
-  if (url.includes('batchAsyncGenerateVideo'))          return 'GEN_VID';
-  if (url.includes('batchCheckAsync'))                  return 'POLL';
-  if (url.includes('upsampleImage'))                   return 'UPS_IMG';
-  if (url.includes('/media/'))                         return 'MEDIA';
-  if (url.includes('/credits'))                        return 'CREDITS';
+  if (url.includes('uploadImage')) return 'UPLOAD';
+  if (url.includes('batchGenerateImages')) return 'GEN_IMG';
+  if (url.includes('UpsampleVideo')) return 'UPSCALE';
+  if (url.includes('ReferenceImages')) return 'GEN_VID_REF';
+  if (url.includes('batchAsyncGenerateVideo')) return 'GEN_VID';
+  if (url.includes('batchCheckAsync')) return 'POLL';
+  if (url.includes('upsampleImage')) return 'UPS_IMG';
+  if (url.includes('/media/')) return 'MEDIA';
+  if (url.includes('/credits')) return 'CREDITS';
   return 'API';
 }
 
@@ -57,7 +57,7 @@ function updateRequestLog(id, updates) {
 }
 
 function broadcastRequestLog() {
-  chrome.runtime.sendMessage({ type: 'REQUEST_LOG_UPDATE', log: requestLog }).catch(() => {});
+  chrome.runtime.sendMessage({ type: 'REQUEST_LOG_UPDATE', log: requestLog }).catch(() => { });
 }
 
 // ─── Startup ────────────────────────────────────────────────
@@ -352,6 +352,51 @@ async function handleSolveCaptcha(msg) {
 
 // ─── API Request Proxy ──────────────────────────────────────
 
+async function getMediaUrl(
+  mediaId
+) {
+
+  const [tab] =
+    await chrome.tabs.query({
+
+      url: [
+
+        'https://labs.google/fx/tools/flow*',
+
+        'https://labs.google/fx/*/tools/flow*'
+
+      ]
+
+    });
+
+  if (!tab) {
+
+    throw new Error(
+      'NO_FLOW_TAB'
+    );
+
+  }
+
+  return await chrome.tabs.sendMessage(
+
+    tab.id,
+
+    {
+
+      type:
+        'GET_MEDIA_URL',
+
+      requestId:
+        crypto.randomUUID(),
+
+      mediaId
+
+    }
+
+  );
+
+}
+
 async function handleTrpcRequest(msg) {
   const { id, params } = msg;
   const { url, method = 'POST', headers = {}, body } = params;
@@ -366,7 +411,68 @@ async function handleTrpcRequest(msg) {
 
   const logId = id;
   const logType = url.includes('createProject') ? 'CREATE_PROJECT' : 'TRPC';
+  const imgType = url.includes('media.getMediaUrlRedirect') ? 'IMAGE' : 'TRPC';
   // TRPC calls are silent — don't show in request log
+
+  if (imgType == 'IMAGE') {
+
+    try {
+
+      const mediaId =
+
+        new URL(url)
+
+          .searchParams
+
+          .get('name');
+
+      const media =
+
+        await getMediaUrl(
+
+          mediaId
+
+        );
+
+      sendToAgent({
+
+        id,
+
+        status:
+          media.status,
+
+        data: {
+
+          url:
+            media.url,
+
+          redirected:
+
+            media.redirected
+
+        }
+
+      });
+
+    }
+
+    catch (e) {
+
+      sendToAgent({
+
+        id,
+
+        error:
+
+          e.message
+
+      });
+
+    }
+
+    return;
+
+  }
 
   const fetchHeaders = { 'Content-Type': 'application/json', ...headers };
   if (flowKey) {
@@ -524,7 +630,7 @@ function setState(newState) {
 }
 
 function broadcastStatus() {
-  chrome.runtime.sendMessage({ type: 'STATUS_PUSH' }).catch(() => {});
+  chrome.runtime.sendMessage({ type: 'STATUS_PUSH' }).catch(() => { });
 }
 
 chrome.runtime.onMessage.addListener((msg, _, reply) => {
@@ -543,6 +649,26 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
       },
       state,
     });
+  }
+
+  if (msg.type === 'MEDIA_REDIRECT') {
+
+    console.log('MEDIA REDIRECT');
+
+    console.log(msg.data);
+
+    sendToAgent({
+
+      type: 'MEDIA_REDIRECT',
+
+      data: msg.data
+
+    });
+
+    reply({ ok: true });
+
+    return true;
+
   }
 
   if (msg.type === 'DISCONNECT') {
@@ -729,7 +855,7 @@ async function sendTelemetry() {
         body: JSON.stringify(_buildFrontendEventsPayload()),
       });
     }
-  } catch {}
+  } catch { }
 }
 
 // Send telemetry at random intervals (45-120s) to look organic

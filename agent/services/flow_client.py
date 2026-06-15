@@ -282,12 +282,44 @@ class FlowClient:
         """
         input_data = json.dumps({"json": {"projectId": project_id}})
         url = f"https://labs.google/fx/api/trpc/project.getProjectContents?input={quote(input_data)}"
+        #url = f"https://labs.google/fx/api/trpc/flow.projectInitialData?input={quote(input_data)}"
 
         return await self._send("trpc_request", {
             "url": url,
             "method": "GET",
             "headers": {
                 "content-type": "application/json",
+                "accept": "*/*",
+            },
+        }, timeout=30)
+
+
+    async def get_projects(self) -> dict:
+        """Create a project on Google Flow via tRPC endpoint.
+
+        Returns the full response including projectId.
+        """
+        input_data = json.dumps({"json":{"pageSize":20,"toolName":"PINHOLE","cursor":None},"meta":{"values":{"cursor":["undefined"]}}})
+        url = f"https://labs.google/fx/api/trpc/project.searchUserProjects?input={quote(input_data)}"
+
+        return await self._send("trpc_request", {
+            "url": url,
+            "method": "GET",
+            "headers": {
+                "content-type": "application/json",
+                "accept": "*/*",
+            },
+        }, timeout=30)
+
+    async def get_direct_media(self, primary_media_id: str) -> dict:
+        """Get media URL redirect."""
+        url = f"https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name={primary_media_id}"
+
+        return await self._send("trpc_request", {
+            "url": url,
+            "method": "GET",
+            "headers": {
+                "origin": "https://labs.google",
                 "accept": "*/*",
             },
         }, timeout=30)

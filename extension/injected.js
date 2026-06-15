@@ -22,9 +22,9 @@ window.fetch = async function (...args) {
             detail: { url, body: text },
           }));
         }
-      }).catch(() => {});
+      }).catch(() => { });
     }
-  } catch {}
+  } catch { }
   return response;
 };
 
@@ -57,3 +57,81 @@ function waitForGrecaptcha(timeout = 10000) {
     check();
   });
 }
+
+window.addEventListener(
+  'GET_MEDIA_URL',
+
+  async ({ detail }) => {
+
+    const {
+      requestId,
+      mediaId
+    } = detail;
+
+    try {
+
+      const apiUrl =
+        `https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=${mediaId}`;
+
+      const resp =
+        await fetch(apiUrl);
+
+      window.dispatchEvent(
+
+        new CustomEvent(
+          'GET_MEDIA_URL_RESULT',
+
+          {
+
+            detail: {
+
+              requestId,
+
+              status:
+                resp.status,
+
+              redirected:
+                resp.redirected,
+
+              url:
+                resp.url
+
+            }
+
+          }
+
+        )
+
+      );
+
+    }
+
+    catch (e) {
+
+      window.dispatchEvent(
+
+        new CustomEvent(
+          'GET_MEDIA_URL_RESULT',
+
+          {
+
+            detail: {
+
+              requestId,
+
+              error:
+                e.message
+
+            }
+
+          }
+
+        )
+
+      );
+
+    }
+
+  }
+
+);
