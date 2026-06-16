@@ -24,6 +24,13 @@ RECAPTCHA_SITE_KEY = os.environ.get("RECAPTCHA_SITE_KEY", "6LdsFiUsAAAAAIjVDZcuL
 # polling timeout for video/upscale status (used by flow_client)
 VIDEO_POLL_TIMEOUT = int(os.environ.get("VIDEO_POLL_TIMEOUT", "420"))
 
+# ─── OmniVoice TTS (hosted on Google Colab) ─────────────────
+# Base URL của server OmniVoice trên Colab (ngrok/localtunnel). URL này đổi mỗi
+# phiên Colab → có thể đặt qua env hoặc runtime (PUT /api/tts/config).
+OMNIVOICE_BASE_URL = os.environ.get("OMNIVOICE_BASE_URL", "http://localhost:8000")
+# Timeout (giây) cho call tổng hợp giọng — model inference có thể chậm.
+OMNIVOICE_TTS_TIMEOUT = float(os.environ.get("OMNIVOICE_TTS_TIMEOUT", "300"))
+
 # ─── Model Keys (loaded from models.json for easy updates) ──
 _MODELS_FILE = Path(__file__).parent / "models.json"
 with open(_MODELS_FILE) as _f:

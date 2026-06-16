@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agent.config import API_HOST, API_PORT, WS_HOST, WS_PORT
 from agent.api.flow import router as flow_router
+from agent.api.tts import router as tts_router
 from agent.services.flow_client import get_flow_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -77,6 +78,7 @@ app.add_middleware(
 )
 
 app.include_router(flow_router, prefix="/api")
+app.include_router(tts_router, prefix="/api")
 
 
 @app.post("/api/ext/callback")

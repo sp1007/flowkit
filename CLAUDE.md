@@ -23,6 +23,8 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
 
 - `agent/main.py` — app entry, extension WebSocket, `/health`, `/api/ext/callback`
 - `agent/api/flow.py` — all `/api/flow/*` endpoints
+- `agent/api/tts.py` — `/api/tts/*` proxy to the OmniVoice server on Google Colab
+  (set the rotating Colab URL via `PUT /api/tts/config` or `OMNIVOICE_BASE_URL`)
 - `agent/services/flow_client.py` — relays requests to the extension over WS
 - `agent/services/headers.py` — randomized headers
 - `agent/config.py`, `agent/models.json` — endpoints + model keys

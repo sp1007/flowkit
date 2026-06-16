@@ -58,6 +58,33 @@ curl -s http://127.0.0.1:8100/health
 
 `media_id` is always UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
 
+`GOOGLE_API_KEY` is optional — auth to `aisandbox-pa.googleapis.com` is carried by
+the extension's Bearer token. Leave it empty (the default) to omit the `?key=` param.
+
+## TTS endpoints (`/api/tts/*`)
+
+Proxy to an [OmniVoice](https://github.com/k2-fsa) server hosted on Google Colab.
+The Colab tunnel URL (ngrok/localtunnel) rotates each session, so set it at runtime
+with `PUT /api/tts/config` (or the `OMNIVOICE_BASE_URL` env var).
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET  | `/config` | Show current OmniVoice base URL |
+| PUT  | `/config` | Set base URL — `{"base_url": "https://<id>.ngrok-free.app"}` |
+| GET  | `/health` | OmniVoice server + model load status |
+| POST | `/synthesize` | TTS — `{text, voice_id?, voice?, speed?, instruct?}` → `{audio: base64 WAV, ...}` |
+| GET  | `/voices` | List registered custom voices |
+| POST | `/voices` | Add a voice clone — `{voice: base64, title, desciption?}` |
+| POST | `/voices/remove` | Remove a voice — `{voice_id}` |
+
+```bash
+# point at the running Colab tunnel, then synthesize
+curl -X PUT http://127.0.0.1:8100/api/tts/config \
+  -H 'Content-Type: application/json' -d '{"base_url":"https://abc123.ngrok-free.app"}'
+curl -X POST http://127.0.0.1:8100/api/tts/synthesize \
+  -H 'Content-Type: application/json' -d '{"text":"Xin chào","voice_id":0}'
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
