@@ -130,6 +130,10 @@ _MEDIA_DIR = Path(os.environ.get("STUDIO_MEDIA_DIR", _REPO_ROOT / "media"))
 _MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(_MEDIA_DIR)), name="media")
 
+_STUDIO_OUT = Path(os.environ.get("STUDIO_OUT_DIR", _REPO_ROOT / "studio_media"))
+_STUDIO_OUT.mkdir(parents=True, exist_ok=True)
+app.mount("/studio-media", StaticFiles(directory=str(_STUDIO_OUT)), name="studio-media")
+
 _SPA_DIST = _REPO_ROOT / "webapp" / "dist"
 if _SPA_DIST.is_dir():
     app.mount("/", StaticFiles(directory=str(_SPA_DIST), html=True), name="spa")

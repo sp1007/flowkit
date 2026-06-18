@@ -18,7 +18,7 @@ from agent.config import (
     IMAGE_MODELS, VIDEO_MODELS, UPSCALE_MODELS, OMNI_FLASH_MODELS,
 )
 from agent.services.flow_client import get_flow_client
-from agent.studio import db, media_store, brain
+from agent.studio import db, media_store, brain, assembler, davinci_xml
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -776,6 +776,241 @@ async def _batch_generate_images(shots: list[dict], force: bool) -> dict:
         if i < len(todo) - 1:
             await asyncio.sleep(random.uniform(2, 6))
     return {"requested": len(todo), "done": done, "errors": errors}
+
+
+# ─── Shots (video) ──────────────────────────────────────────
+
+def _extract_video_submit(payload: dict) -> dict:
+    media = (payload.get("media") or [{}])[0]
+    wf = (payload.get("workflows") or [{}])[0]
+    return {
+        "media_id": media.get("name"),
+        "workflow_id": wf.get("name"),
+        "primary_media_id": wf.get("metadata", {}).get("primaryMediaId"),
+    }
+
+
+async def _poll_video(client, op: dict, timeout: float = 240, interval: float = 8):
+    """Poll check-status until the video URL appears; return URL or None."""
+    import time as _t
+    deadline = _t.monotonic() + timeout
+    while _t.monotonic() < deadline:
+        await asyncio.sleep(interval)
+        st = await client.check_video_status([op])
+        data = st.get("data", st)
+        ops = data.get("operations") or []
+        if ops:
+            video = ops[0].get("operation", {}).get("metadata", {}).get("video", {})
+            if video.get("fifeUrl"):
+                return video["fifeUrl"]
+    return None
+
+
+async def _generate_shot_video(shot: dict) -> dict:
+    scene = await _scene_or_404(shot["scene_id"])
+    project = await _project_or_404(scene["project_id"])
+    client = _require_extension()
+    if not shot.get("image_media_id"):
+        raise HTTPException(400, "Shot chưa có ảnh frame — tạo ảnh ở Storyboard trước")
+    motion = shot.get("motion_prompt") or shot.get("visual_prompt") or shot.get("description") or ""
+    await db.update("shot", shot["id"], {"status": "running", "updated_at": db.now()})
+    res = await client.generate_video(
+        start_image_media_id=shot["image_media_id"], prompt=motion,
+        project_id=project["flow_project_id"], scene_id=shot["id"],
+        aspect_ratio=project["aspect_ratio"], user_paygate_tier=project["paygate_tier"])
+    if res.get("error"):
+        await db.update("shot", shot["id"], {"status": "error", "updated_at": db.now()})
+        raise HTTPException(502, str(res["error"]))
+    info = _extract_video_submit(res.get("data", res))
+    op = {"operation": {"name": info["media_id"]}, "sceneId": shot["id"]}
+    await db.update("shot", shot["id"], {"operation_json": json.dumps(op)})
+    url = await _poll_video(client, op)
+    if not url:
+        await db.update("shot", shot["id"], {"status": "error", "updated_at": db.now()})
+        raise HTTPException(504, "Video chưa xong trong thời gian chờ — thử lại sau")
+    if info.get("workflow_id"):
+        try:
+            await client.change_display_name(
+                info["workflow_id"], project["flow_project_id"],
+                f"s{scene['idx']+1:02d}_{shot['idx']+1:02d}_vid")
+        except Exception:
+            pass
+    web = await media_store.save_from_url(info["media_id"], project["id"], "mp4", url)
+    await db.update("shot", shot["id"], {
+        "video_media_id": info["media_id"], "video_primary_id": info["primary_media_id"],
+        "video_workflow_id": info["workflow_id"], "video_path": web,
+        "status": "done", "updated_at": db.now()})
+    return await _shot_or_404(shot["id"])
+
+
+@router.post("/shots/{sid}/prompts")
+async def gen_shot_prompts(sid: str):
+    shot = await _shot_or_404(sid)
+    scene = await _scene_or_404(shot["scene_id"])
+    project = await _project_or_404(scene["project_id"])
+    out = await brain.run_json(brain.shot_prompts_prompt(
+        shot.get("description") or shot.get("title") or "", project["style"]))
+    await db.update("shot", sid, {
+        "visual_prompt": out.get("visual_prompt"),
+        "motion_prompt": out.get("motion_prompt"), "updated_at": db.now()})
+    return await _shot_or_404(sid)
+
+
+@router.post("/shots/{sid}/video")
+async def generate_shot_video(sid: str):
+    shot = await _shot_or_404(sid)
+    return await _generate_shot_video(shot)
+
+
+@router.post("/shots/{sid}/upscale")
+async def upscale_shot(sid: str, resolution: str = "VIDEO_RESOLUTION_4K"):
+    shot = await _shot_or_404(sid)
+    if not shot.get("video_media_id"):
+        raise HTTPException(400, "Shot chưa có video để upscale")
+    scene = await _scene_or_404(shot["scene_id"])
+    project = await _project_or_404(scene["project_id"])
+    client = _require_extension()
+    res = await client.upscale_video(
+        media_id=shot["video_media_id"], scene_id=shot["id"],
+        aspect_ratio=project["aspect_ratio"], resolution=resolution)
+    if res.get("error"):
+        raise HTTPException(502, str(res["error"]))
+    info = _extract_video_submit(res.get("data", res))
+    op = {"operation": {"name": info["media_id"]}, "sceneId": shot["id"]}
+    url = await _poll_video(client, op, timeout=300)
+    if not url:
+        raise HTTPException(504, "Upscale chưa xong — thử lại sau")
+    web = await media_store.save_from_url(info["media_id"], project["id"], "mp4", url)
+    await db.update("shot", sid, {"upscale_path": web, "upscale_url": url, "updated_at": db.now()})
+    return await _shot_or_404(sid)
+
+
+@router.post("/projects/{pid}/shots/generate-all")
+async def generate_all_videos(pid: str, force: bool = False):
+    """✦ Auto gen video cho shot CÓ ảnh, CHƯA có video. Tuần tự + throttle 15–30s."""
+    await _project_or_404(pid)
+    shots = await db.query_all(
+        "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
+        "WHERE sc.project_id=? ORDER BY sc.idx, sh.idx", (pid,))
+    todo = [s for s in shots if s.get("image_media_id") and (force or not s.get("video_path"))]
+    done, errors = 0, []
+    for i, s in enumerate(todo):
+        try:
+            await _generate_shot_video(s)
+            done += 1
+        except Exception as ex:
+            errors.append({"shot": s["id"], "error": str(ex)[:200]})
+        if i < len(todo) - 1:
+            await asyncio.sleep(random.uniform(15, 30))
+    return {"requested": len(todo), "done": done, "errors": errors}
+
+
+# ─── Assemble / narration / export ──────────────────────────
+
+class NarrationRequest(BaseModel):
+    language: str = "Vietnamese"
+    text: Optional[str] = None     # nếu None → AI tự sinh
+
+
+async def _tts_wav(text: str, voice_id: int, project_id: str, shot_id: str) -> Optional[str]:
+    """Synthesize via OmniVoice, save WAV under media/<pid>/, return web path."""
+    import base64
+    from agent.api.tts import _proxy
+    res = await _proxy("POST", "/api/tts",
+                       json={"text": text, "voice_id": voice_id}, timeout=300.0)
+    b64 = res.get("audio") if isinstance(res, dict) else None
+    if not b64:
+        raise HTTPException(502, "OmniVoice không trả audio")
+    rel = f"{project_id}/narr_{shot_id}.wav"
+    dest = media_store.MEDIA_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(base64.b64decode(b64))
+    return f"/media/{rel}"
+
+
+@router.post("/shots/{sid}/narration")
+async def shot_narration(sid: str, body: NarrationRequest):
+    shot = await _shot_or_404(sid)
+    scene = await _scene_or_404(shot["scene_id"])
+    project = await _project_or_404(scene["project_id"])
+    text = body.text
+    if not text:
+        out = await brain.run_json(brain.narrator_prompt(
+            shot.get("description") or shot.get("title") or "", body.language))
+        text = out.get("narrator_text", "")
+    if not text:
+        raise HTTPException(502, "Không sinh được narrator text")
+    voice_id = project.get("voice_id") or 0
+    web = await _tts_wav(text, voice_id, project["id"], sid)
+    dur = await assembler.probe_duration(assembler._local(web)) if web else 0.0
+    await db.update("shot", sid, {
+        "narrator_text": text, "narration_path": web,
+        "narration_duration": dur, "updated_at": db.now()})
+    return await _shot_or_404(sid)
+
+
+@router.post("/projects/{pid}/assemble")
+async def assemble_project(pid: str):
+    await _project_or_404(pid)
+    try:
+        return await assembler.assemble(pid)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/projects/{pid}/export/davinci-xml")
+async def export_davinci(pid: str):
+    await _project_or_404(pid)
+    try:
+        return await davinci_xml.build(pid)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/projects/{pid}/export")
+async def export_project(pid: str):
+    """Sinh metadata SEO (AI) + SRT từ narration + thumbnail (AI → Flow image)."""
+    p = await _project_or_404(pid)
+    meta = await brain.run_json(brain.seo_prompt(p["title"], p.get("script_raw") or ""))
+    # SRT từ narration các shot (theo thứ tự)
+    shots = await db.query_all(
+        "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
+        "WHERE sc.project_id=? ORDER BY sc.idx, sh.idx", (pid,))
+    srt, t = [], 0.0
+    for i, sh in enumerate(shots):
+        if not sh.get("narrator_text"):
+            continue
+        dur = sh.get("narration_duration") or sh.get("duration") or 4
+        srt.append(f"{i+1}\n{_ts(t)} --> {_ts(t+dur)}\n{sh['narrator_text']}\n")
+        t += dur
+    srt_text = "\n".join(srt)
+    out_dir = assembler.STUDIO_MEDIA_DIR / pid
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "subtitles.srt").write_text(srt_text, encoding="utf-8")
+    # thumbnail
+    thumb_web = None
+    try:
+        client = get_flow_client()
+        if client.connected and meta.get("thumbnail_prompt"):
+            res = await client.generate_images(
+                prompt=f"{meta['thumbnail_prompt']}. {p['style']}",
+                project_id=p["flow_project_id"],
+                aspect_ratio="IMAGE_ASPECT_RATIO_LANDSCAPE",
+                user_paygate_tier=p["paygate_tier"],
+                image_model=await _resolve_image_model(p))
+            info = _extract_image_result(res.get("data", res))
+            if info.get("media_id"):
+                thumb_web = await media_store.ensure_local(info["media_id"], pid)
+    except Exception as e:
+        logger.warning("thumbnail gen failed: %s", e)
+    await db.update("project", pid, {"updated_at": db.now()})
+    return {"metadata": meta, "srt": srt_text, "thumbnail": thumb_web}
+
+
+def _ts(sec: float) -> str:
+    h = int(sec // 3600); m = int((sec % 3600) // 60)
+    s = int(sec % 60); ms = int((sec - int(sec)) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 # ─── Thumbnail / media resolve ──────────────────────────────

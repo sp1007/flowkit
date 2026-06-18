@@ -205,6 +205,25 @@ def shot_prompts_prompt(description: str, style: str) -> str:
     )
 
 
+def narrator_prompt(description: str, language: str = "Vietnamese") -> str:
+    return (
+        f"Write ONE short {language} narrator line (voiceover) for this shot — natural, "
+        "spoken, 1–2 sentences, no stage directions.\n\n"
+        f"SHOT: {description}\n\n"
+        "Return ONLY JSON: {\"narrator_text\":\"...\"}"
+    )
+
+
+def seo_prompt(title: str, script: str, language: str = "Vietnamese") -> str:
+    return (
+        f"Create YouTube metadata in {language} for this video, plus a thumbnail image "
+        "prompt (English).\n\n"
+        f"WORKING TITLE: {title}\nSCRIPT:\n{script[:2000]}\n\n"
+        "Return ONLY JSON: {\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"],"
+        "\"thumbnail_prompt\":\"...\"}"
+    )
+
+
 def edit_script_prompt(script: str, instruction: str, style: str) -> str:
     return (
         "You are editing a FOUNTAIN screenplay. Apply the user's instruction and return "

@@ -4,6 +4,7 @@ import ScriptTab from "./script/ScriptTab";
 import AssetsTab from "./assets/AssetsTab";
 import StoryboardTab from "./storyboard/StoryboardTab";
 import ShotsTab from "./shots/ShotsTab";
+import AssembleTab from "./assemble/AssembleTab";
 
 const TABS = ["Script", "Assets", "Storyboard", "Shots", "Assemble"] as const;
 type Tab = (typeof TABS)[number];
@@ -83,25 +84,9 @@ export default function ProjectWorkspace({
         ) : tab === "Shots" ? (
           <ShotsTab key={project.id} project={project} />
         ) : (
-          <Placeholder tab={tab} project={project} />
+          <AssembleTab key={project.id} project={project} />
         )}
       </div>
-    </div>
-  );
-}
-
-function Placeholder({ tab, project }: { tab: Tab; project: Project }) {
-  return (
-    <div className="mx-auto max-w-3xl px-6 py-16 text-center">
-      <div className="mb-3 text-5xl">🎬</div>
-      <h2 className="mb-1 text-xl font-semibold">{tab}</h2>
-      <p className="text-sm text-neutral-400">
-        Khu vực <b>{tab}</b> của “{project.title}”.
-        {project.storytelling ? " (Storytelling)" : ""}
-      </p>
-      <p className="mt-4 text-xs text-neutral-600">
-        Nền tảng đã sẵn sàng — chức năng {tab} sẽ được hoàn thiện ở phase kế tiếp.
-      </p>
     </div>
   );
 }

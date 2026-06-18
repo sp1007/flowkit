@@ -1,0 +1,159 @@
+import { useEffect, useState } from "react";
+import { api, storyboard, shots as shotsApi, assemble as asm, type Project, type Scene, type Shot } from "../../api/client";
+
+export default function AssembleTab({ project }: { project: Project }) {
+  const [allShots, setAllShots] = useState<Shot[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
+  const [finalUrl, setFinalUrl] = useState<string | null>(null);
+  const [xmlUrl, setXmlUrl] = useState<string | null>(null);
+  const [meta, setMeta] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const sc: Scene[] = (await api.listScenes(project.id)).scenes;
+      let all: Shot[] = [];
+      for (const s of sc) all = all.concat((await storyboard.sceneShots(s.id)).shots);
+      setAllShots(all);
+    })().catch((e) => setErr(e.message));
+  }, [project.id]);
+
+  const withVideo = allShots.filter((s) => s.video_path);
+  const withNarr = allShots.filter((s) => (s as any).narration_path);
+
+  const run = async (label: string, fn: () => Promise<any>) => {
+    setBusy(label);
+    setErr(null);
+    try {
+      return await fn();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+      setProgress("");
+    }
+  };
+
+  const narrateAll = () =>
+    run("narr", async () => {
+      const todo = allShots.filter((s) => s.video_path && !(s as any).narration_path);
+      for (let i = 0; i < todo.length; i++) {
+        setProgress(`Narration ${i + 1}/${todo.length}…`);
+        const u = await shotsApi.narration(todo[i].id);
+        setAllShots((list) => list.map((x) => (x.id === u.id ? u : x)));
+      }
+    });
+
+  const doAssemble = () =>
+    run("assemble", async () => {
+      const r = await asm.build(project.id);
+      setFinalUrl(r.web_path + "?t=" + Date.now());
+    });
+
+  const doExport = () =>
+    run("export", async () => {
+      const r = await asm.exportSeo(project.id);
+      setMeta(r);
+    });
+
+  const doDavinci = () =>
+    run("xml", async () => {
+      const r = await asm.davinci(project.id);
+      setXmlUrl(r.web_path);
+    });
+
+  return (
+    <div className="mx-auto max-w-4xl px-6 py-6">
+      <h2 className="mb-1 text-xl font-semibold">Assemble & Export</h2>
+      <p className="mb-5 text-sm text-neutral-400">
+        Lồng tiếng → ghép video → xuất bản
+      </p>
+
+      <div className="mb-6 grid grid-cols-3 gap-3 text-center text-sm">
+        <Stat n={allShots.length} label="shots" />
+        <Stat n={withVideo.length} label="có video" />
+        <Stat n={withNarr.length} label="có narration" />
+      </div>
+
+      {err && (
+        <div className="mb-4 rounded-lg border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-rose-300">
+          {err}
+        </div>
+      )}
+      {progress && <div className="mb-3 text-sm text-indigo-300">{progress}</div>}
+
+      <div className="mb-6 flex flex-wrap gap-3">
+        <button onClick={narrateAll} disabled={!!busy}
+          className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
+          {busy === "narr" ? "Đang lồng tiếng…" : "🎙 Lồng tiếng tất cả"}
+        </button>
+        <button onClick={doAssemble} disabled={!!busy || !withVideo.length}
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40">
+          {busy === "assemble" ? "Đang ghép…" : "🎬 Ghép video"}
+        </button>
+        <button onClick={doExport} disabled={!!busy}
+          className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
+          {busy === "export" ? "…" : "📝 Export SEO + SRT + Thumbnail"}
+        </button>
+        <button onClick={doDavinci} disabled={!!busy || !withVideo.length}
+          className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
+          {busy === "xml" ? "…" : "🎞 Export DaVinci XML"}
+        </button>
+      </div>
+
+      {finalUrl && (
+        <div className="mb-6">
+          <h3 className="mb-2 text-sm font-medium text-neutral-300">Video hoàn chỉnh</h3>
+          <video src={finalUrl} controls className="w-full rounded-xl border border-neutral-800" />
+          <a href={finalUrl} download className="mt-2 inline-block text-sm text-indigo-400 hover:text-indigo-300">
+            ⭳ Tải final.mp4
+          </a>
+        </div>
+      )}
+
+      {xmlUrl && (
+        <div className="mb-6 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 text-sm">
+          DaVinci timeline:{" "}
+          <a href={xmlUrl} download className="text-indigo-400 hover:text-indigo-300">
+            ⭳ timeline.xml
+          </a>
+          <span className="ml-2 text-neutral-500">Import Timeline trong Resolve, media relink từ ./media</span>
+        </div>
+      )}
+
+      {meta?.metadata && (
+        <div className="space-y-3 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
+          <div>
+            <div className="text-xs text-neutral-500">Tiêu đề</div>
+            <div className="font-medium">{meta.metadata.title}</div>
+          </div>
+          <div>
+            <div className="text-xs text-neutral-500">Mô tả</div>
+            <p className="whitespace-pre-wrap text-sm text-neutral-300">{meta.metadata.description}</p>
+          </div>
+          <div>
+            <div className="text-xs text-neutral-500">Tags</div>
+            <div className="flex flex-wrap gap-1.5">
+              {(meta.metadata.tags || []).map((t: string) => (
+                <span key={t} className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{t}</span>
+              ))}
+            </div>
+          </div>
+          {meta.thumbnail && (
+            <img src={meta.thumbnail} className="w-full max-w-md rounded-lg border border-neutral-800" />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ n, label }: { n: number; label: string }) {
+  return (
+    <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 py-3">
+      <div className="text-2xl font-semibold">{n}</div>
+      <div className="text-xs text-neutral-500">{label}</div>
+    </div>
+  );
+}

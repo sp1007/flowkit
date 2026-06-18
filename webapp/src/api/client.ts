@@ -154,6 +154,25 @@ export const shots = {
   upscale: (sid: string) => req<Shot>(`/shots/${sid}/upscale`, { method: "POST" }),
   genAllVideos: (pid: string) =>
     req<any>(`/projects/${pid}/shots/generate-all`, { method: "POST" }),
+  narration: (sid: string, language = "Vietnamese") =>
+    req<Shot>(`/shots/${sid}/narration`, { method: "POST", body: JSON.stringify({ language }) }),
+};
+
+export const assemble = {
+  build: (pid: string) =>
+    req<{ web_path: string; clips: number; duration: number }>(
+      `/projects/${pid}/assemble`,
+      { method: "POST" }
+    ),
+  exportSeo: (pid: string) =>
+    req<{ metadata: any; srt: string; thumbnail: string | null }>(
+      `/projects/${pid}/export`,
+      { method: "POST" }
+    ),
+  davinci: (pid: string) =>
+    req<{ web_path: string; clips: number }>(`/projects/${pid}/export/davinci-xml`, {
+      method: "POST",
+    }),
 };
 
 export interface Scene {
