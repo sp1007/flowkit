@@ -7,6 +7,7 @@ extension executes them in browser context (residential IP, cookies, reCAPTCHA).
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Optional
@@ -15,6 +16,7 @@ from urllib.parse import quote
 from agent.config import (
     GOOGLE_FLOW_API, GOOGLE_API_KEY, ENDPOINTS,
     VIDEO_MODELS, UPSCALE_MODELS, IMAGE_MODELS, VIDEO_POLL_TIMEOUT,
+    OMNI_FLASH_MODELS, OMNI_FLASH_VALID_ASPECTS,
 )
 from agent.services.headers import random_headers
 
@@ -263,33 +265,54 @@ class FlowClient:
     async def generate_images(self, prompt: str, project_id: str,
                                aspect_ratio: str = "IMAGE_ASPECT_RATIO_PORTRAIT",
                                user_paygate_tier: str = "PAYGATE_TIER_TWO",
-                               character_media_ids: list[str] = None) -> dict:
+                               character_media_ids: list[str] = None,
+                               references: list[dict] = None,
+                               image_model: str = None) -> dict:
         """Generate image(s).
 
-        If character_media_ids is provided, uses edit_image flow (batchGenerateImages
-        with imageInputs) — same endpoint, but includes character references.
-        Without characters, uses plain generate_images.
+        Two ways to attach character/entity references:
+        - `references` (preferred): list of {"handle": <name>, "media_id": <uuid>}. The
+          prompt may embed entity names in square brackets, e.g. "[Thao] dắt tay [Luong]".
+          Each `[handle]` matching a reference is turned into a dedicated
+          `{"reference": {"media": {handle, mediaId}}}` part in `structuredPrompt`, so the
+          model binds each mention to the right image instead of guessing (avoids mixing up
+          entities when several references are passed).
+        - `character_media_ids` (legacy): plain list of mediaIds added as imageInputs only;
+          the whole prompt stays a single text part.
+
+        `image_model` overrides the image model key (e.g. "GEM_PIX_2", "NARWHAL");
+        defaults to NANO_BANANA_PRO.
 
         Response structure:
             data.media[].name = mediaId (used for video gen)
         """
         ts = int(time.time() * 1000)
         ctx = self._client_context(project_id, user_paygate_tier)
+        model_key = image_model or IMAGE_MODELS["NANO_BANANA_PRO"]
+
+        if references:
+            parts = _build_structured_parts(prompt, references)
+            # imageInputs follow the reference order, de-duplicated.
+            ref_ids = list(dict.fromkeys(r["media_id"] for r in references))
+        else:
+            parts = [{"text": prompt}]
+            ref_ids = list(dict.fromkeys(character_media_ids or []))
 
         request_item = {
             "clientContext": {**ctx, "sessionId": f";{ts}"},
             "seed": ts % 1000000,
-            "structuredPrompt": {"parts": [{"text": prompt}]},
+            "structuredPrompt": {"parts": parts},
             "imageAspectRatio": aspect_ratio,
-            "imageModelName": IMAGE_MODELS["NANO_BANANA_PRO"],
+            "imageModelName": model_key,
         }
 
-        # Add character references if provided (edit_image flow)
-        if character_media_ids:
+        # Add references as imageInputs (reference order)
+        if ref_ids:
             request_item["imageInputs"] = [
                 {"name": mid, "imageInputType": "IMAGE_INPUT_TYPE_REFERENCE"}
-                for mid in character_media_ids
+                for mid in ref_ids
             ]
+            character_media_ids = ref_ids  # so batch logic below triggers
 
         batch_id = f"{uuid.uuid4()}" if character_media_ids else None
         body = {
@@ -428,7 +451,9 @@ class FlowClient:
     async def generate_video_from_references(self, reference_media_ids: list[str],
                                               prompt: str, project_id: str, scene_id: str,
                                               aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT",
-                                              user_paygate_tier: str = "PAYGATE_TIER_TWO") -> dict:
+                                              user_paygate_tier: str = "PAYGATE_TIER_TWO",
+                                              references: list[dict] = None,
+                                              video_model: str = None) -> dict:
         """Generate video from multiple reference images (r2v).
 
         Uses referenceImages instead of startImage — the model composes
@@ -438,25 +463,38 @@ class FlowClient:
             reference_media_ids: List of character media_ids (from uploadImage)
         """
         gen_type = "reference_frame_2_video"
-        model_key = VIDEO_MODELS.get(user_paygate_tier, {}).get(gen_type, {}).get(aspect_ratio)
+        model_key = video_model or VIDEO_MODELS.get(user_paygate_tier, {}).get(gen_type, {}).get(aspect_ratio)
 
         if not model_key:
             return {"error": f"No model for tier={user_paygate_tier} type={gen_type} ratio={aspect_ratio}"}
 
+        # Like generate_images: prompt may embed entity names as "[handle]" so each mention
+        # binds to its own reference image instead of being mixed up. referenceImages follow
+        # the reference order, de-duplicated.
+        if references:
+            parts = _build_structured_parts(prompt, references)
+            ref_ids = list(dict.fromkeys(r["media_id"] for r in references))
+        else:
+            parts = [{"text": prompt}]
+            ref_ids = list(dict.fromkeys(reference_media_ids or []))
+
         request = {
             "aspectRatio": aspect_ratio,
             "seed": int(time.time()) % 10000,
-            "textInput": {"structuredPrompt": {"parts": [{"text": prompt}]}},
+            "textInput": {"structuredPrompt": {"parts": parts}},
             "videoModelKey": model_key,
             "referenceImages": [
                 {"mediaId": mid, "imageUsageType": "IMAGE_USAGE_TYPE_ASSET"}
-                for mid in reference_media_ids
+                for mid in ref_ids
             ],
             "metadata": {},
         }
 
         body = {
-            "mediaGenerationContext": {"batchId": f"{uuid.uuid4()}"},
+            "mediaGenerationContext": {
+                "batchId": f"{uuid.uuid4()}",
+                "audioFailurePreference": "BLOCK_SILENCED_VIDEOS",
+            },
             "clientContext": self._client_context(project_id, user_paygate_tier),
             "requests": [request],
             "useV2ModelConfig": True,
@@ -470,6 +508,41 @@ class FlowClient:
             "body": body,
             "captchaAction": "VIDEO_GENERATION",
         }, timeout=60)
+
+    async def generate_video_omni(self, prompt: str, project_id: str,
+                                   reference_media_ids: list[str],
+                                   duration_s: int = 8,
+                                   aspect_ratio: str = "VIDEO_ASPECT_RATIO_LANDSCAPE",
+                                   user_paygate_tier: str = "PAYGATE_TIER_ONE",
+                                   references: list[dict] = None) -> dict:
+        """Generate video with Google's **Omni Flash** model.
+
+        Same r2v endpoint/body as generate_video_from_references, but the model key
+        varies by duration (`abra_r2v_{4,6,8,10}s`). Omni is reference-conditioned, so
+        at least one reference image is required; aspect must be PORTRAIT or LANDSCAPE.
+        Supports `[handle]` references in the prompt (structuredPrompt parts).
+        """
+        if aspect_ratio not in OMNI_FLASH_VALID_ASPECTS:
+            return {"error": f"Omni Flash không hỗ trợ aspect {aspect_ratio} "
+                             f"(chỉ PORTRAIT/LANDSCAPE)"}
+        if not (reference_media_ids or references):
+            return {"error": "Omni Flash cần ít nhất 1 reference image"}
+        model_key = OMNI_FLASH_MODELS.get(str(duration_s))
+        if not model_key:
+            return {"error": f"Omni Flash không có model cho duration={duration_s}s "
+                             f"(hỗ trợ: {', '.join(OMNI_FLASH_MODELS)})"}
+
+        # Body r2v giống hệt — chỉ khác videoModelKey. Tái dùng để DRY.
+        return await self.generate_video_from_references(
+            reference_media_ids=reference_media_ids,
+            prompt=prompt,
+            project_id=project_id,
+            scene_id="",
+            aspect_ratio=aspect_ratio,
+            user_paygate_tier=user_paygate_tier,
+            references=references,
+            video_model=model_key,
+        )
 
     async def upscale_video(self, media_id: str, scene_id: str,
                              aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -619,6 +692,42 @@ class FlowClient:
 
 def _is_ws_error(result: dict) -> bool:
     return bool(result.get("error")) or (isinstance(result.get("status"), int) and result["status"] >= 400)
+
+
+_REF_TOKEN_RE = re.compile(r"\[([^\[\]]+)\]")
+
+
+def _build_structured_parts(prompt: str, references: list[dict]) -> list[dict]:
+    """Build Google Flow `structuredPrompt.parts` by splitting `[handle]` tokens.
+
+    Each `[handle]` in `prompt` that matches a reference's `handle` becomes a dedicated
+    reference part `{"reference": {"media": {"handle", "mediaId"}}}`; surrounding text
+    becomes `{"text": ...}` parts. This binds each entity mention to its own image so the
+    model doesn't mix up references. Unknown `[tokens]` are kept as literal text (brackets
+    stripped). Falls back to a single text part when no token matches.
+    """
+    handle_to_id = {r["handle"]: r["media_id"] for r in (references or [])}
+    parts: list[dict] = []
+    pos = 0
+
+    def push_text(s: str):
+        if s:
+            parts.append({"text": s})
+
+    for m in _REF_TOKEN_RE.finditer(prompt):
+        handle = m.group(1).strip()
+        if handle in handle_to_id:
+            push_text(prompt[pos:m.start()])
+            parts.append({"reference": {"media": {"handle": handle,
+                                                  "mediaId": handle_to_id[handle]}}})
+            pos = m.end()
+        else:
+            # keep unknown token as plain text without the brackets
+            push_text(prompt[pos:m.start()] + handle)
+            pos = m.end()
+
+    push_text(prompt[pos:])
+    return parts or [{"text": prompt}]
 
 
 # Singleton

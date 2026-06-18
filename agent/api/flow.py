@@ -7,12 +7,20 @@ from agent.services.flow_client import get_flow_client
 router = APIRouter(prefix="/flow", tags=["flow"])
 
 
+class EntityReference(BaseModel):
+    handle: str        # tên entity dùng trong prompt: "[handle]"
+    media_id: str      # UUID ảnh ref trên Flow
+
+
 class GenerateImageRequest(BaseModel):
     prompt: str
     project_id: str
     aspect_ratio: str = "IMAGE_ASPECT_RATIO_PORTRAIT"
     user_paygate_tier: str = "PAYGATE_TIER_ONE"
     character_media_ids: Optional[list[str]] = None
+    # Tham chiếu có handle: prompt nhúng "[handle]" → structuredPrompt tách thành part riêng
+    references: Optional[list[EntityReference]] = None
+    image_model: Optional[str] = None   # override model key (vd "GEM_PIX_2", "NARWHAL")
 
 
 class GenerateVideoRequest(BaseModel):
@@ -32,6 +40,20 @@ class GenerateVideoRefsRequest(BaseModel):
     scene_id: str
     aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT"
     user_paygate_tier: str = "PAYGATE_TIER_ONE"
+    # prompt nhúng "[handle]" → structuredPrompt tách part riêng cho từng reference
+    references: Optional[list[EntityReference]] = None
+    video_model: Optional[str] = None   # override model key (vd "veo_3_1_r2v_lite")
+
+
+class GenerateVideoOmniRequest(BaseModel):
+    prompt: str
+    project_id: str
+    reference_media_ids: list[str]
+    duration_s: int = 8                 # 4 | 6 | 8 | 10
+    aspect_ratio: str = "VIDEO_ASPECT_RATIO_LANDSCAPE"  # chỉ PORTRAIT/LANDSCAPE
+    user_paygate_tier: str = "PAYGATE_TIER_ONE"
+    # prompt nhúng "[handle]" → structuredPrompt tách part riêng cho từng reference
+    references: Optional[list[EntityReference]] = None
 
 
 class UpscaleVideoRequest(BaseModel):
@@ -135,6 +157,18 @@ async def generate_video_refs(body: GenerateVideoRefsRequest):
     if not client.connected:
         raise HTTPException(503, "Extension not connected")
     result = await client.generate_video_from_references(**body.model_dump())
+    if result.get("error") or (isinstance(result.get("status"), int) and result["status"] >= 400):
+        raise HTTPException(result.get("status", 502), result.get("error", result.get("data")))
+    return result.get("data", result)
+
+
+@router.post("/generate-video-omni")
+async def generate_video_omni(body: GenerateVideoOmniRequest):
+    """Submit Omni Flash video generation (r2v, variable duration; returns operations)."""
+    client = get_flow_client()
+    if not client.connected:
+        raise HTTPException(503, "Extension not connected")
+    result = await client.generate_video_omni(**body.model_dump(exclude_none=True))
     if result.get("error") or (isinstance(result.get("status"), int) and result["status"] >= 400):
         raise HTTPException(result.get("status", 502), result.get("error", result.get("data")))
     return result.get("data", result)

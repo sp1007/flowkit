@@ -85,6 +85,10 @@ with open(_MODELS_FILE) as _f:
 VIDEO_MODELS = _MODELS["video_models"]
 UPSCALE_MODELS = _MODELS["upscale_models"]
 IMAGE_MODELS = _MODELS["image_models"]
+# Omni Flash — r2v đa-độ-dài (4/6/8/10s), key theo số giây (string). Aspect chỉ
+# PORTRAIT/LANDSCAPE (không SQUARE). Dùng chung endpoint r2v.
+OMNI_FLASH_MODELS = _MODELS.get("omni_flash_models", {})
+OMNI_FLASH_VALID_ASPECTS = {"VIDEO_ASPECT_RATIO_PORTRAIT", "VIDEO_ASPECT_RATIO_LANDSCAPE"}
 
 # ─── API Endpoints ───────────────────────────────────────────
 ENDPOINTS = {

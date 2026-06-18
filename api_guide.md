@@ -6,13 +6,15 @@ Tài liệu này cung cấp hướng dẫn chi tiết về các API được cun
 
 ## 🏗️ Kiến Trúc Hệ Thống
 
-Hệ thống Flow Kit hoạt động như một Proxy bắc cầu cho hai thành phần chính:
+Hệ thống Flow Kit hoạt động như một Proxy bắc cầu cho ba thành phần chính:
 1. **Google Flow Proxy**:
    * **FastAPI Server** (`http://127.0.0.1:8100`): Cung cấp các REST API cho client gọi.
    * **WebSocket Server** (`ws://127.0.0.1:9222`): Chrome Extension kết nối vào đây.
    * **Chrome Extension (Google Flow)**: Nhận lệnh từ WebSocket, thực hiện request thực tế trên trang Google Flow (sử dụng Cookie/Bearer Token `ya29.*` sẵn có của trình duyệt) và trả kết quả về thông qua HTTP Callback (`/api/ext/callback`). Không cần cài đặt `GOOGLE_API_KEY`.
 2. **OmniVoice TTS Proxy**:
    * Chuyển tiếp (proxy) các cuộc gọi tổng hợp và nhân bản giọng nói đến server **OmniVoice** chạy trên Google Colab (sử dụng ngrok/localtunnel).
+3. **AI Agent Proxy (CLI Subprocess)**:
+   * Khởi chạy các coding-agent CLI (`claude`, `antigravity`) dưới dạng tiến trình con (subprocess) headless để tự động hóa viết code, sinh prompt, sửa file... tự động bypass qua bước hỏi quyền.
 
 ---
 
@@ -425,9 +427,91 @@ Lấy danh sách các giọng nói mẫu mà bạn đã thêm vào server OmniVo
 
 ---
 
+## 🤖 Gọi Headless AI Agents (AI Agent Proxy)
+
+Các API này cho phép gọi các coding-agent CLI (Claude Code, Antigravity, ...) qua HTTP để tự động hóa các tác vụ như: viết script, sinh prompt, sửa file trực tiếp trong một thư mục làm việc. Agent chạy headless (không giao diện, phi tương tác), mặc định bypass prompt hỏi quyền nên có thể ghi file và chạy lệnh tự do (chỉ expose cục bộ trên 127.0.0.1).
+
+### 1. Danh Sách Các Agents Hỗ Trợ
+Lấy danh sách cấu hình của các agent cùng trạng thái cài đặt binary trên máy.
+
+* **URL:** `/api/agent/agents`
+* **Method:** `GET`
+* **Response Ví dụ:**
+  ```json
+  {
+    "skip_permissions_default": true,
+    "timeout_default": 600.0,
+    "agents": [
+      {
+        "key": "claude",
+        "bin": "claude",
+        "available": true,
+        "path": "C:\\Users\\sp\\AppData\\Roaming\\npm\\claude.cmd",
+        "prompt_mode": "stdin",
+        "supports_model": true,
+        "pty": false
+      },
+      {
+        "key": "antigravity",
+        "bin": "agy",
+        "available": true,
+        "path": "C:\\Users\\sp\\AppData\\Local\\Programs\\Python\\Python310\\Scripts\\agy.exe",
+        "prompt_mode": "arg",
+        "supports_model": true,
+        "pty": true
+      }
+    ]
+  }
+  ```
+
+### 2. Khởi Chạy Headless Agent
+Yêu cầu một agent thực thi nhiệm vụ trong một thư mục chỉ định.
+
+* **URL:** `/api/agent/run`
+* **Method:** `POST`
+* **Request Body (JSON):**
+  | Field | Type | Required | Default | Description |
+  | :--- | :--- | :---: | :---: | :--- |
+  | `agent` | `str` | Yes | | Key định danh agent (`claude`, `antigravity`) |
+  | `prompt` | `str` | Yes | | Nội dung yêu cầu giao cho agent |
+  | `cwd` | `str` | No | `null` | Thư mục làm việc cho agent thực thi (mặc định là thư mục hiện tại của server) |
+  | `model` | `str` | No | `null` | Override model sử dụng của agent CLI |
+  | `timeout` | `float` | No | `600.0` | Giới hạn thời gian chạy (giây); quá thời gian sẽ tự động kill tiến trình và trả về lỗi 504 |
+  | `extra_args` | `list[str]` | No | `null` | Mảng các cờ CLI bổ sung truyền trực tiếp cho CLI |
+  | `skip_permissions` | `bool` | No | `true` | Cấu hình có bỏ qua các prompt hỏi quyền hay không |
+  | `env` | `dict[str, str]` | No | `null` | Biến môi trường bổ sung truyền vào tiến trình của agent |
+
+* **Request Example:**
+  ```json
+  {
+    "agent": "claude",
+    "prompt": "Tóm tắt file README.md trong 3 gạch đầu dòng ngắn gọn.",
+    "cwd": "D:/youtube/editor/flowkit"
+  }
+  ```
+
+* **Response Ví dụ:**
+  ```json
+  {
+    "ok": true,
+    "agent": "claude",
+    "exit_code": 0,
+    "stdout": "1. Dự án Flow Kit cung cấp giải pháp làm proxy cho Google Flow và OmniVoice TTS.\n2. Extension kết nối qua WS để nhận lệnh và callback HTTP.\n3. Có tích hợp sẵn AI Agent CLI để chạy tự động hóa viết code.",
+    "stderr": "",
+    "duration": 5.42,
+    "cwd": "D:/youtube/editor/flowkit"
+  }
+  ```
+
+> [!NOTE]
+> * **Đăng nhập trước:** Cả hai CLI (`claude` và `agy`) cần được đăng nhập/ủy quyền sẵn trên máy chạy server trước khi gọi API. Nếu chưa đăng nhập, tiến trình có thể bị treo dẫn đến lỗi timeout (504).
+> * **Chế độ PTY:** Đối với các agent CLI dạng giao diện TUI như Antigravity (`agy`), server tự động chạy CLI dưới một Terminal giả lập (ConPTY trên Windows / `pty` trên Unix) để bắt trọn đầu ra hiển thị và loại bỏ mã màu ANSI trước khi trả về. Đảm bảo đã cài `pywinpty` trên Windows để tính năng này hoạt động ổn định.
+
+---
+
 ## 🐍 Mã Nguồn Mẫu (Python Client)
 
-Dưới đây là một ví dụ Python đơn giản để tương tác với các API của Flow Kit bao gồm cả tính năng TTS:
+Dưới đây là một ví dụ Python đơn giản để tương tác với các API của Flow Kit bao gồm cả tính năng TTS và AI Agent CLI:
 
 ```python
 import time
@@ -455,4 +539,20 @@ tts_res = requests.post(
 if tts_res.get("status") == "success":
     print("-> Tổng hợp giọng nói thành công!")
     # tts_res["audio"] chứa base64 của file WAV kết quả
+
+# 3. Giao việc cho AI Agent (Claude Code) để tóm tắt file
+agent_res = requests.post(
+    f"{BASE_URL}/api/agent/run",
+    json={
+        "agent": "claude",
+        "prompt": "Tóm tắt README.md trong 3 dòng",
+        "cwd": "d:/youtube/editor/flowkit"
+    }
+).json()
+
+if agent_res.get("ok"):
+    print("-> Agent phản hồi thành công:")
+    print(agent_res.get("stdout"))
+else:
+    print(f"-> Lỗi khi chạy Agent: {agent_res.get('stderr') or 'timeout/error'}")
 ```
