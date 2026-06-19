@@ -1110,6 +1110,16 @@ async def assemble_project(pid: str):
         raise HTTPException(400, str(e))
 
 
+@router.post("/projects/{pid}/assemble-images")
+async def assemble_project_images(pid: str, ken_burns: bool = True):
+    """Ghép 1 video dài từ ẢNH các shot, mỗi ảnh dài đúng bằng narration của shot."""
+    await _project_or_404(pid)
+    try:
+        return await assembler.assemble_from_images(pid, ken_burns=ken_burns)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/projects/{pid}/export/davinci-xml")
 async def export_davinci(pid: str):
     await _project_or_404(pid)

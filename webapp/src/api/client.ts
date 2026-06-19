@@ -195,6 +195,11 @@ export const assemble = {
       `/projects/${pid}/assemble`,
       { method: "POST" }
     ),
+  buildFromImages: (pid: string, kenBurns = true) =>
+    req<{ web_path: string; clips: number; duration: number; mode: string }>(
+      `/projects/${pid}/assemble-images?ken_burns=${kenBurns}`,
+      { method: "POST" }
+    ),
   exportSeo: (pid: string) =>
     req<{ metadata: any; srt: string; thumbnail: string | null }>(
       `/projects/${pid}/export`,

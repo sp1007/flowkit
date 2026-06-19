@@ -8,6 +8,7 @@ export default function AssembleTab({ project }: { project: Project }) {
   const [finalUrl, setFinalUrl] = useState<string | null>(null);
   const [xmlUrl, setXmlUrl] = useState<string | null>(null);
   const [meta, setMeta] = useState<any>(null);
+  const [kenBurns, setKenBurns] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export default function AssembleTab({ project }: { project: Project }) {
   }, [project.id]);
 
   const withVideo = allShots.filter((s) => s.video_path);
+  const withImage = allShots.filter((s) => s.image_path);
   const withNarr = allShots.filter((s) => (s as any).narration_path);
 
   const run = async (label: string, fn: () => Promise<any>) => {
@@ -37,7 +39,9 @@ export default function AssembleTab({ project }: { project: Project }) {
 
   const narrateAll = () =>
     run("narr", async () => {
-      const todo = allShots.filter((s) => s.video_path && !(s as any).narration_path);
+      const todo = allShots.filter(
+        (s) => (s.video_path || s.image_path) && !(s as any).narration_path
+      );
       for (let i = 0; i < todo.length; i++) {
         setProgress(`Narration ${i + 1}/${todo.length}…`);
         const u = await shotsApi.narration(todo[i].id);
@@ -48,6 +52,12 @@ export default function AssembleTab({ project }: { project: Project }) {
   const doAssemble = () =>
     run("assemble", async () => {
       const r = await asm.build(project.id);
+      setFinalUrl(r.web_path + "?t=" + Date.now());
+    });
+
+  const doAssembleImages = () =>
+    run("assemble-img", async () => {
+      const r = await asm.buildFromImages(project.id, kenBurns);
       setFinalUrl(r.web_path + "?t=" + Date.now());
     });
 
@@ -70,8 +80,9 @@ export default function AssembleTab({ project }: { project: Project }) {
         Lồng tiếng → ghép video → xuất bản
       </p>
 
-      <div className="mb-6 grid grid-cols-3 gap-3 text-center text-sm">
+      <div className="mb-6 grid grid-cols-4 gap-3 text-center text-sm">
         <Stat n={allShots.length} label="shots" />
+        <Stat n={withImage.length} label="có ảnh" />
         <Stat n={withVideo.length} label="có video" />
         <Stat n={withNarr.length} label="có narration" />
       </div>
@@ -92,6 +103,16 @@ export default function AssembleTab({ project }: { project: Project }) {
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40">
           {busy === "assemble" ? "Đang ghép…" : "🎬 Ghép video"}
         </button>
+        <button onClick={doAssembleImages} disabled={!!busy || !withImage.length}
+          title="Gộp các ảnh shot thành 1 video, mỗi ảnh dài bằng narration của shot"
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-40">
+          {busy === "assemble-img" ? "Đang ghép ảnh…" : "🖼 Tạo video từ ảnh"}
+        </button>
+        <label className="flex items-center gap-2 text-sm text-neutral-300">
+          <input type="checkbox" checked={kenBurns} onChange={(e) => setKenBurns(e.target.checked)}
+            className="h-4 w-4 accent-emerald-500" />
+          Ken Burns (zoom nhẹ)
+        </label>
         <button onClick={doExport} disabled={!!busy}
           className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
           {busy === "export" ? "…" : "📝 Export SEO + SRT + Thumbnail"}
