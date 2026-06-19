@@ -480,25 +480,44 @@ function Editor({
     target.goal || (target.kind === "shot" ? "video" : "image");
 
   useEffect(() => {
+    // Saved graphs are serialized WITHOUT the transient _result preview, so re-seed the
+    // shot/entity's current media onto the Output node and the gen node(s) feeding it —
+    // otherwise reopening a graph for an already-generated image shows blank previews.
+    const curSrc = goal === "video" ? target.videoSrc : target.imageSrc;
+    const curExt = goal === "video" ? "mp4" : "png";
+    const apply = (g: { nodes: any[]; edges: any[] }) => {
+      const nodes: Node[] = g.nodes.map((n: any) => ({
+        id: n.id,
+        type: n.type || n.data?._type || "prompt",
+        position: n.position || { x: 0, y: 0 },
+        data: { ...n.data, _type: n.type || n.data?._type },
+      }));
+      const edges: Edge[] = (g.edges || []).map((e: any, i: number) => ({
+        id: e.id || `e${i}`,
+        source: e.source,
+        target: e.target,
+      }));
+      if (curSrc) {
+        const outIds = new Set(nodes.filter((n) => n.type === "output").map((n) => n.id));
+        const feedsOut = new Set(
+          edges.filter((e) => outIds.has(e.target)).map((e) => e.source)
+        );
+        const GEN = ["image", "editImage", "video"];
+        for (const n of nodes) {
+          const seedHere = outIds.has(n.id) || (GEN.includes(n.type!) && feedsOut.has(n.id));
+          if (seedHere && !(n.data as any)._result) {
+            (n.data as any)._result = curSrc;
+            (n.data as any)._ext = curExt;
+          }
+        }
+      }
+      setNodes(nodes);
+      setEdges(edges);
+    };
     graphApi
       .get(target.kind, target.id, goal)
-      .then((r) => {
-        const g = r.graph && r.graph.nodes?.length ? r.graph : defaultGraph(target, entities);
-        setNodes(
-          g.nodes.map((n: any) => ({
-            id: n.id,
-            type: n.type || n.data?._type || "prompt",
-            position: n.position || { x: 0, y: 0 },
-            data: { ...n.data, _type: n.type || n.data?._type },
-          }))
-        );
-        setEdges((g.edges || []).map((e: any, i: number) => ({ id: e.id || `e${i}`, source: e.source, target: e.target })));
-      })
-      .catch(() => {
-        const g = defaultGraph(target, entities);
-        setNodes(g.nodes);
-        setEdges(g.edges);
-      });
+      .then((r) => apply(r.graph && r.graph.nodes?.length ? r.graph : defaultGraph(target, entities)))
+      .catch(() => apply(defaultGraph(target, entities)));
   }, [target.id, entities]);
 
   const onConnect = useCallback(
