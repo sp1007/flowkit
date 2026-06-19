@@ -5,10 +5,11 @@ import AssetsTab from "./assets/AssetsTab";
 import StoryboardTab from "./storyboard/StoryboardTab";
 import ShotsTab from "./shots/ShotsTab";
 import AssembleTab from "./assemble/AssembleTab";
+import AllImages from "./AllImages";
 import NodeEditor, { type EditorTarget } from "./nodeeditor/NodeEditor";
 import ProjectSettings from "./settings/ProjectSettings";
 
-const TABS = ["Script", "Assets", "Storyboard", "Shots", "Assemble"] as const;
+const TABS = ["Script", "Assets", "Storyboard", "Shots", "Assemble", "Ảnh"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function ProjectWorkspace({
@@ -108,8 +109,10 @@ export default function ProjectWorkspace({
           />
         ) : tab === "Shots" ? (
           <ShotsTab key={project.id + reload} project={project} onEdit={openEditor} />
-        ) : (
+        ) : tab === "Assemble" ? (
           <AssembleTab key={project.id + reload} project={project} />
+        ) : (
+          <AllImages key={project.id + reload} project={project} />
         )}
       </div>
 
