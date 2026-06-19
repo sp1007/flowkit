@@ -383,7 +383,7 @@ function Editor({
         return {
           ...e,
           animated: active,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 22, height: 22,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12,
                        color: active ? "#818cf8" : "#6b7280" },
           style: { strokeWidth: active ? 5 : 3, stroke: active ? "#818cf8" : "#6b7280" },
         };
