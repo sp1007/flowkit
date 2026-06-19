@@ -293,6 +293,12 @@ export const storyboardExportUrl = (pid: string) =>
   `/api/studio/projects/${pid}/storyboard/export`;
 
 // OmniVoice base URL config lives on the tts router (not /studio).
+export async function getTtsConfig(): Promise<{ base_url: string }> {
+  const res = await fetch("/api/tts/config");
+  if (!res.ok) throw new Error("Không đọc được OmniVoice URL");
+  return res.json();
+}
+
 export async function setTtsConfig(base_url: string): Promise<any> {
   const res = await fetch("/api/tts/config", {
     method: "PUT",

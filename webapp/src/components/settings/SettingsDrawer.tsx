@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, setTtsConfig } from "../../api/client";
+import { api, getTtsConfig, setTtsConfig } from "../../api/client";
 
 export default function SettingsDrawer({ onClose }: { onClose: () => void }) {
   const [opts, setOpts] = useState<any>(null);
@@ -11,6 +11,8 @@ export default function SettingsDrawer({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     api.options().then(setOpts).catch((e) => setErr(e.message));
     api.getSettings().then(setS).catch(() => {});
+    // Show the currently-saved OmniVoice URL so it doesn't look lost on reopen.
+    getTtsConfig().then((c) => setTtsUrl(c.base_url || "")).catch(() => {});
   }, []);
 
   const set = (k: string, v: any) => {

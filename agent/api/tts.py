@@ -13,12 +13,29 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agent.config import OMNIVOICE_BASE_URL, OMNIVOICE_TTS_TIMEOUT
+from agent.studio import db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tts", tags=["tts"])
 
-# Runtime state — base URL của Colab có thể đổi mỗi phiên.
+# Base URL của Colab đổi mỗi phiên — lưu vào kv (db) để giữ qua restart, fallback env.
+_TTS_KEY = "tts_base_url"
 _state = {"base_url": OMNIVOICE_BASE_URL.rstrip("/")}
+_loaded = False
+
+
+async def _ensure_loaded() -> None:
+    """Nạp base_url đã lưu từ db (1 lần). Giá trị người dùng đặt qua UI thắng env."""
+    global _loaded
+    if _loaded:
+        return
+    _loaded = True
+    try:
+        saved = await db.kv_get(_TTS_KEY)
+        if saved:
+            _state["base_url"] = str(saved).rstrip("/")
+    except Exception as e:  # noqa: BLE001 — db chưa sẵn sàng thì giữ giá trị env
+        logger.warning("load tts base_url failed: %s", e)
 
 
 # ─── Models ──────────────────────────────────────────────────
@@ -50,6 +67,7 @@ class RemoveVoiceRequest(BaseModel):
 async def _proxy(method: str, path: str, *, json: dict | None = None,
                  timeout: float = 30.0) -> dict:
     """Gọi server OmniVoice và trả JSON. Lỗi mạng → 503; lỗi HTTP → passthrough."""
+    await _ensure_loaded()
     base = _state["base_url"]
     if not base:
         raise HTTPException(503, "OMNIVOICE_BASE_URL chưa được cấu hình (PUT /api/tts/config)")
@@ -77,13 +95,17 @@ async def _proxy(method: str, path: str, *, json: dict | None = None,
 @router.get("/config")
 async def get_config():
     """Xem base URL OmniVoice hiện tại."""
+    await _ensure_loaded()
     return {"base_url": _state["base_url"]}
 
 
 @router.put("/config")
 async def set_config(body: ConfigRequest):
-    """Đặt base URL OmniVoice (dán URL ngrok/localtunnel từ Colab vào đây)."""
+    """Đặt base URL OmniVoice (dán URL ngrok/localtunnel từ Colab vào đây). Lưu bền vào db."""
     _state["base_url"] = body.base_url.rstrip("/")
+    global _loaded
+    _loaded = True
+    await db.kv_set(_TTS_KEY, _state["base_url"])
     logger.info("OmniVoice base_url set to %s", _state["base_url"])
     return {"base_url": _state["base_url"]}
 

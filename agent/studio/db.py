@@ -192,6 +192,16 @@ async def kv_get_all() -> dict:
     return out
 
 
+async def kv_get(key: str, default=None):
+    row = await query_one("SELECT value FROM kv WHERE key=?", (key,))
+    if not row:
+        return default
+    try:
+        return json.loads(row["value"])
+    except (json.JSONDecodeError, TypeError):
+        return row["value"]
+
+
 async def kv_set(key: str, value) -> None:
     await execute(
         "INSERT INTO kv(key, value) VALUES(?, ?) "
