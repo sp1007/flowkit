@@ -176,6 +176,30 @@ export default function StoryboardTab({
     }
   };
 
+  // Rebuild the shot list for EVERY scene from the script (force) — deletes existing
+  // shots (incl. manual edits) and re-splits via AI. Confirm because it's destructive.
+  const rebuildAll = async () => {
+    if (
+      !window.confirm(
+        "Dựng lại TẤT CẢ shots từ kịch bản cho mọi scene?\n\n" +
+          "Thao tác này XÓA các shot hiện tại (kể cả prompt/ảnh đã chỉnh tay) và để AI tách lại từ script."
+      )
+    )
+      return;
+    setBusy("rebuild-all");
+    setErr(null);
+    try {
+      const r = await storyboard.autofillAll(project.id, undefined, true);
+      await reloadAll();
+      setNotice(`Đã dựng lại shots cho ${r.done}/${r.requested} scene`);
+      setTimeout(() => setNotice(null), 3000);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const projectAll = async () => {
     const todo = scenes.flatMap((sc) => (shotsByScene[sc.id] || []).filter((s) => !s.image_path));
     await genSequential("gen-all", todo);
@@ -193,10 +217,18 @@ export default function StoryboardTab({
             <button
               disabled={!!busy || !scenes.length}
               onClick={autofillAll}
-              title="Autofill toàn bộ scene chưa có frame"
+              title="Autofill các scene CHƯA có shot (bỏ qua scene đã có)"
               className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40"
             >
               {busy === "autofill-all" ? "Đang autofill…" : "✨ Autofill all"}
+            </button>
+            <button
+              disabled={!!busy || !scenes.length}
+              onClick={rebuildAll}
+              title="Dựng lại shots từ kịch bản cho MỌI scene (xóa shot cũ)"
+              className="rounded-lg border border-amber-700/60 px-3 py-2 text-sm text-amber-300 hover:bg-amber-950/40 disabled:opacity-40"
+            >
+              {busy === "rebuild-all" ? "Đang dựng lại…" : "↻ Dựng lại tất cả"}
             </button>
             <button
               disabled={!!busy || !scenes.length}

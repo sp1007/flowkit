@@ -185,8 +185,9 @@ export const storyboard = {
       method: "POST",
       body: JSON.stringify({ n_frames: n_frames ?? null }),
     }),
-  autofillAll: (pid: string, n_frames?: number) =>
-    req<any>(`/projects/${pid}/storyboard/autofill-all`, {
+  // force=true rebuilds shots even for scenes that already have them (deletes & re-splits).
+  autofillAll: (pid: string, n_frames?: number, force = false) =>
+    req<any>(`/projects/${pid}/storyboard/autofill-all${force ? "?force=true" : ""}`, {
       method: "POST",
       body: JSON.stringify({ n_frames: n_frames ?? null }),
     }),
