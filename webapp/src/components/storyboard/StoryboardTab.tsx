@@ -12,6 +12,8 @@ const parseRefs = (s: string | null): string[] => {
   }
 };
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export default function StoryboardTab({
   project,
   onEdit,
@@ -29,6 +31,7 @@ export default function StoryboardTab({
   const [gening, setGening] = useState<Set<string>>(new Set());
   const [lightbox, setLightbox] = useState<Shot | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const setAsCover = async (shot: Shot) => {
@@ -68,13 +71,15 @@ export default function StoryboardTab({
     if (sel?.id === updated.id) setSel(updated);
   };
 
-  const genImage = async (shot: Shot) => {
+  const genImage = async (shot: Shot): Promise<boolean> => {
     setGening((s) => new Set(s).add(shot.id));
     setErr(null);
     try {
       setShot(await storyboard.genImage(shot.id));
+      return true;
     } catch (e: any) {
       setErr(e.message);
+      return false;
     } finally {
       setGening((s) => {
         const n = new Set(s);
@@ -82,6 +87,28 @@ export default function StoryboardTab({
         return n;
       });
     }
+  };
+
+  // Generate a list of frames one-by-one on the client → live per-frame "Đang tạo…"
+  // overlay + progress; backend verifies the image was created and retries policy blocks.
+  const genSequential = async (label: string, todo: Shot[]) => {
+    if (!todo.length) {
+      setErr("Mọi frame đã có ảnh.");
+      return;
+    }
+    setBusy(label);
+    setErr(null);
+    let okN = 0;
+    const failed: string[] = [];
+    for (let i = 0; i < todo.length; i++) {
+      setProgress(`Đang tạo ${i + 1}/${todo.length}: ${todo[i].title}`);
+      const ok = await genImage(todo[i]);
+      ok ? okN++ : failed.push(todo[i].title);
+      if (i < todo.length - 1) await sleep(2000 + Math.random() * 4000);
+    }
+    setProgress(null);
+    setBusy(null);
+    if (failed.length) setErr(`Xong ${okN}/${todo.length}. Lỗi: ${failed.join(", ")}`);
   };
 
   const autofill = async (sid: string) => {
@@ -98,16 +125,8 @@ export default function StoryboardTab({
   };
 
   const sceneAll = async (sid: string) => {
-    setBusy("all:" + sid);
-    setErr(null);
-    try {
-      await storyboard.genSceneAll(sid);
-      await loadShots(sid);
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setBusy(null);
-    }
+    const todo = (shotsByScene[sid] || []).filter((s) => !s.image_path);
+    await genSequential("all:" + sid, todo);
   };
 
   const reloadAll = async () => {
@@ -128,16 +147,8 @@ export default function StoryboardTab({
   };
 
   const projectAll = async () => {
-    setBusy("gen-all");
-    setErr(null);
-    try {
-      await storyboard.genProjectAll(project.id);
-      await reloadAll();
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setBusy(null);
-    }
+    const todo = scenes.flatMap((sc) => (shotsByScene[sc.id] || []).filter((s) => !s.image_path));
+    await genSequential("gen-all", todo);
   };
 
   return (
@@ -167,6 +178,12 @@ export default function StoryboardTab({
             </button>
           </div>
         </div>
+        {progress && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-indigo-800 bg-indigo-950/40 px-3 py-2 text-sm text-indigo-300">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-400" />
+            {progress}
+          </div>
+        )}
         {notice && (
           <div className="mb-4 rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300">
             ★ {notice}

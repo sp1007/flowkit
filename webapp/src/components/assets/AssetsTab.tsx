@@ -10,6 +10,8 @@ const GROUPS: { type: Entity["type"]; label: string }[] = [
   { type: "prop", label: "Đạo cụ" },
 ];
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export default function AssetsTab({
   project,
   onEdit,
@@ -19,6 +21,7 @@ export default function AssetsTab({
 }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const [gening, setGening] = useState<Set<string>>(new Set());
   const [lightbox, setLightbox] = useState<Entity | null>(null);
   const [picker, setPicker] = useState<
@@ -45,14 +48,16 @@ export default function AssetsTab({
     }
   };
 
-  const genOne = async (e: Entity) => {
+  const genOne = async (e: Entity): Promise<boolean> => {
     setGening((s) => new Set(s).add(e.id));
     setErr(null);
     try {
       const updated = await api.generateEntity(e.id);
       setEntities((list) => list.map((x) => (x.id === e.id ? updated : x)));
+      return true;
     } catch (ex: any) {
       setErr(ex.message);
+      return false;
     } finally {
       setGening((s) => {
         const n = new Set(s);
@@ -60,6 +65,29 @@ export default function AssetsTab({
         return n;
       });
     }
+  };
+
+  // Auto gen on the client so each image shows its "Đang tạo…" overlay live and we
+  // can report progress + which ones failed (backend already verifies + retries).
+  const autoGen = async () => {
+    const todo = entities.filter((e) => !e.image_path);
+    if (!todo.length) {
+      setErr("Tất cả asset đã có ảnh.");
+      return;
+    }
+    setBusy("all");
+    setErr(null);
+    let okN = 0;
+    const failed: string[] = [];
+    for (let i = 0; i < todo.length; i++) {
+      setProgress(`Đang tạo ${i + 1}/${todo.length}: ${todo[i].name}`);
+      const ok = await genOne(todo[i]);
+      ok ? okN++ : failed.push(todo[i].name);
+      if (i < todo.length - 1) await sleep(2000 + Math.random() * 4000);
+    }
+    setProgress(null);
+    setBusy(null);
+    if (failed.length) setErr(`Xong ${okN}/${todo.length}. Lỗi: ${failed.join(", ")}`);
   };
 
   const addManual = async (type: Entity["type"]) => {
@@ -96,13 +124,20 @@ export default function AssetsTab({
           </button>
           <button
             disabled={!!busy}
-            onClick={() => wrap("all", () => api.generateAllAssets(project.id))}
+            onClick={autoGen}
             className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
           >
             {busy === "all" ? "Đang tạo…" : "✦ Auto gen"}
           </button>
         </div>
       </div>
+
+      {progress && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-indigo-800 bg-indigo-950/40 px-3 py-2 text-sm text-indigo-300">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-400" />
+          {progress}
+        </div>
+      )}
 
       {err && (
         <div className="mb-4 rounded-lg border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-rose-300">

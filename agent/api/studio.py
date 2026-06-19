@@ -23,6 +23,9 @@ from agent.studio import db, media_store, brain, assembler, davinci_xml, graph a
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/studio", tags=["studio"])
 
+# Google đôi khi chặn ảnh theo policy (không trả media) hoặc trả filtered → thử lại.
+IMAGE_GEN_RETRIES = 3
+
 
 # ─── Models ──────────────────────────────────────────────────
 
@@ -419,6 +422,44 @@ def _extract_image_result(payload: dict) -> dict:
     }
 
 
+def _image_block_reason(payload: dict) -> Optional[str]:
+    """Detect a content-policy / RAI filter in an image response (no media produced)."""
+    for key in ("raiFilteredReason", "filteredReason", "raiFilterReason", "blockReason"):
+        v = _deep_find(payload, key)
+        if v:
+            return str(v)
+    return None
+
+
+async def _generate_image_verified(gen_call, store_call, label_for_err: str) -> dict:
+    """Run an image generation, VERIFY a media was actually produced + downloaded, and
+    retry on Google content-policy blocks / transient failures (video-app spec).
+
+    `gen_call()` → raw Flow response; `store_call(info)` → persisted row (with image_path).
+    Raises HTTPException(502) only after all retries fail.
+    """
+    last = ""
+    for attempt in range(IMAGE_GEN_RETRIES):
+        res = await gen_call()
+        if res.get("error"):
+            last = str(res["error"])
+        else:
+            payload = res.get("data", res)
+            info = _extract_image_result(payload)
+            if info.get("media_id"):
+                row = await store_call(info)
+                if row.get("image_path"):       # ảnh tạo + tải về OK
+                    return row
+                last = "ảnh chưa tải được"
+            else:
+                last = _image_block_reason(payload) or "Flow không trả media (có thể bị chặn)"
+        logger.warning("%s: tạo ảnh hỏng (lần %d/%d): %s",
+                       label_for_err, attempt + 1, IMAGE_GEN_RETRIES, last)
+        if attempt < IMAGE_GEN_RETRIES - 1:
+            await asyncio.sleep(random.uniform(2, 5))
+    raise HTTPException(502, f"Tạo ảnh thất bại sau {IMAGE_GEN_RETRIES} lần ({label_for_err}): {last}")
+
+
 async def _entity_or_404(eid: str) -> dict:
     row = await db.query_one("SELECT * FROM entity WHERE id=?", (eid,))
     if not row:
@@ -471,16 +512,14 @@ async def _generate_entity_image(entity: dict, project: dict) -> dict:
     aspect = ("IMAGE_ASPECT_RATIO_LANDSCAPE" if entity["type"] in ("character", "prop", "location")
               else _to_image_aspect(project["aspect_ratio"]))
     model = await _resolve_image_model(project)
-    res = await client.generate_images(
-        prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
-        user_paygate_tier=await _current_tier(), image_model=model)
-    if res.get("error"):
-        raise HTTPException(502, str(res["error"]))
-    info = _extract_image_result(res.get("data", res))
-    if not info["media_id"]:
-        raise HTTPException(502, "Flow không trả media")
-    return await _store_media_on_entity(
-        entity, project, info, f"{entity['type']}_{entity['name']}")
+    tier = await _current_tier()
+    return await _generate_image_verified(
+        gen_call=lambda: client.generate_images(
+            prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
+            user_paygate_tier=tier, image_model=model),
+        store_call=lambda info: _store_media_on_entity(
+            entity, project, info, f"{entity['type']}_{entity['name']}"),
+        label_for_err=f"asset {entity['name']}")
 
 
 @router.get("/projects/{pid}/entities")
@@ -759,17 +798,14 @@ async def _generate_frame_image(shot: dict) -> dict:
         project, shot.get("description") or shot.get("title") or "")
     aspect = _to_image_aspect(project["aspect_ratio"])
     model = await _resolve_image_model(project)
-    res = await client.generate_images(
-        prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
-        user_paygate_tier=await _current_tier(),
-        references=refs or None, image_model=model)
-    if res.get("error"):
-        raise HTTPException(502, str(res["error"]))
-    info = _extract_image_result(res.get("data", res))
-    if not info["media_id"]:
-        raise HTTPException(502, "Flow không trả media")
-    return await _store_media_on_shot(
-        shot, project, info, "image", f"s{scene['idx']+1:02d}_{shot['idx']+1:02d}_img")
+    tier = await _current_tier()
+    return await _generate_image_verified(
+        gen_call=lambda: client.generate_images(
+            prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
+            user_paygate_tier=tier, references=refs or None, image_model=model),
+        store_call=lambda info: _store_media_on_shot(
+            shot, project, info, "image", f"s{scene['idx']+1:02d}_{shot['idx']+1:02d}_img"),
+        label_for_err=f"frame {shot.get('title') or shot['id'][:6]}")
 
 
 @router.get("/scenes/{sid}/shots")
