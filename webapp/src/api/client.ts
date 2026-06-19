@@ -226,10 +226,16 @@ const graphUrl = (
 export const graphApi = {
   get: (kind: "shot" | "entity", id: string, goal?: "image" | "video") =>
     req<{ graph: any }>(graphUrl(kind, id, "", goal)),
-  run: (kind: "shot" | "entity", id: string, graph: any, goal?: "image" | "video") =>
+  run: (
+    kind: "shot" | "entity",
+    id: string,
+    graph: any,
+    goal?: "image" | "video",
+    onlyNode?: string
+  ) =>
     req<any>(graphUrl(kind, id, "/run", goal), {
       method: "POST",
-      body: JSON.stringify({ graph }),
+      body: JSON.stringify({ graph, only_node: onlyNode }),
     }),
   save: (kind: "shot" | "entity", id: string, graph: any, goal?: "image" | "video") =>
     req<any>(graphUrl(kind, id, "", goal), {

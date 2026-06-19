@@ -49,6 +49,24 @@ def _upstream_ids(node_id: str, edges: list[dict]) -> list[str]:
     return [e["source"] for e in edges if e.get("target") == node_id]
 
 
+def _ancestors(node_id: str, edges: list[dict]) -> set[str]:
+    """All nodes that can reach node_id (its upstream chain), including node_id itself."""
+    rev: dict[str, list[str]] = {}
+    for e in edges:
+        rev.setdefault(e.get("target"), []).append(e.get("source"))
+    seen: set[str] = set()
+    stack = [node_id]
+    while stack:
+        x = stack.pop()
+        if x in seen:
+            continue
+        seen.add(x)
+        for s in rev.get(x, []):
+            if s:
+                stack.append(s)
+    return seen
+
+
 from agent.config import OMNI_FLASH_MODELS
 
 # Friendly aspect tokens used by the node UI → Flow enums.
@@ -173,12 +191,30 @@ async def _poll_video(client, media_id, scene_key, timeout=240, interval=8):
     return None
 
 
-async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict:
-    """Execute the graph; return {media_id, image_path|video_path} of the Output."""
+def _reuse_locked(data: dict, ext: str, handle: str):
+    """If a gen node is locked and already has a result, return its stored output so a
+    full run won't regenerate media the user is happy with. Else None."""
+    mid = data.get("result_media_id")
+    if data.get("locked") and mid:
+        return {"media_id": mid, "web": data.get("result_web"), "ext": ext, "handle": handle,
+                "_reused": True}
+    return None
+
+
+async def run_graph(graph: dict, target: dict, project: dict, kind: str,
+                    only_node: str | None = None) -> dict:
+    """Execute the graph; return {media_id, image_path|video_path} of the Output.
+
+    only_node: when set, run only that node + its upstream chain and return its media
+    (no Output node required, target not modified) — used by the per-node "tạo nhanh".
+    Locked gen nodes reuse their stored result instead of regenerating (except the node
+    explicitly requested via only_node, which always regenerates)."""
     nodes = graph.get("nodes") or []
     edges = graph.get("edges") or []
     if not nodes:
         raise GraphError("Đồ thị rỗng")
+    if only_node and not any(n.get("id") == only_node for n in nodes):
+        raise GraphError("Không tìm thấy node cần tạo")
     client = get_flow_client()
     if not client.connected:
         raise GraphError("Extension chưa kết nối")
@@ -187,6 +223,7 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
     pid = project["id"]
     flow_pid = project["flow_project_id"]
     final = None
+    allowed = _ancestors(only_node, edges) if only_node else None
 
     def merged_inputs(nid):
         """Collect from upstream nodes: text, reference images (refs + any source/generated
@@ -224,7 +261,21 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
         t = node.get("type")
         data = node.get("data") or {}
         nid = node["id"]
+        if allowed is not None and nid not in allowed:
+            continue  # per-node run: only this node + its upstream chain
         inp = merged_inputs(nid)
+
+        # Locked gen nodes reuse their stored result (the explicitly-requested only_node
+        # always regenerates).
+        if t in ("image", "editImage", "video") and nid != only_node:
+            reused = _reuse_locked(data, "mp4" if t == "video" else "png",
+                                   "video" if t == "video" else "image")
+            if reused:
+                if not reused.get("web") and reused.get("media_id"):
+                    reused["web"] = await media_store.ensure_local(
+                        reused["media_id"], pid, reused["ext"])
+                outputs[nid] = reused
+                continue
 
         if t == "prompt":
             outputs[nid] = {"text": data.get("text", "")}
@@ -300,12 +351,24 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
         else:
             logger.warning("Unknown node type: %s", t)
 
+    # node_id -> {web, media_id, ext}; the frontend uses this to fill previews and to
+    # remember each gen node's media_id (so a locked node can be reused on the next run).
+    node_outputs = {k: {"web": o.get("web"), "media_id": o.get("media_id"),
+                        "ext": o.get("ext", "png")}
+                    for k, o in outputs.items() if o.get("web")}
+
+    if only_node:
+        o = outputs.get(only_node) or {}
+        if not o.get("media_id"):
+            raise GraphError("Node này không tạo ra ảnh/video")
+        return {"media_id": o.get("media_id"), "path": o.get("web"),
+                "ext": o.get("ext", "png"), "node_outputs": node_outputs,
+                "only_node": only_node}
+
     if not any(n.get("type") == "output" for n in nodes):
         raise GraphError("Đồ thị phải có node Output để chỉ định kết quả")
     if not final or not final.get("media_id"):
         raise GraphError("Node Output chưa được nối tới một node tạo ảnh/video có kết quả")
-
-    node_outputs = {k: o.get("web") for k, o in outputs.items() if o.get("web")}
 
     # apply to target
     web = final.get("web") or await media_store.ensure_local(

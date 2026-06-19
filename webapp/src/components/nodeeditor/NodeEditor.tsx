@@ -64,6 +64,8 @@ const NodeOps = createContext<{
   update: (id: string, patch: any) => void;
   remove: (id: string) => void;
   preview: (src: string, video: boolean) => void;
+  genNode: (id: string) => void;
+  genningId: string | null;
   results: Record<string, { web: string; ext: string }>;
   entities: Entity[];
   imageModels: string[];
@@ -71,6 +73,8 @@ const NodeOps = createContext<{
   update: () => {},
   remove: () => {},
   preview: () => {},
+  genNode: () => {},
+  genningId: null,
   results: {},
   entities: [],
   imageModels: [],
@@ -310,6 +314,39 @@ function AspectModelRow({
   );
 }
 
+// Per-node "tạo nhanh" (generate just this node) + lock (don't regenerate on full run).
+function GenControls({ id, data }: { id: string; data: any }) {
+  const { genNode, genningId, update } = useContext(NodeOps);
+  const busy = genningId === id;
+  const locked = !!data.locked;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => genNode(id)}
+          disabled={busy}
+          title="Tạo riêng node này (không chạy toàn tuyến)"
+          className="nodrag flex-1 rounded-md bg-indigo-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+        >
+          {busy ? "Đang tạo…" : "⚡ Tạo nhanh"}
+        </button>
+        <button
+          onClick={() => update(id, { locked: !locked })}
+          title={locked ? "Đang khóa — bỏ khóa để cho phép tạo lại" : "Khóa: không tạo lại khi chạy toàn tuyến"}
+          className={`nodrag grid h-[26px] w-7 place-items-center rounded-md border text-xs ${
+            locked
+              ? "border-amber-500 bg-amber-500/20 text-amber-300"
+              : "border-neutral-700 text-neutral-400 hover:bg-neutral-800"
+          }`}
+        >
+          {locked ? "🔒" : "🔓"}
+        </button>
+      </div>
+      {locked && <div className="text-[10px] text-amber-400/90">Đã khóa — giữ nguyên khi chạy toàn tuyến</div>}
+    </div>
+  );
+}
+
 function ImageNode({ id, data, type }: NodeProps) {
   const { update, imageModels } = useContext(NodeOps);
   const d = data as any;
@@ -318,6 +355,7 @@ function ImageNode({ id, data, type }: NodeProps) {
       <Preview nodeId={id} src={d._result || d.preview} label="Kết quả ảnh" />
       <AspectModelRow id={id} data={d} models={imageModels} />
       <Slider label="Số lượng tạo" value={d.count || 1} min={1} max={4} step={1} onChange={(v) => update(id, { count: v })} />
+      <GenControls id={id} data={d} />
     </Shell>
   );
 }
@@ -334,6 +372,7 @@ function VideoNode({ id, data }: NodeProps) {
       {isOmni && (
         <Slider label="Thời lượng" value={d.duration || 8} min={4} max={10} step={2} suffix="s" onChange={(v) => update(id, { duration: v })} />
       )}
+      <GenControls id={id} data={d} />
     </Shell>
   );
 }
@@ -440,6 +479,7 @@ function Editor({
   // (e.g. after onApplied refreshes the parent) doesn't wipe the previews.
   const [results, setResults] = useState<Record<string, { web: string; ext: string }>>({});
   const [lightbox, setLightbox] = useState<{ src: string; video: boolean } | null>(null);
+  const [genningId, setGenningId] = useState<string | null>(null);
 
   // Thick edges + arrow markers; edges touching the active node animate (marching arrows)
   // so connections are easy to follow on a touch screen.
@@ -506,10 +546,16 @@ function Editor({
         );
         const GEN = ["image", "editImage", "video"];
         for (const n of nodes) {
+          const d = n.data as any;
+          // restore a node's own previously-generated result (durable, incl. locked ones)
+          if (d.result_web && !d._result) {
+            d._result = d.result_web;
+            d._ext = d.result_ext || "png";
+          }
           const seedHere = outIds.has(n.id) || (GEN.includes(n.type!) && feedsOut.has(n.id));
-          if (seedHere && !(n.data as any)._result) {
-            (n.data as any)._result = curSrc;
-            (n.data as any)._ext = curExt;
+          if (seedHere && !d._result) {
+            d._result = curSrc;
+            d._ext = curExt;
           }
         }
       }
@@ -562,13 +608,46 @@ function Editor({
     ]);
   };
 
-  const serialize = () => ({
-    nodes: nodes.map((n) => {
-      const { _result, ...rest } = n.data as any; // drop transient preview
+  // Drop transient preview fields; keep durable ones (locked + result_* so locks persist).
+  const serializeGraph = (ns: Node[], es: Edge[]) => ({
+    nodes: ns.map((n) => {
+      const { _result, _ext, preview, ...rest } = n.data as any;
       return { id: n.id, type: n.type, data: rest, position: n.position };
     }),
-    edges: edges.map((e) => ({ source: e.source, target: e.target })),
+    edges: es.map((e) => ({ source: e.source, target: e.target })),
   });
+  const serialize = () => serializeGraph(nodes, edges);
+
+  type Out = { web?: string; media_id?: string; ext?: string };
+
+  // Fold a run's node_outputs into the live preview map + node data (durable result ids
+  // so a locked node can be reused on the next run), and persist so it survives reopen.
+  const applyOutputs = (outs: Record<string, Out>) => {
+    const mapped: Record<string, { web: string; ext: string }> = {};
+    for (const [k, v] of Object.entries(outs)) {
+      if (v?.web) mapped[k] = { web: v.web, ext: v.ext || (v.web.toLowerCase().endsWith(".mp4") ? "mp4" : "png") };
+    }
+    setResults((prev) => ({ ...prev, ...mapped }));
+    setNodes((ns) => {
+      const next = ns.map((n) => {
+        const v = outs[n.id];
+        if (!v?.web) return n;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            _result: v.web,
+            _ext: v.ext,
+            result_media_id: v.media_id,
+            result_web: v.web,
+            result_ext: v.ext,
+          },
+        };
+      });
+      graphApi.save(target.kind, target.id, serializeGraph(next, edges), goal).catch(() => {});
+      return next;
+    });
+  };
 
   const save = () => graphApi.save(target.kind, target.id, serialize(), goal);
 
@@ -578,15 +657,7 @@ function Editor({
     setDone(false);
     try {
       const r = await graphApi.run(target.kind, target.id, serialize(), goal);
-      const outs = (r.node_outputs || {}) as Record<string, string>;
-      const mapped: Record<string, { web: string; ext: string }> = {};
-      for (const [k, web] of Object.entries(outs)) {
-        if (web) mapped[k] = { web, ext: web.toLowerCase().endsWith(".mp4") ? "mp4" : "png" };
-      }
-      setResults((prev) => ({ ...prev, ...mapped }));
-      setNodes((ns) =>
-        ns.map((n) => (outs[n.id] ? { ...n, data: { ...n.data, _result: outs[n.id] } } : n))
-      );
+      applyOutputs((r.node_outputs || {}) as Record<string, Out>);
       setDone(true);
       onApplied(r);
     } catch (e: any) {
@@ -596,11 +667,29 @@ function Editor({
     }
   };
 
+  // Generate just one node (+ its upstream chain), without running the whole pipeline.
+  const genNode = useCallback(
+    async (id: string) => {
+      setGenningId(id);
+      setErr(null);
+      try {
+        const r = await graphApi.run(target.kind, target.id, serialize(), goal, id);
+        applyOutputs((r.node_outputs || {}) as Record<string, Out>);
+      } catch (e: any) {
+        setErr(e.message);
+      } finally {
+        setGenningId(null);
+      }
+    },
+    // serialize/applyOutputs close over nodes+edges; recreate when they change.
+    [nodes, edges, goal, target.kind, target.id]
+  );
+
   const preview = useCallback((src: string, video: boolean) => setLightbox({ src, video }), []);
 
   const ops = useMemo(
-    () => ({ update, remove, preview, results, entities, imageModels }),
-    [update, remove, preview, results, entities, imageModels]
+    () => ({ update, remove, preview, genNode, genningId, results, entities, imageModels }),
+    [update, remove, preview, genNode, genningId, results, entities, imageModels]
   );
 
   return (
@@ -666,7 +755,7 @@ function Editor({
         </NodeOps.Provider>
       </div>
       <div className="border-t border-neutral-800 px-4 py-1 text-[11px] text-neutral-500">
-        ⓘ Nhấn vào ảnh/video để phóng to · Kéo đầu đường nối ra khỏi điểm nối rồi thả vào chỗ trống để xóa kết nối · Nút ✕ trên node để xóa node
+        ⓘ ⚡ Tạo nhanh để tạo riêng 1 node · 🔒 Khóa để không tạo lại khi Run toàn tuyến · Nhấn ảnh/video để phóng to · Kéo đầu đường nối ra chỗ trống để xóa · Nút ✕ để xóa node
       </div>
       {lightbox && (
         <Lightbox
