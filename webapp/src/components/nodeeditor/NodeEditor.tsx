@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -14,6 +15,7 @@ import {
   Handle,
   Position,
   addEdge,
+  reconnectEdge,
   useNodesState,
   useEdgesState,
   MarkerType,
@@ -525,9 +527,25 @@ function Editor({
     [setEdges]
   );
 
-  // Touch-friendly: click a connection to remove it (no keyboard needed).
-  const onEdgeClick = useCallback(
-    (_: React.MouseEvent, edge: Edge) => setEdges((es) => es.filter((e) => e.id !== edge.id)),
+  // Delete a connection by grabbing one of its endpoints and dropping it on empty space
+  // (drag off the connector). A plain click no longer removes anything, so a misclick in
+  // a busy graph is harmless. If dropped on another valid handle it's reconnected instead.
+  const reconnectOk = useRef(true);
+  const onReconnectStart = useCallback(() => {
+    reconnectOk.current = false;
+  }, []);
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConn: Connection) => {
+      reconnectOk.current = true;
+      setEdges((es) => reconnectEdge(oldEdge, newConn, es));
+    },
+    [setEdges]
+  );
+  const onReconnectEnd = useCallback(
+    (_: unknown, edge: Edge) => {
+      if (!reconnectOk.current) setEdges((es) => es.filter((e) => e.id !== edge.id));
+      reconnectOk.current = true;
+    },
     [setEdges]
   );
 
@@ -628,10 +646,12 @@ function Editor({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onEdgeClick={onEdgeClick}
+            onReconnect={onReconnect}
+            onReconnectStart={onReconnectStart}
+            onReconnectEnd={onReconnectEnd}
             onNodeClick={(_, n) => setActiveId(n.id)}
             onPaneClick={() => setActiveId(null)}
-            edgesFocusable
+            edgesReconnectable
             deleteKeyCode={["Backspace", "Delete"]}
             connectionLineStyle={{ strokeWidth: 4, stroke: "#818cf8" }}
             defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
@@ -646,7 +666,7 @@ function Editor({
         </NodeOps.Provider>
       </div>
       <div className="border-t border-neutral-800 px-4 py-1 text-[11px] text-neutral-500">
-        ⓘ Nhấn vào ảnh/video để phóng to · Nhấn vào đường nối để xóa kết nối · Nút ✕ trên node để xóa node
+        ⓘ Nhấn vào ảnh/video để phóng to · Kéo đầu đường nối ra khỏi điểm nối rồi thả vào chỗ trống để xóa kết nối · Nút ✕ trên node để xóa node
       </div>
       {lightbox && (
         <Lightbox
