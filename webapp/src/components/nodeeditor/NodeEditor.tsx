@@ -67,6 +67,9 @@ const NodeOps = createContext<{
   genNode: (id: string) => void;
   genningId: string | null;
   results: Record<string, { web: string; ext: string }>;
+  // Effective media currently flowing INTO each node id (from its upstream) — lets the
+  // Output node mirror its input live, even after a single upstream node is regenerated.
+  inputResults: Record<string, { web: string; ext: string }>;
   entities: Entity[];
   imageModels: string[];
 }>({
@@ -76,6 +79,7 @@ const NodeOps = createContext<{
   genNode: () => {},
   genningId: null,
   results: {},
+  inputResults: {},
   entities: [],
   imageModels: [],
 });
@@ -378,10 +382,16 @@ function VideoNode({ id, data }: NodeProps) {
 }
 
 function OutputNode({ id, data }: NodeProps) {
+  const { inputResults } = useContext(NodeOps);
   const d = data as any;
+  // Prefer whatever currently feeds the Output so it tracks upstream changes; fall back
+  // to its own last result. No nodeId → Preview won't pin a stale run-result.
+  const live = inputResults[id];
+  const web = live?.web || d._result || d.result_web;
+  const ext = live?.ext || d._ext || d.result_ext || "png";
   return (
     <Shell type="output" id={id} outputs={false}>
-      <Preview nodeId={id} src={d._result} video={d._ext === "mp4"} label="Output cuối" />
+      <Preview src={web} video={ext === "mp4"} label="Output cuối" />
     </Shell>
   );
 }
@@ -687,9 +697,31 @@ function Editor({
 
   const preview = useCallback((src: string, video: boolean) => setLightbox({ src, video }), []);
 
+  // For each node, the effective media coming from its upstream (run result > stored
+  // result > seeded preview > source image). Downstream nodes (e.g. Output) read this.
+  const inputResults = useMemo(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const eff = (n?: Node): { web: string; ext: string } | null => {
+      if (!n) return null;
+      const r = results[n.id];
+      if (r?.web) return r;
+      const d = n.data as any;
+      if (d.result_web) return { web: d.result_web, ext: d.result_ext || "png" };
+      if (d._result) return { web: d._result, ext: d._ext || "png" };
+      if (d.web) return { web: d.web, ext: "png" }; // source node
+      return null;
+    };
+    const map: Record<string, { web: string; ext: string }> = {};
+    for (const e of edges) {
+      const r = eff(byId.get(e.source));
+      if (r?.web) map[e.target] = r;
+    }
+    return map;
+  }, [nodes, edges, results]);
+
   const ops = useMemo(
-    () => ({ update, remove, preview, genNode, genningId, results, entities, imageModels }),
-    [update, remove, preview, genNode, genningId, results, entities, imageModels]
+    () => ({ update, remove, preview, genNode, genningId, results, inputResults, entities, imageModels }),
+    [update, remove, preview, genNode, genningId, results, inputResults, entities, imageModels]
   );
 
   return (
