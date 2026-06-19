@@ -16,6 +16,7 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
+  MarkerType,
   type Node,
   type Edge,
   type Connection,
@@ -63,10 +64,11 @@ const NodeOps = createContext<{
 }>({ update: () => {}, entities: [], imageModels: [] });
 
 const handleStyle = (color: string) => ({
-  width: 9,
-  height: 9,
+  width: 18,
+  height: 18,
   background: color,
-  border: "2px solid #0e1411",
+  border: "3px solid #0e1411",
+  boxShadow: "0 0 0 1px rgba(255,255,255,0.15)",
 });
 
 function Shell({
@@ -367,9 +369,27 @@ function Editor({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [imageModels, setImageModels] = useState<string[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Thick edges + arrow markers; edges touching the active node animate (marching arrows)
+  // so connections are easy to follow on a touch screen.
+  const displayEdges = useMemo(
+    () =>
+      edges.map((e) => {
+        const active = !!activeId && (e.source === activeId || e.target === activeId);
+        return {
+          ...e,
+          animated: active,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 22, height: 22,
+                       color: active ? "#818cf8" : "#6b7280" },
+          style: { strokeWidth: active ? 5 : 3, stroke: active ? "#818cf8" : "#6b7280" },
+        };
+      }),
+    [edges, activeId]
+  );
 
   const update = useCallback(
     (id: string, patch: any) =>
@@ -490,11 +510,15 @@ function Editor({
         <NodeOps.Provider value={ops}>
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={displayEdges}
             nodeTypes={NODE_TYPES}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodeClick={(_, n) => setActiveId(n.id)}
+            onPaneClick={() => setActiveId(null)}
+            connectionLineStyle={{ strokeWidth: 4, stroke: "#818cf8" }}
+            defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
             fitView
             minZoom={0.3}
             colorMode="dark"
