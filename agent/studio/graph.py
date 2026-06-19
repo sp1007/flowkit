@@ -189,12 +189,15 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
     final = None
 
     def merged_inputs(nid):
-        """Collect upstream text, reference images (refs + any source/generated media),
-        and the single best start image for i2v."""
+        """Collect from upstream nodes: text, reference images (refs + any source/generated
+        media), the best start image for i2v, and the latest produced media of ANY kind
+        (so an Output node can pick up an image OR a video result)."""
         text = None
         refs: list[dict] = []
         start = None
         start_ext = "png"
+        result = result_web = None
+        result_ext = "png"
         for up in _upstream_ids(nid, edges):
             o = outputs.get(up, {})
             if o.get("text"):
@@ -203,6 +206,9 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
                 refs.append(r)
             if o.get("media_id"):
                 refs.append({"handle": o.get("handle", "source"), "media_id": o["media_id"]})
+                result = o["media_id"]
+                result_ext = o.get("ext", "png")
+                result_web = o.get("web")
                 if o.get("ext", "png") != "mp4":   # only images can be a start frame
                     start = o["media_id"]
                     start_ext = o.get("ext", "png")
@@ -211,7 +217,8 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
             if r.get("media_id") and r["media_id"] not in seen:
                 uniq.append(r)
                 seen.add(r["media_id"])
-        return {"text": text, "references": uniq[:10], "media_id": start, "ext": start_ext}
+        return {"text": text, "references": uniq[:10], "media_id": start, "ext": start_ext,
+                "result": result, "result_ext": result_ext, "result_web": result_web}
 
     for node in _topo_sort(nodes, edges):
         t = node.get("type")
@@ -245,7 +252,6 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
                 references=inp["references"] or None,
                 image_model=_img_model(project, data)), pid)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "png", "handle": "image"}
-            final = outputs[nid]
 
         elif t == "editImage":
             src = inp["media_id"]
@@ -256,7 +262,6 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
                 aspect_ratio=_img_aspect(project, data),
                 user_paygate_tier=project["paygate_tier"]), pid)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "png", "handle": "image"}
-            final = outputs[nid]
 
         elif t == "video":
             prompt = inp["text"] or data.get("text") or ""
@@ -283,17 +288,22 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
                     aspect_ratio=aspect_v, user_paygate_tier=project["paygate_tier"])
             mid, web = await _vid_gen_retry(submit, target["id"], pid)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "mp4", "handle": "video"}
-            final = outputs[nid]
 
         elif t == "output":
-            if inp["media_id"]:
-                final = {"media_id": inp["media_id"], "web": None, "ext": inp["ext"]}
+            # The Output node designates the final result: whatever media flows into it.
+            if inp["result"]:
+                final = {"media_id": inp["result"], "web": inp["result_web"],
+                         "ext": inp["result_ext"]}
+                outputs[nid] = {"media_id": inp["result"], "web": inp["result_web"],
+                                "ext": inp["result_ext"]}
 
         else:
             logger.warning("Unknown node type: %s", t)
 
+    if not any(n.get("type") == "output" for n in nodes):
+        raise GraphError("Đồ thị phải có node Output để chỉ định kết quả")
     if not final or not final.get("media_id"):
-        raise GraphError("Đồ thị không tạo ra media nào")
+        raise GraphError("Node Output chưa được nối tới một node tạo ảnh/video có kết quả")
 
     node_outputs = {k: o.get("web") for k, o in outputs.items() if o.get("web")}
 

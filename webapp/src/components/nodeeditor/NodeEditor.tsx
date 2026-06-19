@@ -332,7 +332,12 @@ function defaultGraph(seed: EditorTarget, entities: Entity[]): { nodes: Node[]; 
         model: "omni", aspect: "16:9", duration: 8, count: 1, _result: seed.videoSrc || "",
       })
     );
-    edges.push({ id: "ep", source: "p", target: "v" }, { id: "es", source: "src", target: "v" });
+    nodes.push(mk("o", "output", 660, 110, { _result: seed.videoSrc || "", _ext: "mp4" }));
+    edges.push(
+      { id: "ep", source: "p", target: "v" },
+      { id: "es", source: "src", target: "v" },
+      { id: "eo", source: "v", target: "o" }
+    );
     return { nodes, edges };
   }
 
@@ -350,7 +355,8 @@ function defaultGraph(seed: EditorTarget, entities: Entity[]): { nodes: Node[]; 
   nodes.push(
     mk("i", "image", 340, 80, { aspect: "16:9", model: "", count: 1, _result: seed.imageSrc || "" })
   );
-  edges.push({ id: "ep", source: "p", target: "i" });
+  nodes.push(mk("o", "output", 660, 110, { _result: seed.imageSrc || "" }));
+  edges.push({ id: "ep", source: "p", target: "i" }, { id: "eo", source: "i", target: "o" });
   return { nodes, edges };
 }
 
