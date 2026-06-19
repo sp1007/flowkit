@@ -100,7 +100,12 @@ export default function ProjectWorkspace({
         ) : tab === "Assets" ? (
           <AssetsTab key={project.id + reload} project={project} onEdit={openEditor} />
         ) : tab === "Storyboard" ? (
-          <StoryboardTab key={project.id + reload} project={project} onEdit={openEditor} />
+          <StoryboardTab
+            key={project.id + reload}
+            project={project}
+            onEdit={openEditor}
+            onCoverSet={(key) => setProject((p) => ({ ...p, thumb_media_key: key }))}
+          />
         ) : tab === "Shots" ? (
           <ShotsTab key={project.id + reload} project={project} onEdit={openEditor} />
         ) : (

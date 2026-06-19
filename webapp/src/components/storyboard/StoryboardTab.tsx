@@ -15,9 +15,11 @@ const parseRefs = (s: string | null): string[] => {
 export default function StoryboardTab({
   project,
   onEdit,
+  onCoverSet,
 }: {
   project: Project;
   onEdit?: (t: EditorTarget) => void;
+  onCoverSet?: (mediaId: string) => void;
 }) {
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -26,7 +28,21 @@ export default function StoryboardTab({
   const [busy, setBusy] = useState<string | null>(null);
   const [gening, setGening] = useState<Set<string>>(new Set());
   const [lightbox, setLightbox] = useState<Shot | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const setAsCover = async (shot: Shot) => {
+    if (!shot.image_media_id) return;
+    setErr(null);
+    try {
+      await api.setCover(project.id, shot.image_media_id);
+      onCoverSet?.(shot.image_media_id);
+      setNotice(`Đã đặt "${shot.title}" làm ảnh đại diện dự án`);
+      setTimeout(() => setNotice(null), 2500);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
 
   const loadShots = async (sid: string) => {
     const r = await storyboard.sceneShots(sid);
@@ -151,6 +167,11 @@ export default function StoryboardTab({
             </button>
           </div>
         </div>
+        {notice && (
+          <div className="mb-4 rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300">
+            ★ {notice}
+          </div>
+        )}
         {err && (
           <div className="mb-4 rounded-lg border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-rose-300">
             {err}
@@ -228,13 +249,9 @@ export default function StoryboardTab({
                         </button>
                         {sh.image_media_id && (
                           <button
-                            onClick={async (e) => {
+                            onClick={(e) => {
                               e.stopPropagation();
-                              try {
-                                await api.setCover(project.id, sh.image_media_id!);
-                              } catch (ex: any) {
-                                setErr(ex.message);
-                              }
+                              setAsCover(sh);
                             }}
                             title="Đặt làm ảnh đại diện dự án"
                             className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900/80 text-sm hover:bg-amber-600"
@@ -279,6 +296,7 @@ export default function StoryboardTab({
           onClose={() => setSel(null)}
           onChange={setShot}
           onGenerate={() => genImage(sel)}
+          onCover={() => setAsCover(sel)}
           generating={gening.has(sel.id)}
         />
       )}
@@ -296,6 +314,7 @@ function FramePanel({
   onClose,
   onChange,
   onGenerate,
+  onCover,
   generating,
 }: {
   shot: Shot;
@@ -303,6 +322,7 @@ function FramePanel({
   onClose: () => void;
   onChange: (s: Shot) => void;
   onGenerate: () => void;
+  onCover: () => void;
   generating: boolean;
 }) {
   const [title, setTitle] = useState(shot.title);
@@ -384,7 +404,7 @@ function FramePanel({
           </div>
         </div>
       </div>
-      <div className="border-t border-neutral-800 p-3">
+      <div className="space-y-2 border-t border-neutral-800 p-3">
         <button
           onClick={async () => {
             await save();
@@ -394,6 +414,14 @@ function FramePanel({
           className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
         >
           {generating ? "Đang tạo ảnh…" : "Create image"}
+        </button>
+        <button
+          onClick={onCover}
+          disabled={!shot.image_media_id}
+          title={shot.image_media_id ? "" : "Tạo ảnh cho frame này trước"}
+          className="w-full rounded-lg border border-amber-700/60 py-2 text-sm text-amber-300 hover:bg-amber-950/40 disabled:opacity-40"
+        >
+          ★ Đặt làm ảnh đại diện dự án
         </button>
       </div>
     </aside>
