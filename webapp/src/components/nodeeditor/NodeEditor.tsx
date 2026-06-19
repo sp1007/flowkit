@@ -729,6 +729,38 @@ function Editor({
     return map;
   }, [nodes, edges, results]);
 
+  // The media_id currently designated by the Output node (its upstream's result) — lets
+  // us commit an already-generated result to the target without re-running anything.
+  const outputMedia = useMemo(() => {
+    const out = nodes.find((n) => n.type === "output");
+    if (!out) return null;
+    const upId = edges.find((e) => e.target === out.id)?.source;
+    const up = nodes.find((n) => n.id === upId);
+    if (!up) return null;
+    const d = up.data as any;
+    const media_id = d.result_media_id || d.media_id;
+    const ext = d.result_ext || (up.type === "video" ? "mp4" : "png");
+    return media_id ? { media_id, ext } : null;
+  }, [nodes, edges]);
+
+  const applyOutput = async () => {
+    if (!outputMedia) {
+      setErr("Node Output chưa có ảnh/video — hãy nối Output tới một node có kết quả.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await graphApi.applyMedia(target.kind, target.id, outputMedia.media_id, outputMedia.ext);
+      setDone(true);
+      onApplied({ applied: true, media_id: outputMedia.media_id });
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const ops = useMemo(
     () => ({ update, remove, preview, genNode, genningId, results, inputResults, entities, imageModels }),
     [update, remove, preview, genNode, genningId, results, inputResults, entities, imageModels]
@@ -754,6 +786,14 @@ function Editor({
           {done && <span className="text-xs text-emerald-400">✓ Đã tạo & áp dụng</span>}
           <button onClick={save} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800">
             Lưu
+          </button>
+          <button
+            onClick={applyOutput}
+            disabled={busy || !outputMedia}
+            title="Đưa ảnh/video ở node Output vào dự án (không tạo lại)"
+            className="rounded-lg border border-emerald-700/60 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-950/40 disabled:opacity-40"
+          >
+            ✓ Áp dụng Output
           </button>
           <button
             onClick={run}
