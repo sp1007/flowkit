@@ -265,6 +265,10 @@ export interface ScriptResult {
 // Thumbnail URL for a Flow media key (backend caches locally).
 export const thumbUrl = (key: string) => `/api/studio/thumb/${key}`;
 
+// Direct URL to download all storyboard images of a project as a .zip.
+export const storyboardExportUrl = (pid: string) =>
+  `/api/studio/projects/${pid}/storyboard/export`;
+
 // OmniVoice base URL config lives on the tts router (not /studio).
 export async function setTtsConfig(base_url: string): Promise<any> {
   const res = await fetch("/api/tts/config", {

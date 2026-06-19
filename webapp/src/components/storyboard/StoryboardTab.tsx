@@ -1,8 +1,38 @@
 import { useEffect, useState } from "react";
-import { api, storyboard, type Entity, type Project, type Scene, type Shot } from "../../api/client";
+import {
+  api,
+  storyboard,
+  storyboardExportUrl,
+  type Entity,
+  type Project,
+  type Scene,
+  type Shot,
+} from "../../api/client";
 import type { EditorTarget } from "../nodeeditor/NodeEditor";
 import MediaCard from "../common/MediaCard";
 import Lightbox from "../common/Lightbox";
+
+const slug = (s: string) =>
+  (s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[\\/:*?"<>|\r\n\t]+/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "shot";
+
+const pad3 = (n: number) => String(n + 1).padStart(3, "0");
+
+// Trigger a browser download of a same-origin file with a chosen filename.
+function downloadFile(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 const parseRefs = (s: string | null): string[] => {
   try {
@@ -176,6 +206,13 @@ export default function StoryboardTab({
             >
               {busy === "gen-all" ? "Đang tạo…" : "✦ Auto gen all"}
             </button>
+            <button
+              onClick={() => downloadFile(storyboardExportUrl(project.id), "storyboard.zip")}
+              title="Tải toàn bộ ảnh storyboard (.zip, scXXX-sXXX-mô-tả.png)"
+              className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800"
+            >
+              ⬇ Export ảnh
+            </button>
           </div>
         </div>
         {progress && (
@@ -264,6 +301,21 @@ export default function StoryboardTab({
                         >
                           ⚡
                         </button>
+                        {sh.image_path && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadFile(
+                                sh.image_path!,
+                                `sc${pad3(sc.idx)}-s${pad3(sh.idx)}-${slug(sh.description || sh.title)}.png`
+                              );
+                            }}
+                            title="Tải ảnh này"
+                            className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900/80 text-sm hover:bg-emerald-600"
+                          >
+                            ⬇
+                          </button>
+                        )}
                         {sh.image_media_id && (
                           <button
                             onClick={(e) => {

@@ -1074,6 +1074,56 @@ async def generate_scene_images(sid: str, force: bool = False):
     return await _batch_generate_images(shots, force)
 
 
+def _slug(s: str) -> str:
+    """Filename-safe slug (keeps Vietnamese diacritics, spaces → '-')."""
+    import re as _re
+    s = (s or "").strip().lower()
+    s = _re.sub(r"\s+", "-", s)
+    s = _re.sub(r'[\\/:*?"<>|\r\n\t]+', "", s)
+    s = _re.sub(r"-{2,}", "-", s).strip("-")
+    return s[:60] or "shot"
+
+
+@router.get("/projects/{pid}/storyboard/export")
+async def export_storyboard_images(pid: str):
+    """Đóng gói toàn bộ ảnh storyboard thành .zip, đặt tên scXXX-sXXX-mô-tả.png."""
+    project = await _project_or_404(pid)
+    shots = await db.query_all(
+        "SELECT sh.*, sc.idx AS scene_idx FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
+        "WHERE sc.project_id=? AND sh.image_path IS NOT NULL ORDER BY sc.idx, sh.idx", (pid,))
+    if not shots:
+        raise HTTPException(400, "Chưa có ảnh storyboard nào để export")
+
+    out_dir = assembler.STUDIO_MEDIA_DIR / pid
+    out_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = out_dir / "storyboard_images.zip"
+
+    def _build():
+        import zipfile
+        used: set[str] = set()
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for sh in shots:
+                src = media_store.MEDIA_DIR / sh["image_path"].replace("/media/", "", 1)
+                if not src.exists():
+                    continue
+                desc = _slug(sh.get("description") or sh.get("title") or "")
+                name = f"sc{sh['scene_idx']+1:03d}-s{sh['idx']+1:03d}-{desc}.png"
+                # tránh trùng tên
+                base, i = name, 2
+                while name in used:
+                    name = base[:-4] + f"-{i}.png"
+                    i += 1
+                used.add(name)
+                zf.write(src, name)
+        return len(used)
+
+    n = await asyncio.to_thread(_build)
+    if not n:
+        raise HTTPException(400, "Không có file ảnh local hợp lệ để export")
+    fname = f"{_slug(project['title'])}-storyboard.zip"
+    return FileResponse(zip_path, media_type="application/zip", filename=fname)
+
+
 @router.post("/projects/{pid}/storyboard/generate-all")
 async def generate_project_images(pid: str, force: bool = False):
     await _project_or_404(pid)
