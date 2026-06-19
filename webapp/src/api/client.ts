@@ -126,6 +126,8 @@ export const api = {
     }),
   flowProjectMedia: (flowId: string) =>
     req<{ media: FlowMedia[] }>(`/flow-projects/${flowId}/media`),
+  allFlowMedia: () =>
+    req<{ media: AllMediaItem[]; projects: number }>(`/library/all-media`),
   importMedia: (pid: string, body: { media_id: string; name?: string; type?: string }) =>
     req<Entity>(`/projects/${pid}/entities/import-media`, {
       method: "POST",
@@ -137,6 +139,11 @@ export interface FlowMedia {
   media_id: string;
   name: string;
   kind: string;
+}
+
+export interface AllMediaItem extends FlowMedia {
+  project_title: string;
+  flow_project_id: string;
 }
 
 export interface LibraryEntity extends Entity {

@@ -309,6 +309,28 @@ async def flow_project_media(flow_id: str, images_only: bool = True):
     return {"media": items}
 
 
+@router.get("/library/all-media")
+async def all_flow_media(images_only: bool = True):
+    """Tất cả ảnh trong MỌI project Flow (gắn kèm tên project) — gallery 'All image'."""
+    client = _require_extension()
+    projects = _flow_projects(await client.get_projects())
+    out = []
+    for p in projects:
+        fid = p.get("flow_project_id")
+        if not fid:
+            continue
+        try:
+            items = _flow_media_items(await client.get_project(fid))
+        except Exception as e:
+            logger.warning("all-media: project %s lỗi: %s", fid, e)
+            continue
+        for m in items:
+            if images_only and m["kind"] != "image":
+                continue
+            out.append({**m, "project_title": p.get("title") or "", "flow_project_id": fid})
+    return {"media": out, "projects": len(projects)}
+
+
 # ─── Studio projects (DB) ───────────────────────────────────
 
 @router.get("/projects")
