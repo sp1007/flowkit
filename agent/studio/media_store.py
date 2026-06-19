@@ -21,9 +21,13 @@ logger = logging.getLogger(__name__)
 MEDIA_DIR = Path(os.environ.get("STUDIO_MEDIA_DIR", BASE_DIR / "media"))
 THUMB_DIR = MEDIA_DIR / "_thumbs"
 
-# URL-fetch throttle: after a burst, pause to dodge rate limits.
+# URL-fetch throttle: Flow's /media/{id} is rate-limited, so resolving signed URLs is
+# (a) capped at a few concurrent calls — a gallery firing dozens of <img> at once must
+# not translate into dozens of simultaneous Flow hits — and (b) rested after each burst.
 _URL_BURST = 6
+_URL_CONCURRENCY = 3
 _url_lock = asyncio.Lock()
+_url_sem = asyncio.Semaphore(_URL_CONCURRENCY)
 _url_count = 0
 
 
@@ -36,12 +40,14 @@ async def _throttle_url_fetch() -> None:
 
 
 async def resolve_url(media_id: str) -> str | None:
-    """media_id → fresh signed URL (None if invalid/not ready)."""
-    await _throttle_url_fetch()
+    """media_id → fresh signed URL (None if invalid/not ready). Concurrency-limited +
+    throttled to avoid tripping Flow's media rate limit on bursty galleries."""
     client = get_flow_client()
     if not client.connected:
         return None
-    result = await client.get_direct_media(media_id)
+    async with _url_sem:
+        await _throttle_url_fetch()
+        result = await client.get_direct_media(media_id)
     data = result.get("data", result) if isinstance(result, dict) else {}
     if isinstance(data, dict) and data.get("redirected"):
         return data.get("url")
