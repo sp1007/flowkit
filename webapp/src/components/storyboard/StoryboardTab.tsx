@@ -280,10 +280,12 @@ export default function StoryboardTab({
                         ? () =>
                             onEdit({
                               kind: "shot",
+                              goal: "image",
                               id: sh.id,
                               title: sh.title,
                               prompt: sh.description || sh.visual_prompt || sh.title,
                               refEntityIds: parseRefs(sh.ref_entity_ids),
+                              imageMediaId: sh.image_media_id,
                               imageSrc: sh.image_path,
                               videoSrc: sh.video_path,
                             })

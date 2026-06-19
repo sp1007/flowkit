@@ -28,8 +28,11 @@ export interface EditorTarget {
   kind: "shot" | "entity";
   id: string;
   title: string;
+  // What this edit produces: an image (storyboard frame / asset art) or a video (shot).
+  goal?: "image" | "video";
   prompt?: string | null;
   refEntityIds?: string[];
+  imageMediaId?: string | null;
   imageSrc?: string | null;
   videoSrc?: string | null;
 }
@@ -45,7 +48,8 @@ const META: Record<string, { label: string; icon: string; color: string }> = {
   output: { label: "Output", icon: "📤", color: "#64748b" },
 };
 
-const PALETTE = ["source", "prompt", "refs", "image", "video", "editImage", "output"];
+// "refs" intentionally dropped — use one "Nguồn ảnh" (source) node per reference image.
+const PALETTE = ["source", "prompt", "image", "video", "editImage", "output"];
 
 const prettyModel = (m: string) =>
   m.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -148,17 +152,23 @@ function Slider({
 
 // ─── Node components ────────────────────────────────────────
 function SourceNode({ id, data }: NodeProps) {
-  const { update } = useContext(NodeOps);
+  const { update, entities } = useContext(NodeOps);
   const d = data as any;
+  const withImg = entities.filter((e) => e.media_id && e.image_path);
+  const pick = (eid: string) => {
+    const e = withImg.find((x) => x.id === eid);
+    if (e) update(id, { entity_id: e.id, media_id: e.media_id, web: e.image_path, label: e.name });
+  };
   return (
     <Shell type="source" inputs={false}>
-      <Preview src={d.web} label="Nguồn ảnh" />
-      <input
-        className={fieldCls}
-        placeholder="media_id (tuỳ chọn)"
-        defaultValue={d.media_id || ""}
-        onBlur={(e) => update(id, { media_id: e.target.value.trim() })}
-      />
+      <Preview src={d.web} label="Chọn ảnh bên dưới" />
+      <select className={fieldCls} value={d.entity_id || ""} onChange={(e) => pick(e.target.value)}>
+        <option value="">{d.web ? "(ảnh hiện tại)" : "— chọn ảnh asset —"}</option>
+        {withImg.map((e) => (
+          <option key={e.id} value={e.id}>{e.name}</option>
+        ))}
+      </select>
+      {d.label && <div className="truncate text-[10px] text-neutral-500">↳ {d.label}</div>}
     </Shell>
   );
 }
@@ -288,40 +298,58 @@ const NODE_TYPES = {
   output: OutputNode,
 };
 
-// ─── Default graphs ─────────────────────────────────────────
-function defaultGraph(kind: string, seed?: EditorTarget): { nodes: Node[]; edges: Edge[] } {
+// ─── Default graph ──────────────────────────────────────────
+// Built from the target's goal (image vs video) + its seeded sources, so storyboard
+// edits open on an image graph and shot edits on a video graph. Each reference entity
+// becomes its own "Nguồn ảnh" (source) node, pre-filled with that entity's image.
+function defaultGraph(seed: EditorTarget, entities: Entity[]): { nodes: Node[]; edges: Edge[] } {
   const mk = (id: string, type: string, x: number, y: number, data: any = {}): Node => ({
     id,
     type,
     position: { x, y },
     data: { ...data, _type: type },
   });
-  const prompt = seed?.prompt ?? "";
-  const refIds = seed?.refEntityIds ?? [];
-  if (kind === "shot") {
-    return {
-      nodes: [
-        mk("src", "source", 0, 0, { media_id: "", web: seed?.imageSrc || "" }),
-        mk("p", "prompt", 0, 230, { text: prompt }),
-        mk("v", "video", 320, 60, { model: "omni", aspect: "16:9", duration: 8, count: 1, _result: seed?.videoSrc || "" }),
-      ],
-      edges: [
-        { id: "e1", source: "src", target: "v" },
-        { id: "e2", source: "p", target: "v" },
-      ],
-    };
+  const prompt = seed.prompt ?? "";
+  const goal = seed.goal || (seed.kind === "shot" ? "video" : "image");
+  const byId = new Map(entities.map((e) => [e.id, e]));
+
+  const nodes: Node[] = [mk("p", "prompt", 0, 20, { text: prompt })];
+  const edges: Edge[] = [];
+
+  if (goal === "video") {
+    // the shot's own frame is the start/reference image
+    nodes.push(
+      mk("src", "source", 0, 250, {
+        media_id: seed.imageMediaId || "",
+        web: seed.imageSrc || "",
+        label: seed.title,
+      })
+    );
+    nodes.push(
+      mk("v", "video", 340, 80, {
+        model: "omni", aspect: "16:9", duration: 8, count: 1, _result: seed.videoSrc || "",
+      })
+    );
+    edges.push({ id: "ep", source: "p", target: "v" }, { id: "es", source: "src", target: "v" });
+    return { nodes, edges };
   }
-  return {
-    nodes: [
-      mk("p", "prompt", 0, 0, { text: prompt }),
-      mk("r", "refs", 0, 230, { entity_ids: refIds }),
-      mk("i", "image", 320, 60, { aspect: "16:9", model: "", count: 1, _result: seed?.imageSrc || "" }),
-    ],
-    edges: [
-      { id: "e1", source: "p", target: "i" },
-      { id: "e2", source: "r", target: "i" },
-    ],
-  };
+
+  // image goal: one source node per referenced entity (pre-filled)
+  const refIds = (seed.refEntityIds ?? []).filter((i) => byId.get(i)?.media_id);
+  refIds.forEach((eid, k) => {
+    const e = byId.get(eid)!;
+    nodes.push(
+      mk(`src${k}`, "source", 0, 200 + k * 150, {
+        entity_id: e.id, media_id: e.media_id, web: e.image_path, label: e.name,
+      })
+    );
+    edges.push({ id: `es${k}`, source: `src${k}`, target: "i" });
+  });
+  nodes.push(
+    mk("i", "image", 340, 80, { aspect: "16:9", model: "", count: 1, _result: seed.imageSrc || "" })
+  );
+  edges.push({ id: "ep", source: "p", target: "i" });
+  return { nodes, edges };
 }
 
 // ─── Editor ─────────────────────────────────────────────────
@@ -357,7 +385,7 @@ function Editor({
     graphApi
       .get(target.kind, target.id)
       .then((r) => {
-        const g = r.graph && r.graph.nodes?.length ? r.graph : defaultGraph(target.kind, target);
+        const g = r.graph && r.graph.nodes?.length ? r.graph : defaultGraph(target, entities);
         setNodes(
           g.nodes.map((n: any) => ({
             id: n.id,
@@ -369,11 +397,11 @@ function Editor({
         setEdges((g.edges || []).map((e: any, i: number) => ({ id: e.id || `e${i}`, source: e.source, target: e.target })));
       })
       .catch(() => {
-        const g = defaultGraph(target.kind, target);
+        const g = defaultGraph(target, entities);
         setNodes(g.nodes);
         setEdges(g.edges);
       });
-  }, [target.id]);
+  }, [target.id, entities]);
 
   const onConnect = useCallback(
     (c: Connection) => setEdges((es) => addEdge({ ...c, id: `e${Date.now()}` }, es)),

@@ -225,7 +225,8 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str) -> dict
         elif t == "source":
             mid = data.get("media_id")
             web = data.get("web") or (await media_store.ensure_local(mid, pid) if mid else None)
-            outputs[nid] = {"media_id": mid, "web": web, "ext": "png", "handle": "source"}
+            outputs[nid] = {"media_id": mid, "web": web, "ext": "png",
+                            "handle": data.get("label") or "source"}
 
         elif t == "refs":
             ids = data.get("entity_ids") or []

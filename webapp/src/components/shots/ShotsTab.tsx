@@ -154,10 +154,12 @@ export default function ShotsTab({
                         ? () =>
                             onEdit({
                               kind: "shot",
+                              goal: "video",
                               id: sh.id,
                               title: sh.title,
                               prompt: sh.motion_prompt || sh.visual_prompt || sh.description || sh.title,
                               refEntityIds: parseRefs(sh.ref_entity_ids),
+                              imageMediaId: sh.image_media_id,
                               imageSrc: sh.image_path,
                               videoSrc: sh.video_path,
                             })
