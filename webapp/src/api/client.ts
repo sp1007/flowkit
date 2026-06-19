@@ -119,6 +119,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ source_entity_id }),
     }),
+  linkEntity: (eid: string, source_entity_id: string) =>
+    req<Entity>(`/entities/${eid}/link`, {
+      method: "POST",
+      body: JSON.stringify({ source_entity_id }),
+    }),
 };
 
 export interface LibraryEntity extends Entity {

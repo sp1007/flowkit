@@ -88,6 +88,10 @@ class ImportEntityRequest(BaseModel):
     source_entity_id: str
 
 
+class LinkEntityRequest(BaseModel):
+    source_entity_id: str
+
+
 # ─── Helpers ─────────────────────────────────────────────────
 
 def _deep_find(obj, key: str):
@@ -588,6 +592,33 @@ async def delete_entity(eid: str):
         if f.exists():
             f.unlink(missing_ok=True)
     return {"ok": True}
+
+
+@router.post("/entities/{eid}/link")
+async def link_entity_media(eid: str, body: LinkEntityRequest):
+    """Trỏ ảnh/media_id của một asset (dự án bất kỳ) vào entity NÀY, giữ nguyên tên.
+
+    Dùng khi entity hiện tại (vd 'anh A', prompt đều dùng {anh A}) thực ra là cùng
+    nhân vật với 'Nguyễn Văn A' ở dự án khác — chỉ mượn ảnh + media_id, không đổi tên,
+    nên các prompt cũ vẫn bind đúng.
+    """
+    entity = await _entity_or_404(eid)
+    project = await _project_or_404(entity["project_id"])
+    src = await db.query_one("SELECT * FROM entity WHERE id=?", (body.source_entity_id,))
+    if not src or not src.get("media_id"):
+        raise HTTPException(404, "Asset nguồn không hợp lệ (chưa có ảnh)")
+    web = None
+    try:
+        web = await media_store.ensure_local(src["media_id"], project["id"])
+    except Exception:
+        web = None
+    web = web or src.get("image_path")
+    await db.update("entity", eid, {
+        "media_id": src["media_id"],
+        "primary_media_id": src.get("primary_media_id") or src["media_id"],
+        "workflow_id": src.get("workflow_id"),
+        "image_path": web, "updated_at": db.now()})
+    return await _entity_or_404(eid)
 
 
 @router.post("/entities/{eid}/generate")

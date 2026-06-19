@@ -21,7 +21,9 @@ export default function AssetsTab({
   const [busy, setBusy] = useState<string | null>(null);
   const [gening, setGening] = useState<Set<string>>(new Set());
   const [lightbox, setLightbox] = useState<Entity | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [picker, setPicker] = useState<
+    { mode: "import" } | { mode: "link"; entity: Entity } | null
+  >(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = () =>
@@ -79,7 +81,7 @@ export default function AssetsTab({
         <div className="flex gap-2">
           <button
             disabled={!!busy}
-            onClick={() => setPickerOpen(true)}
+            onClick={() => setPicker({ mode: "import" })}
             title="Dùng asset có sẵn từ dự án khác (thư viện chung)"
             className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40"
           >
@@ -131,6 +133,7 @@ export default function AssetsTab({
                   entity={e}
                   generating={gening.has(e.id)}
                   onPreview={e.image_path ? () => setLightbox(e) : undefined}
+                  onLink={() => setPicker({ mode: "link", entity: e })}
                   onGenerate={() => genOne(e)}
                   onCover={
                     e.media_id
@@ -167,11 +170,22 @@ export default function AssetsTab({
         <Lightbox imageSrc={lightbox.image_path} title={lightbox.name} onClose={() => setLightbox(null)} />
       )}
 
-      {pickerOpen && (
+      {picker && (
         <AssetPicker
           projectId={project.id}
-          onClose={() => setPickerOpen(false)}
-          onImported={async () => {
+          title={
+            picker.mode === "link"
+              ? `🔗 Tham chiếu vào "${picker.entity.name}"`
+              : "📚 Asset từ dự án khác"
+          }
+          actionLabel={picker.mode === "link" ? "Tham chiếu" : "+ Dùng"}
+          onClose={() => setPicker(null)}
+          onPick={async (e) => {
+            if (picker.mode === "link") {
+              await api.linkEntity(picker.entity.id, e.id);
+            } else {
+              await api.importEntity(project.id, e.id);
+            }
             await load();
           }}
         />
@@ -184,6 +198,7 @@ function AssetCard({
   entity,
   generating,
   onPreview,
+  onLink,
   onGenerate,
   onCover,
   onDelete,
@@ -192,6 +207,7 @@ function AssetCard({
   entity: Entity;
   generating: boolean;
   onPreview?: () => void;
+  onLink?: () => void;
   onGenerate: () => void;
   onCover?: () => void;
   onDelete: () => void;
@@ -234,6 +250,15 @@ function AssetCard({
           >
             ⚡
           </button>
+          {onLink && (
+            <button
+              onClick={onLink}
+              title="Tham chiếu ảnh từ asset dự án khác (giữ nguyên tên)"
+              className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900/80 text-sm hover:bg-sky-600"
+            >
+              🔗
+            </button>
+          )}
           {onEdit && (
             <button
               onClick={onEdit}
@@ -278,14 +303,19 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 // Picker to reuse an asset from ANY other project (shared asset library).
+// `onPick` decides what happens (import as new entity, or link onto an existing one).
 function AssetPicker({
   projectId,
+  title,
+  actionLabel,
   onClose,
-  onImported,
+  onPick,
 }: {
   projectId: string;
+  title: string;
+  actionLabel: string;
   onClose: () => void;
-  onImported: () => Promise<void> | void;
+  onPick: (e: LibraryEntity) => Promise<void> | void;
 }) {
   const [items, setItems] = useState<LibraryEntity[] | null>(null);
   const [q, setQ] = useState("");
@@ -308,8 +338,7 @@ function AssetPicker({
     setImporting(e.id);
     setErr(null);
     try {
-      await api.importEntity(projectId, e.id);
-      await onImported();
+      await onPick(e);
       onClose();
     } catch (ex: any) {
       setErr(ex.message);
@@ -329,7 +358,7 @@ function AssetPicker({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-neutral-800 px-5 py-3">
-          <h3 className="font-semibold">📚 Asset từ dự án khác</h3>
+          <h3 className="font-semibold">{title}</h3>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -360,7 +389,7 @@ function AssetPicker({
                       <Thumb src={e.image_path} alt={e.name} rounded="rounded-none" className="aspect-video w-full" />
                       <div className="absolute inset-0 grid place-items-center bg-black/0 transition group-hover:bg-black/50">
                         <span className="rounded-md bg-indigo-600 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
-                          {importing === e.id ? "Đang thêm…" : "+ Dùng"}
+                          {importing === e.id ? "Đang xử lý…" : actionLabel}
                         </span>
                       </div>
                     </div>
