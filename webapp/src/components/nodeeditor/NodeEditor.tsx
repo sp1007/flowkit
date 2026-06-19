@@ -24,6 +24,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api, graphApi, type Entity } from "../../api/client";
+import Lightbox from "../common/Lightbox";
 
 export interface EditorTarget {
   kind: "shot" | "entity";
@@ -60,9 +61,18 @@ const prettyModel = (m: string) =>
 const NodeOps = createContext<{
   update: (id: string, patch: any) => void;
   remove: (id: string) => void;
+  preview: (src: string, video: boolean) => void;
+  results: Record<string, { web: string; ext: string }>;
   entities: Entity[];
   imageModels: string[];
-}>({ update: () => {}, remove: () => {}, entities: [], imageModels: [] });
+}>({
+  update: () => {},
+  remove: () => {},
+  preview: () => {},
+  results: {},
+  entities: [],
+  imageModels: [],
+});
 
 const handleStyle = (color: string) => ({
   width: 18,
@@ -115,17 +125,49 @@ function Shell({
 const fieldCls =
   "nodrag w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-200 outline-none focus:border-indigo-500";
 
-function Preview({ src, video, label }: { src?: string; video?: boolean; label: string }) {
-  if (!src)
+function Preview({
+  nodeId,
+  src,
+  video,
+  label,
+}: {
+  nodeId?: string;
+  src?: string;
+  video?: boolean;
+  label: string;
+}) {
+  const { results, preview } = useContext(NodeOps);
+  // A run result (kept in a separate map keyed by node id) survives graph reloads and
+  // wins over the seeded/transient src.
+  const run = nodeId ? results[nodeId] : undefined;
+  const effSrc = run?.web || src;
+  const isVideo = run ? run.ext === "mp4" : !!video;
+  if (!effSrc)
     return (
       <div className="grid aspect-video w-full place-items-center rounded-md bg-neutral-800/70 text-[11px] text-neutral-500">
         {label}
       </div>
     );
-  return video ? (
-    <video key={src} src={src} controls className="aspect-video w-full rounded-md bg-black object-cover" />
+  const open = () => preview(effSrc, isVideo);
+  return isVideo ? (
+    <div className="relative">
+      <video key={effSrc} src={effSrc} controls className="aspect-video w-full rounded-md bg-black object-cover" />
+      <button
+        onClick={open}
+        title="Phóng to"
+        className="nodrag absolute right-1 top-1 grid h-6 w-6 place-items-center rounded bg-black/60 text-xs text-white hover:bg-black/80"
+      >
+        ⛶
+      </button>
+    </div>
   ) : (
-    <img key={src} src={src} className="aspect-video w-full rounded-md object-cover" />
+    <img
+      key={effSrc}
+      src={effSrc}
+      onClick={open}
+      title="Phóng to"
+      className="nodrag aspect-video w-full cursor-zoom-in rounded-md object-cover"
+    />
   );
 }
 
@@ -176,7 +218,7 @@ function SourceNode({ id, data }: NodeProps) {
   };
   return (
     <Shell type="source" id={id} inputs={false}>
-      <Preview src={d.web} label="Chọn ảnh bên dưới" />
+      <Preview nodeId={id} src={d.web} label="Chọn ảnh bên dưới" />
       <select className={fieldCls} value={d.entity_id || ""} onChange={(e) => pick(e.target.value)}>
         <option value="">{d.web ? "(ảnh hiện tại)" : "— chọn ảnh asset —"}</option>
         {withImg.map((e) => (
@@ -271,7 +313,7 @@ function ImageNode({ id, data, type }: NodeProps) {
   const d = data as any;
   return (
     <Shell type={type || "image"} id={id}>
-      <Preview src={d._result || d.preview} label="Kết quả ảnh" />
+      <Preview nodeId={id} src={d._result || d.preview} label="Kết quả ảnh" />
       <AspectModelRow id={id} data={d} models={imageModels} />
       <Slider label="Số lượng tạo" value={d.count || 1} min={1} max={4} step={1} onChange={(v) => update(id, { count: v })} />
     </Shell>
@@ -284,7 +326,7 @@ function VideoNode({ id, data }: NodeProps) {
   const isOmni = (d.model || "omni") === "omni";
   return (
     <Shell type="video" id={id}>
-      <Preview src={d._result} video label="Kết quả video" />
+      <Preview nodeId={id} src={d._result} video label="Kết quả video" />
       <AspectModelRow id={id} data={d} videoModels />
       <Slider label="Số lượng tạo" value={d.count || 1} min={1} max={4} step={1} onChange={(v) => update(id, { count: v })} />
       {isOmni && (
@@ -298,7 +340,7 @@ function OutputNode({ id, data }: NodeProps) {
   const d = data as any;
   return (
     <Shell type="output" id={id} outputs={false}>
-      <Preview src={d._result} video={d._ext === "mp4"} label="Output cuối" />
+      <Preview nodeId={id} src={d._result} video={d._ext === "mp4"} label="Output cuối" />
     </Shell>
   );
 }
@@ -392,6 +434,10 @@ function Editor({
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Run results keyed by node id — kept apart from node.data so a graph reload
+  // (e.g. after onApplied refreshes the parent) doesn't wipe the previews.
+  const [results, setResults] = useState<Record<string, { web: string; ext: string }>>({});
+  const [lightbox, setLightbox] = useState<{ src: string; video: boolean } | null>(null);
 
   // Thick edges + arrow markers; edges touching the active node animate (marching arrows)
   // so connections are easy to follow on a touch screen.
@@ -456,6 +502,12 @@ function Editor({
     [setEdges]
   );
 
+  // Touch-friendly: click a connection to remove it (no keyboard needed).
+  const onEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => setEdges((es) => es.filter((e) => e.id !== edge.id)),
+    [setEdges]
+  );
+
   const addNode = (type: string) => {
     const id = `${type}-${Date.now()}`;
     const base: any = { _type: type };
@@ -486,6 +538,11 @@ function Editor({
     try {
       const r = await graphApi.run(target.kind, target.id, serialize());
       const outs = (r.node_outputs || {}) as Record<string, string>;
+      const mapped: Record<string, { web: string; ext: string }> = {};
+      for (const [k, web] of Object.entries(outs)) {
+        if (web) mapped[k] = { web, ext: web.toLowerCase().endsWith(".mp4") ? "mp4" : "png" };
+      }
+      setResults((prev) => ({ ...prev, ...mapped }));
       setNodes((ns) =>
         ns.map((n) => (outs[n.id] ? { ...n, data: { ...n.data, _result: outs[n.id] } } : n))
       );
@@ -498,9 +555,11 @@ function Editor({
     }
   };
 
+  const preview = useCallback((src: string, video: boolean) => setLightbox({ src, video }), []);
+
   const ops = useMemo(
-    () => ({ update, remove, entities, imageModels }),
-    [update, remove, entities, imageModels]
+    () => ({ update, remove, preview, results, entities, imageModels }),
+    [update, remove, preview, results, entities, imageModels]
   );
 
   return (
@@ -546,8 +605,11 @@ function Editor({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onEdgeClick={onEdgeClick}
             onNodeClick={(_, n) => setActiveId(n.id)}
             onPaneClick={() => setActiveId(null)}
+            edgesFocusable
+            deleteKeyCode={["Backspace", "Delete"]}
             connectionLineStyle={{ strokeWidth: 4, stroke: "#818cf8" }}
             defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
             fitView
@@ -560,6 +622,16 @@ function Editor({
           </ReactFlow>
         </NodeOps.Provider>
       </div>
+      <div className="border-t border-neutral-800 px-4 py-1 text-[11px] text-neutral-500">
+        ⓘ Nhấn vào ảnh/video để phóng to · Nhấn vào đường nối để xóa kết nối · Nút ✕ trên node để xóa node
+      </div>
+      {lightbox && (
+        <Lightbox
+          imageSrc={lightbox.video ? undefined : lightbox.src}
+          videoSrc={lightbox.video ? lightbox.src : undefined}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   );
 }
