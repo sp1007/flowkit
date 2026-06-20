@@ -113,21 +113,17 @@ def parse_scenes(script: str) -> list[dict]:
 
 # ─── Prompt composition (style-first + header/footer + culture) ──
 
-# Guard for SHOT FRAME generation. Entity references are DESIGN SHEETS (character
-# turnarounds + expression rows, prop multi-angle sheets, and a 2x2 location angle grid).
-# Without this, the model copies that sheet layout into the frame — e.g. it renders all
-# four location angles tiled into one image. This forces a single coherent photograph and
-# tells it to pick ONE location angle. Used only on the frame path, never when generating
-# the reference sheets themselves.
+# Guard for SHOT FRAME generation. Some entity references are DESIGN SHEETS (character
+# turnarounds + expression rows, prop multi-angle sheets). Without this, the model copies
+# that sheet layout into the frame. This forces a single coherent photograph. Used only on
+# the frame path, never when generating the reference art itself.
 _SINGLE_FRAME = (
     "Render ONE single unified cinematic frame from a SINGLE camera angle — one continuous "
-    "photographic moment, not a composite. The attached reference images are DESIGN SHEETS "
-    "(character turnaround & expression rows, prop multi-angle sheets, a 2x2 grid of location "
-    "angles); use them ONLY to keep identity, costume, architecture, materials, colour and "
-    "lighting consistent. Do NOT reproduce any reference-sheet layout: no grid, no 2x2, no "
-    "multi-panel or split screen, no collage, no turnaround row, no side-by-side angles, no "
-    "plain white reference backdrop. For the location, pick and render only ONE angle that "
-    "suits this shot, as a single full-bleed scene"
+    "photographic moment, not a composite. The attached reference images (character turnaround "
+    "& expression sheets, prop multi-angle sheets, a location establishing shot) are there ONLY "
+    "to keep identity, costume, architecture, materials, colour and lighting consistent. Do NOT "
+    "reproduce any reference-sheet layout: no grid, no 2x2, no multi-panel or split screen, no "
+    "collage, no turnaround row, no side-by-side angles, no plain white reference backdrop"
 )
 
 
@@ -230,10 +226,16 @@ _SHEET = {
     "prop": ("object design sheet, multiple angles (front, 3/4, side, top), single isolated "
              "object on plain solid white background, no background scene, no shadow, "
              "studio product reference"),
-    "location": ("establishing location reference sheet, a 2x2 grid showing FOUR different "
-                 "camera angles of the SAME place (wide establishing, reverse angle, high "
-                 "angle, eye-level detail), consistent architecture and lighting across all "
-                 "four, cinematic, no people"),
+    # A SINGLE establishing shot (not a grid): a multi-panel location sheet gets copied
+    # wholesale into shot frames, tiling four angles into one image. One clean, ultra-detailed
+    # wide view doubles as a usable scene backdrop and a stable identity reference.
+    "location": ("a SINGLE ultra-detailed establishing WIDE shot of this place as ONE unified "
+                 "cinematic photograph, full-bleed edge to edge. Deep focus showing the whole "
+                 "space with foreground, midground and background depth; precise architecture, "
+                 "materials, surface textures, set dressing and props, volumetric natural "
+                 "atmospheric lighting, photoreal detail. NO people, no text or labels, and it "
+                 "must NOT be a grid, 2x2, multi-panel, split screen, collage or reference "
+                 "sheet — one continuous scene only"),
 }
 
 
