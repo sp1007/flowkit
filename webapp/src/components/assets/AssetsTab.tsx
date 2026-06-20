@@ -155,6 +155,14 @@ export default function AssetsTab({
         <div className="flex gap-2">
           <button
             disabled={!!busy}
+            onClick={rebuildAll}
+            title="Xoá toàn bộ asset hiện tại rồi trích xuất lại entity mới từ kịch bản"
+            className="rounded-lg border border-rose-800 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40 disabled:opacity-40"
+          >
+            {busy === "rebuild" ? "Đang trích lại…" : "↻ Dựng lại tất cả"}
+          </button>
+          <button
+            disabled={!!busy}
             onClick={() => setPicker({ mode: "import" })}
             title="Dùng asset có sẵn từ dự án khác (thư viện chung)"
             className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40"
@@ -174,14 +182,6 @@ export default function AssetsTab({
             className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
           >
             {assetsJob ? `Đang tạo ${assetsJob.done}/${assetsJob.total}…` : "✦ Auto gen"}
-          </button>
-          <button
-            disabled={!!busy}
-            onClick={rebuildAll}
-            title="Xoá toàn bộ asset hiện tại rồi trích xuất lại entity mới từ kịch bản"
-            className="rounded-lg border border-rose-800 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40 disabled:opacity-40"
-          >
-            {busy === "rebuild" ? "Đang trích lại…" : "↻ Dựng lại tất cả"}
           </button>
         </div>
       </div>

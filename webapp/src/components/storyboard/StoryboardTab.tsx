@@ -337,19 +337,19 @@ export default function StoryboardTab({
               </button>
             )}
             <button
+              onClick={() => downloadFile(storyboardExportUrl(project.id), "storyboard.zip")}
+              title="Tải toàn bộ ảnh storyboard (.zip, scXXX-sXXX-mô-tả.png)"
+              className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800"
+            >
+              ⬇ Export ảnh
+            </button>
+            <button
               disabled={!!busy || !!imgJob || !scenes.length}
               onClick={projectAll}
               title="Tạo ảnh cho mọi frame chưa có ảnh trong dự án"
               className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
             >
               {imgJob ? `Đang tạo ${imgJob.done}/${imgJob.total}…` : "✦ Auto gen all"}
-            </button>
-            <button
-              onClick={() => downloadFile(storyboardExportUrl(project.id), "storyboard.zip")}
-              title="Tải toàn bộ ảnh storyboard (.zip, scXXX-sXXX-mô-tả.png)"
-              className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800"
-            >
-              ⬇ Export ảnh
             </button>
           </div>
         </div>
