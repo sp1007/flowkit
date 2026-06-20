@@ -239,6 +239,16 @@ export const storyboard = {
     ),
   addShot: (sid: string) => req<Shot>(`/scenes/${sid}/shots`, { method: "POST" }),
   insertShot: (sid: string) => req<Shot>(`/shots/${sid}/insert`, { method: "POST" }),
+  reorderShots: (sid: string, order: string[]) =>
+    req<{ shots: Shot[] }>(`/scenes/${sid}/shots/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ order }),
+    }),
+  reorderScenes: (pid: string, order: string[]) =>
+    req<{ scenes: Scene[] }>(`/projects/${pid}/scenes/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ order }),
+    }),
   updateShot: (sid: string, body: Partial<Omit<Shot, "ref_entity_ids">> & { ref_entity_ids?: string[] }) =>
     req<Shot>(`/shots/${sid}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteShot: (sid: string) => req<{ ok: boolean }>(`/shots/${sid}`, { method: "DELETE" }),

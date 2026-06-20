@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   storyboard,
@@ -165,6 +165,43 @@ export default function StoryboardTab({
     await genSequential("all:" + sid, todo);
   };
 
+  // ── Reorder (kéo-thả / mũi tên) ──
+  const dragShot = useRef<{ sceneId: string; id: string } | null>(null);
+
+  const moveScene = async (pos: number, dir: -1 | 1) => {
+    const j = pos + dir;
+    if (j < 0 || j >= scenes.length) return;
+    const next = [...scenes];
+    [next[pos], next[j]] = [next[j], next[pos]];
+    const reindexed = next.map((s, i) => ({ ...s, idx: i }));
+    setScenes(reindexed);
+    try {
+      await storyboard.reorderScenes(project.id, reindexed.map((s) => s.id));
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
+  const dropShot = async (sceneId: string, targetId: string) => {
+    const d = dragShot.current;
+    dragShot.current = null;
+    if (!d || d.sceneId !== sceneId || d.id === targetId) return;
+    const list = shotsByScene[sceneId] || [];
+    const from = list.findIndex((s) => s.id === d.id);
+    const to = list.findIndex((s) => s.id === targetId);
+    if (from < 0 || to < 0) return;
+    const next = [...list];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    const reindexed = next.map((s, i) => ({ ...s, idx: i }));
+    setShotsByScene((m) => ({ ...m, [sceneId]: reindexed }));
+    try {
+      await storyboard.reorderShots(sceneId, reindexed.map((s) => s.id));
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
   const reloadAll = async () => {
     for (const s of scenes) await loadShots(s.id);
   };
@@ -315,15 +352,33 @@ export default function StoryboardTab({
             Chưa có scene — tạo kịch bản ở tab Script trước.
           </div>
         )}
-        {scenes.map((sc) => {
+        {scenes.map((sc, scenePos) => {
           const shots = shotsByScene[sc.id] || [];
           return (
             <section key={sc.id} className="mb-8">
               <div className="mb-3 flex items-center gap-3">
                 <h3 className="text-sm font-medium text-neutral-200">
-                  <span className="mr-1.5 text-neutral-500">{String(sc.idx + 1).padStart(2, "0")}</span>
+                  <span className="mr-1.5 text-neutral-500">{String(scenePos + 1).padStart(2, "0")}</span>
                   {sc.heading}
                 </h3>
+                <div className="flex items-center">
+                  <button
+                    disabled={scenePos === 0 || !!busy}
+                    onClick={() => moveScene(scenePos, -1)}
+                    title="Đưa scene lên"
+                    className="grid h-6 w-6 place-items-center rounded text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    disabled={scenePos === scenes.length - 1 || !!busy}
+                    onClick={() => moveScene(scenePos, 1)}
+                    title="Đưa scene xuống"
+                    className="grid h-6 w-6 place-items-center rounded text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30"
+                  >
+                    ▼
+                  </button>
+                </div>
                 <div className="ml-auto flex gap-2">
                   <button
                     disabled={!!busy}
@@ -343,8 +398,18 @@ export default function StoryboardTab({
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {shots.map((sh) => (
-                  <MediaCard
+                  <div
                     key={sh.id}
+                    draggable
+                    onDragStart={() => (dragShot.current = { sceneId: sc.id, id: sh.id })}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      dropShot(sc.id, sh.id);
+                    }}
+                    title="Kéo để đổi thứ tự shot"
+                  >
+                  <MediaCard
                     imageSrc={sh.image_path}
                     title={sh.title}
                     index={sh.idx}
@@ -433,6 +498,7 @@ export default function StoryboardTab({
                       </>
                     }
                   />
+                  </div>
                 ))}
                 <button
                   onClick={async () => {

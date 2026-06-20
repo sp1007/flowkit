@@ -1360,6 +1360,33 @@ async def insert_shot(sid: str):
     return await _shot_or_404(shot_id)
 
 
+class ReorderRequest(BaseModel):
+    order: list[str]   # ids in the desired order
+
+
+@router.post("/scenes/{sid}/shots/reorder")
+async def reorder_shots(sid: str, body: ReorderRequest):
+    """Đặt lại thứ tự shot trong scene theo danh sách id (idx = vị trí)."""
+    await _scene_or_404(sid)
+    ts = db.now()
+    for i, shot_id in enumerate(body.order):
+        await db.execute("UPDATE shot SET idx=?, updated_at=? WHERE id=? AND scene_id=?",
+                         (i, ts, shot_id, sid))
+    return {"shots": await db.query_all(
+        "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,))}
+
+
+@router.post("/projects/{pid}/scenes/reorder")
+async def reorder_scenes(pid: str, body: ReorderRequest):
+    """Đặt lại thứ tự scene trong dự án theo danh sách id (idx = vị trí)."""
+    await _project_or_404(pid)
+    for i, scene_id in enumerate(body.order):
+        await db.execute("UPDATE scene SET idx=? WHERE id=? AND project_id=?",
+                         (i, scene_id, pid))
+    return {"scenes": await db.query_all(
+        "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))}
+
+
 @router.patch("/shots/{sid}")
 async def update_shot(sid: str, body: UpdateShotRequest):
     await _shot_or_404(sid)
