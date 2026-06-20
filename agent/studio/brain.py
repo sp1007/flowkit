@@ -456,6 +456,33 @@ def beat_parts_prompt(beat_action: str, motion_prompt: str, n_parts: int,
     )
 
 
+def revary_shots_prompt(shots: list[dict], entities: list[dict], style: str) -> str:
+    """Rewrite the CAMERA work of EXISTING shots without changing the story, order, count,
+    entities or per-shot action — only pick fresh, distinct angles so consecutive shots
+    differ. Fast path to fix monotonous framing without re-segmenting or re-running TTS."""
+    roster = "\n".join(
+        f"- {{{e['name']}}} ({e['type']}): {e.get('description') or ''}" for e in entities
+    ) or "(none)"
+    listing = "\n".join(
+        f"{i}. {((s.get('beat_action') or s.get('narrator_text') or s.get('description') or '') or '').strip()[:300]}"
+        for i, s in enumerate(shots))
+    return (
+        f"An existing storyboard scene has {len(shots)} shots, in order, listed below by their "
+        "action. Keep the story, the ORDER, the NUMBER of shots, the entities present and each "
+        "shot's action EXACTLY as is — change ONLY the camera so consecutive shots no longer "
+        "share the same framing.\n\n"
+        "For EACH shot (same index, same order) return a NEW `description` (image prompt: begin "
+        "with the location, then a SPECIFIC shot size + camera angle/height that DIFFERS from the "
+        "previous shot, then the SAME action), plus a matching `visual_prompt` and `motion_prompt`.\n"
+        f"\n{_CINE}\n\n{_MOTION}\n\n"
+        "Wrap known entity names in curly braces exactly as listed so they bind to references.\n"
+        f"Visual style: {style}.\n\nAVAILABLE ENTITIES:\n{roster}\n\nSHOTS (in order):\n{listing}\n\n"
+        "Return ONLY a JSON array with EXACTLY one object per shot, in order: "
+        "[{\"idx\":0,\"description\":\"At {Loc}, <distinct shot size+angle>, <same action> {Entity}...\","
+        "\"visual_prompt\":\"...\",\"motion_prompt\":\"...\"}]"
+    )
+
+
 def shot_prompts_prompt(description: str, style: str) -> str:
     return (
         "For this storyboard frame, write two prompts for an image-to-video model:\n"

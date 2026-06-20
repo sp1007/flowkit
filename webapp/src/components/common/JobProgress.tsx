@@ -8,6 +8,7 @@ const LABEL: Record<string, string> = {
   storyboard: "Storyboard",
   videos: "Video",
   beats: "Lời đọc + beats",
+  revary: "Đa dạng góc máy",
 };
 
 function statusTone(j: Job): string {

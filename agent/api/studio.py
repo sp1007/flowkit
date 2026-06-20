@@ -1344,6 +1344,75 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
         "measured": narr_web is not None}
 
 
+async def _revary_scene(sid: str) -> int:
+    """Rewrite EXISTING shots' camera (description/visual/motion) for varied angles, keeping
+    order/count/entities/action — and crucially NOT touching narration text, timing or audio.
+    The fast way to fix monotonous framing without re-segmenting or re-running TTS."""
+    scene = await _scene_or_404(sid)
+    project = await _project_or_404(scene["project_id"])
+    shots = await db.query_all("SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,))
+    if not shots:
+        return 0
+    entities = await db.query_all(
+        "SELECT name, type, description FROM entity WHERE project_id=?", (scene["project_id"],))
+    out = await brain.run_json(brain.revary_shots_prompt(shots, entities, project["style"]))
+    if not isinstance(out, list) or not out:
+        raise HTTPException(502, "AI không trả về danh sách góc máy")
+    mapped: dict[int, dict] = {}
+    for pos, o in enumerate(out):
+        if not isinstance(o, dict):
+            continue
+        k = o.get("idx")
+        idx = int(k) if isinstance(k, (int, float)) or (isinstance(k, str) and k.isdigit()) else pos
+        mapped[idx] = o
+    n = 0
+    for i, s in enumerate(shots):
+        o = mapped.get(i)
+        if not o:
+            continue
+        upd = {f: o[f] for f in ("description", "visual_prompt", "motion_prompt")
+               if o.get(f)}
+        if upd:
+            upd["updated_at"] = db.now()
+            await db.update("shot", s["id"], upd)
+            n += 1
+    return n
+
+
+@router.post("/scenes/{sid}/revary-job")
+async def revary_scene_job(sid: str):
+    """Đa dạng góc máy cho 1 scene (giữ lời đọc/thời lượng) → job nền (§9)."""
+    scene = await _scene_or_404(sid)
+
+    async def _worker(_):
+        await _revary_scene(sid)
+
+    job = get_job_manager().start(
+        project_id=scene["project_id"], type_="revary", items=[scene], worker=_worker,
+        label=f"Góc máy: {scene.get('heading') or 'scene'}", throttle=(0, 0),
+        item_label=lambda s: s.get("heading") or sid)
+    return {"job_id": job.id, "total": 1}
+
+
+@router.post("/projects/{pid}/revary")
+async def revary_project(pid: str):
+    """Đa dạng góc máy cho MỌI scene (chỉ viết lại mô tả/visual/motion, KHÔNG đụng audio/TTS)
+    → job nền (§9). Nhanh hơn nhiều so với dựng lại shots; sau đó chỉ cần Auto gen lại ảnh."""
+    await _project_or_404(pid)
+    scenes = await db.query_all("SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))
+    if not scenes:
+        raise HTTPException(400, "Chưa có scene — tạo kịch bản (Script) trước.")
+
+    async def _worker(sc):
+        await _revary_scene(sc["id"])
+
+    job = get_job_manager().start(
+        project_id=pid, type_="revary", items=scenes, worker=_worker,
+        label=f"Đa dạng góc máy ({len(scenes)} scene)", throttle=(0.3, 1.0),
+        item_label=lambda sc: sc.get("heading") or sc["id"])
+    return {"job_id": job.id, "total": len(scenes)}
+
+
 @router.post("/scenes/{sid}/beats-job")
 async def build_scene_beats_job(sid: str, body: BuildBeatsRequest):
     """Per-scene 'Dựng theo lời đọc' as a background job (§9): TTS is slow, so kick it off

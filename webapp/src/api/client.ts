@@ -285,6 +285,12 @@ export const storyboard = {
       `/scenes/${sid}/beats-job`,
       { method: "POST", body: JSON.stringify({ measure }) }
     ),
+  // Vary camera angles of existing shots (rewrites description/visual/motion only — keeps
+  // narration & audio, no TTS). Background job (§9). Then regenerate images.
+  revaryScene: (sid: string) =>
+    req<{ job_id: string; total: number }>(`/scenes/${sid}/revary-job`, { method: "POST" }),
+  revaryProject: (pid: string) =>
+    req<{ job_id: string; total: number }>(`/projects/${pid}/revary`, { method: "POST" }),
   autofill: (sid: string, n_frames?: number) =>
     req<{ shots: Shot[] }>(`/scenes/${sid}/storyboard/autofill`, {
       method: "POST",

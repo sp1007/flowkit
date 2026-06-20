@@ -308,6 +308,30 @@ export default function StoryboardTab({
     },
   });
 
+  // "Đa dạng góc máy": rewrites shot descriptions only (keeps audio) → regen images after.
+  const revaryJob = jobFor("revary");
+  useJobWatcher("revary", {
+    onAdvance: reloadAll,
+    onDone: (j) => {
+      reloadAll();
+      if (j.errors.length) {
+        setErr(`Đa dạng góc máy: ${j.done}/${j.total} scene xong, ${j.errors.length} lỗi.`);
+      } else {
+        setNotice(`Đã đổi góc máy cho ${j.done}/${j.total} scene — bấm “Auto gen all” để vẽ lại ảnh.`);
+        setTimeout(() => setNotice(null), 8000);
+      }
+    },
+  });
+
+  const revaryAll = async () => {
+    setErr(null);
+    try {
+      await storyboard.revaryProject(project.id);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
   const autofillAll = async () => {
     setBusy("autofill-all");
     setErr(null);
@@ -420,6 +444,14 @@ export default function StoryboardTab({
                 {beatsJob ? `Đang dựng beat ${beatsJob.done}/${beatsJob.total}…` : "🎙 Dựng theo lời đọc"}
               </button>
             )}
+            <button
+              disabled={!!busy || !!revaryJob || !scenes.length}
+              onClick={revaryAll}
+              title="Đổi/đa dạng góc máy cho mọi shot (giữ nguyên lời đọc & thời lượng — KHÔNG chạy lại TTS). Xong rồi bấm Auto gen all để vẽ lại ảnh."
+              className="rounded-lg border border-teal-700/60 px-3 py-2 text-sm text-teal-300 hover:bg-teal-950/40 disabled:opacity-40"
+            >
+              {revaryJob ? `Đổi góc ${revaryJob.done}/${revaryJob.total}…` : "🎬 Đa dạng góc máy"}
+            </button>
             <button
               onClick={() => downloadFile(storyboardExportUrl(project.id), "storyboard.zip")}
               title="Tải toàn bộ ảnh storyboard (.zip, scXXX-sXXX-mô-tả.png)"
