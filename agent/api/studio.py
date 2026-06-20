@@ -1018,7 +1018,7 @@ async def _generate_frame_image(shot: dict) -> dict:
     client = _require_extension()
     refs = await _build_frame_references(shot, scene)
     prompt = brain.compose_prompt(
-        project, shot.get("description") or shot.get("title") or "")
+        project, shot.get("description") or shot.get("title") or "", single_frame=True)
     aspect = _to_image_aspect(project["aspect_ratio"])
     model = await _resolve_image_model(project)
     tier = await _current_tier()
@@ -2077,7 +2077,8 @@ async def shot_candidates(sid: str, body: CandidatesRequest):
     project = await _project_or_404(scene["project_id"])
     client = _require_extension()
     refs = await _build_frame_references(shot, scene)
-    prompt = brain.compose_prompt(project, shot.get("description") or shot.get("title") or "")
+    prompt = brain.compose_prompt(
+        project, shot.get("description") or shot.get("title") or "", single_frame=True)
     aspect = _to_image_aspect(project["aspect_ratio"])
     model = await _resolve_image_model(project)
     tier = await _current_tier()

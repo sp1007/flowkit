@@ -113,20 +113,43 @@ def parse_scenes(script: str) -> list[dict]:
 
 # ─── Prompt composition (style-first + header/footer + culture) ──
 
-def compose_prompt(project: dict, body: str, *, include_culture: bool = True) -> str:
+# Guard for SHOT FRAME generation. Entity references are DESIGN SHEETS (character
+# turnarounds + expression rows, prop multi-angle sheets, and a 2x2 location angle grid).
+# Without this, the model copies that sheet layout into the frame — e.g. it renders all
+# four location angles tiled into one image. This forces a single coherent photograph and
+# tells it to pick ONE location angle. Used only on the frame path, never when generating
+# the reference sheets themselves.
+_SINGLE_FRAME = (
+    "Render ONE single unified cinematic frame from a SINGLE camera angle — one continuous "
+    "photographic moment, not a composite. The attached reference images are DESIGN SHEETS "
+    "(character turnaround & expression rows, prop multi-angle sheets, a 2x2 grid of location "
+    "angles); use them ONLY to keep identity, costume, architecture, materials, colour and "
+    "lighting consistent. Do NOT reproduce any reference-sheet layout: no grid, no 2x2, no "
+    "multi-panel or split screen, no collage, no turnaround row, no side-by-side angles, no "
+    "plain white reference backdrop. For the location, pick and render only ONE angle that "
+    "suits this shot, as a single full-bleed scene"
+)
+
+
+def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
+                   single_frame: bool = False) -> str:
     """Assemble the final image/video prompt for a project.
 
     Order: [prompt_header] → style (always first of the visual terms) + culture_hint →
-    body → [prompt_footer]. `style` leads so the model anchors on it; the culture hint
-    (e.g. "Vietnamese folk tale, traditional Vietnamese architecture") keeps imagery
-    faithful to the story's origin instead of defaulting to the style's home culture.
+    body → [single-frame guard] → [prompt_footer]. `style` leads so the model anchors on it;
+    the culture hint (e.g. "Vietnamese folk tale, traditional Vietnamese architecture") keeps
+    imagery faithful to the story's origin instead of defaulting to the style's home culture.
+
+    `single_frame=True` (shot frames only) appends a guard so the model renders one coherent
+    photograph instead of copying the entity reference SHEETS (incl. the 2x2 location grid).
     """
     style = (project.get("style") or "").strip()
     header = (project.get("prompt_header") or "").strip()
     footer = (project.get("prompt_footer") or "").strip()
     culture = (project.get("culture_hint") or "").strip() if include_culture else ""
     lead = ", ".join(p for p in (style, culture) if p)
-    parts = [header, lead, (body or "").strip(), footer, _image_text_clause(project)]
+    guard = _SINGLE_FRAME if single_frame else ""
+    parts = [header, lead, (body or "").strip(), guard, footer, _image_text_clause(project)]
     return ". ".join(p for p in parts if p)
 
 
