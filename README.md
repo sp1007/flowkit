@@ -225,6 +225,9 @@ Registry agent + cờ mặc định nằm ở [`agent/config.py`](agent/config.p
 override được hết qua env (`AGENT_CLAUDE_BIN`, `AGENT_ANTIGRAVITY_BIN`,
 `AGENT_ANTIGRAVITY_ARGS`, `AGENT_CLI_TIMEOUT`, `AGENT_SKIP_PERMISSIONS`, …).
 
+## Repo gốc
+https://github.com/crisng95/flowkit
+
 ## Giấy phép
 
 MIT — xem [LICENSE](LICENSE).
