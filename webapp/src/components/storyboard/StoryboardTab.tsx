@@ -72,6 +72,11 @@ export default function StoryboardTab({
   const [history, setHistory] = useState<Shot | null>(null);
   const confirm = useConfirm();
   const { jobFor } = useJobs();
+  // Scenes currently being rebuilt by a per-scene "Lời đọc" job (shots cleared optimistically).
+  const [rebuilding, setRebuilding] = useState<Set<string>>(new Set());
+  // Narration preview playback (one scene at a time).
+  const [playing, setPlaying] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const setAsCover = async (shot: Shot) => {
     if (!shot.image_media_id) return;
@@ -168,29 +173,44 @@ export default function StoryboardTab({
       danger: true,
     });
     if (!ok) return;
-    setBusy("beats:" + sid);
     setErr(null);
+    // Optimistic: clear this scene's shots right away so the delete is visible, and mark
+    // it "đang dựng" — the background job streams state to the banner; the "beats" watcher
+    // reloads shots + scene meta when it finishes.
+    setShotsByScene((m) => ({ ...m, [sid]: [] }));
+    setRebuilding((s) => new Set(s).add(sid));
     try {
-      const r = await storyboard.buildSceneBeats(sid);
-      await loadShots(sid);
-      setScenes((cur) =>
-        cur.map((s) =>
-          s.id === sid
-            ? { ...s, narration_path: r.narration_path, narration_duration: r.scene_duration }
-            : s
-        )
-      );
-      setNotice(
-        r.measured
-          ? `Đã dựng lời đọc cho scene (audio ${Math.round(r.scene_duration)}s).`
-          : "Đã dựng beat (ước lượng — bật TTS để có audio thật)."
-      );
-      setTimeout(() => setNotice(null), 5000);
+      await storyboard.buildSceneBeats(sid);
     } catch (e: any) {
       setErr(e.message);
-    } finally {
-      setBusy(null);
+      setRebuilding((s) => {
+        const n = new Set(s);
+        n.delete(sid);
+        return n;
+      });
+      await loadShots(sid); // restore on failure to start
     }
+  };
+
+  // Play / stop a scene's narration WAV (nghe thử).
+  const toggleAudio = (sc: Scene) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (playing === sc.id || !sc.narration_path) {
+      setPlaying(null);
+      return;
+    }
+    const a = new Audio(sc.narration_path);
+    a.onended = () => setPlaying(null);
+    a.onerror = () => {
+      setPlaying(null);
+      setErr("Không phát được audio scene.");
+    };
+    void a.play();
+    audioRef.current = a;
+    setPlaying(sc.id);
   };
 
   // Audio status of a scene: measured = real TTS WAV exists; else estimate from beats.
@@ -243,6 +263,14 @@ export default function StoryboardTab({
     for (const s of scenes) await loadShots(s.id);
   };
 
+  // Stop any narration playback when leaving the tab / switching project.
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+      audioRef.current = null;
+    };
+  }, [project.id]);
+
   // Refetch frames as the server storyboard batch advances (§9) — images fill in live
   // and survive tab close / reload.
   const imgJob = jobFor("storyboard");
@@ -257,10 +285,20 @@ export default function StoryboardTab({
   // Storytelling "Dựng theo lời đọc" runs as a job too (TTS is slow). Reload shots scene
   // by scene as each is rebuilt, and announce the result.
   const beatsJob = jobFor("beats");
+  // Refetch scenes too so narration badges (🎙 / ⏱) update after a beats run.
+  const refreshScenes = async () => {
+    try {
+      setScenes((await api.listScenes(project.id)).scenes);
+    } catch {
+      /* keep current */
+    }
+  };
   useJobWatcher("beats", {
     onAdvance: reloadAll,
     onDone: (j) => {
       reloadAll();
+      refreshScenes();
+      setRebuilding(new Set());
       if (j.errors.length) {
         setErr(`Dựng lời đọc: ${j.done}/${j.total} scene xong, ${j.errors.length} lỗi.`);
       } else {
@@ -448,6 +486,15 @@ export default function StoryboardTab({
                     </span>
                   );
                 })()}
+                {sc.narration_path && (
+                  <button
+                    onClick={() => toggleAudio(sc)}
+                    title="Nghe thử lời đọc của scene"
+                    className="grid h-6 w-6 place-items-center rounded text-emerald-300 hover:bg-emerald-950/40"
+                  >
+                    {playing === sc.id ? "⏸" : "▶"}
+                  </button>
+                )}
                 <div className="flex items-center">
                   <button
                     disabled={scenePos === 0 || !!busy}
@@ -476,12 +523,12 @@ export default function StoryboardTab({
                   </button>
                   {!!project.storytelling && (
                     <button
-                      disabled={!!busy}
+                      disabled={!!busy || !!beatsJob}
                       onClick={() => buildSceneBeats(sc.id)}
                       title="Dựng lại CHỈ scene này theo lời đọc (TTS) — dùng khi scene bị bỏ sót / chưa có audio"
                       className="rounded-md border border-violet-700/60 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
                     >
-                      {busy === "beats:" + sc.id ? "Đang dựng…" : "🎙 Lời đọc"}
+                      {rebuilding.has(sc.id) ? "Đang dựng…" : "🎙 Lời đọc"}
                     </button>
                   )}
                   <button
@@ -493,6 +540,12 @@ export default function StoryboardTab({
                   </button>
                 </div>
               </div>
+              {rebuilding.has(sc.id) && (
+                <div className="mb-3 flex items-center gap-2 rounded-lg border border-violet-800/60 bg-violet-950/30 px-3 py-2 text-sm text-violet-300">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
+                  🎙 Đang đọc (TTS) & dựng beat cho scene này… (xem tiến độ ở góc phải)
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {shots.map((sh) => (
                   <div

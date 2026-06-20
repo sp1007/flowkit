@@ -279,10 +279,10 @@ export interface Shot {
 export const storyboard = {
   sceneShots: (sid: string) => req<{ shots: Shot[] }>(`/scenes/${sid}/shots`),
   // Storytelling (§2.6): build beats + TTS for ONE scene (re-run a scene the project-wide
-  // pass missed). Synchronous — scoped to a single scene.
+  // pass missed) as a background job (§9) so the UI doesn't block on slow TTS.
   buildSceneBeats: (sid: string, measure = true) =>
-    req<{ shots: Shot[]; scene_duration: number; narration_path: string | null; measured: boolean }>(
-      `/scenes/${sid}/beats`,
+    req<{ job_id: string; total: number }>(
+      `/scenes/${sid}/beats-job`,
       { method: "POST", body: JSON.stringify({ measure }) }
     ),
   autofill: (sid: string, n_frames?: number) =>

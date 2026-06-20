@@ -1344,6 +1344,23 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
         "measured": narr_web is not None}
 
 
+@router.post("/scenes/{sid}/beats-job")
+async def build_scene_beats_job(sid: str, body: BuildBeatsRequest):
+    """Per-scene 'Dựng theo lời đọc' as a background job (§9): TTS is slow, so kick it off
+    and report state in the banner instead of blocking the request (which made the UI look
+    hung). One scene = one job step; shots are deleted + rebuilt when it completes."""
+    scene = await _scene_or_404(sid)
+
+    async def _worker(_):
+        await build_scene_beats(sid, body)
+
+    job = get_job_manager().start(
+        project_id=scene["project_id"], type_="beats", items=[scene], worker=_worker,
+        label=f"Lời đọc: {scene.get('heading') or 'scene'}", throttle=(0, 0),
+        item_label=lambda s: s.get("heading") or sid)
+    return {"job_id": job.id, "total": 1}
+
+
 @router.post("/projects/{pid}/voiceover")
 async def build_project_beats(pid: str, body: BuildBeatsRequest):
     """Storytelling (§2.6): per-scene whole-read TTS + beat mapping for EVERY scene → job
