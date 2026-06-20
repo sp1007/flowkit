@@ -572,6 +572,32 @@ async def _generate_image_verified(gen_call, store_call, label_for_err: str) -> 
     raise HTTPException(502, f"Tạo ảnh thất bại sau {IMAGE_GEN_RETRIES} lần ({label_for_err}): {last}")
 
 
+async def _gen_candidates(gen_call, project: dict, n: int) -> list[dict]:
+    """Generate N candidate images WITHOUT committing them to any record (§13#2 — pick the
+    best of several). Each is downloaded to local so the UI can preview it; the chosen one is
+    committed later via apply-media. Calls are spaced out and serialized by the single-flight
+    lock. Returns [{media_id, primary_media_id, workflow_id, web}]."""
+    out: list[dict] = []
+    for i in range(n):
+        res = await gen_call()
+        if res.get("error"):
+            logger.warning("candidate %d/%d lỗi: %s", i + 1, n, res["error"])
+        else:
+            info = _extract_image_result(res.get("data", res))
+            mid = info.get("media_id")
+            if mid:
+                web = await media_store.ensure_local(mid, project["id"])
+                if web:
+                    out.append({"media_id": mid,
+                                "primary_media_id": info.get("primary_media_id") or mid,
+                                "workflow_id": info.get("workflow_id"), "web": web})
+        if i < n - 1:
+            await asyncio.sleep(random.uniform(2, 5))
+    if not out:
+        raise HTTPException(502, "Không tạo được ảnh ứng viên nào (có thể bị chặn nội dung)")
+    return out
+
+
 async def _entity_or_404(eid: str) -> dict:
     row = await db.query_one("SELECT * FROM entity WHERE id=?", (eid,))
     if not row:
@@ -1765,6 +1791,52 @@ async def apply_entity_media(eid: str, body: ApplyMediaRequest):
         "media_id": body.media_id, "primary_media_id": body.media_id,
         "image_path": web, "updated_at": db.now()})
     return {"ok": True, "path": web, "entity": await _entity_or_404(eid)}
+
+
+class CandidatesRequest(BaseModel):
+    n: int = 3   # số ảnh ứng viên (2–4)
+
+
+@router.post("/entities/{eid}/candidates")
+async def entity_candidates(eid: str, body: CandidatesRequest):
+    """Sinh N ảnh ứng viên cho entity (không commit) → chọn bản đẹp rồi apply-media (§13#2)."""
+    entity = await _entity_or_404(eid)
+    project = await _project_or_404(entity["project_id"])
+    client = _require_extension()
+    body_text = brain.ref_image_prompt(
+        entity["type"], entity["name"],
+        entity.get("description") or entity.get("ref_prompt") or "")
+    prompt = brain.compose_prompt(project, body_text)
+    aspect = ("IMAGE_ASPECT_RATIO_LANDSCAPE" if entity["type"] in ("character", "prop", "location")
+              else _to_image_aspect(project["aspect_ratio"]))
+    model = await _resolve_image_model(project)
+    tier = await _current_tier()
+    cands = await _gen_candidates(
+        lambda: client.generate_images(
+            prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
+            user_paygate_tier=tier, image_model=model),
+        project, max(2, min(4, body.n)))
+    return {"candidates": cands}
+
+
+@router.post("/shots/{sid}/candidates")
+async def shot_candidates(sid: str, body: CandidatesRequest):
+    """Sinh N ảnh frame ứng viên cho shot (không commit) → chọn rồi apply-media (§13#2)."""
+    shot = await _shot_or_404(sid)
+    scene = await _scene_or_404(shot["scene_id"])
+    project = await _project_or_404(scene["project_id"])
+    client = _require_extension()
+    refs = await _build_frame_references(shot, scene)
+    prompt = brain.compose_prompt(project, shot.get("description") or shot.get("title") or "")
+    aspect = _to_image_aspect(project["aspect_ratio"])
+    model = await _resolve_image_model(project)
+    tier = await _current_tier()
+    cands = await _gen_candidates(
+        lambda: client.generate_images(
+            prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
+            user_paygate_tier=tier, references=refs or None, image_model=model),
+        project, max(2, min(4, body.n)))
+    return {"candidates": cands}
 
 
 # ─── Assemble / narration / export ──────────────────────────

@@ -11,6 +11,7 @@ import {
 import type { EditorTarget } from "../nodeeditor/NodeEditor";
 import MediaCard from "../common/MediaCard";
 import Lightbox from "../common/Lightbox";
+import CandidatePicker from "../common/CandidatePicker";
 import { useConfirm } from "../common/Confirm";
 import { creditGuard, CREDIT_COST } from "../../lib/credits";
 
@@ -65,6 +66,7 @@ export default function StoryboardTab({
   const [notice, setNotice] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<Shot | null>(null);
   const confirm = useConfirm();
 
   const setAsCover = async (shot: Shot) => {
@@ -380,6 +382,16 @@ export default function StoryboardTab({
                         >
                           ⚡
                         </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCandidate(sh);
+                          }}
+                          title="Tạo nhiều mẫu rồi chọn ảnh đẹp nhất"
+                          className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900/80 text-sm hover:bg-indigo-600"
+                        >
+                          🎲
+                        </button>
                         {sh.image_path && (
                           <button
                             onClick={(e) => {
@@ -451,6 +463,23 @@ export default function StoryboardTab({
 
       {lightbox && (
         <Lightbox imageSrc={lightbox.image_path} title={lightbox.title} onClose={() => setLightbox(null)} />
+      )}
+
+      {candidate && (
+        <CandidatePicker
+          kind="shot"
+          id={candidate.id}
+          title={candidate.title}
+          onApplied={(updated) =>
+            setShotsByScene((m) => ({
+              ...m,
+              [updated.scene_id]: (m[updated.scene_id] || []).map((x) =>
+                x.id === updated.id ? updated : x
+              ),
+            }))
+          }
+          onClose={() => setCandidate(null)}
+        />
       )}
     </div>
   );

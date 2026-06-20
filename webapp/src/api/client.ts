@@ -27,6 +27,13 @@ export interface Project {
   updated_at: number;
 }
 
+export interface Candidate {
+  media_id: string;
+  primary_media_id: string;
+  workflow_id?: string | null;
+  web: string;
+}
+
 export interface FlowProject {
   flow_project_id: string;
   title: string;
@@ -124,6 +131,17 @@ export const api = {
     req<{ ok: boolean }>(`/entities/${eid}`, { method: "DELETE" }),
   generateEntity: (eid: string) =>
     req<Entity>(`/entities/${eid}/generate`, { method: "POST" }),
+  // Generate N candidate images (no commit) → pick one → applyMedia (§13#2).
+  entityCandidates: (eid: string, n = 3) =>
+    req<{ candidates: Candidate[] }>(`/entities/${eid}/candidates`, {
+      method: "POST",
+      body: JSON.stringify({ n }),
+    }),
+  shotCandidates: (sid: string, n = 3) =>
+    req<{ candidates: Candidate[] }>(`/shots/${sid}/candidates`, {
+      method: "POST",
+      body: JSON.stringify({ n }),
+    }),
   setEntityImage: (eid: string, media_id: string) =>
     req<Entity>(`/entities/${eid}/image`, { method: "PUT", body: JSON.stringify({ media_id }) }),
   generateAllAssets: (id: string) =>

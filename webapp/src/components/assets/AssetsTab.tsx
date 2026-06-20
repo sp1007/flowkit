@@ -11,6 +11,7 @@ import {
 import type { EditorTarget } from "../nodeeditor/NodeEditor";
 import Thumb from "../Thumb";
 import Lightbox from "../common/Lightbox";
+import CandidatePicker from "../common/CandidatePicker";
 import { useConfirm } from "../common/Confirm";
 import { creditGuard, CREDIT_COST } from "../../lib/credits";
 
@@ -34,6 +35,7 @@ export default function AssetsTab({
   const [progress, setProgress] = useState<string | null>(null);
   const [gening, setGening] = useState<Set<string>>(new Set());
   const [lightbox, setLightbox] = useState<Entity | null>(null);
+  const [candidate, setCandidate] = useState<Entity | null>(null);
   const [picker, setPicker] = useState<
     { mode: "import" } | { mode: "link"; entity: Entity } | null
   >(null);
@@ -219,6 +221,7 @@ export default function AssetsTab({
                   onPreview={e.image_path ? () => setLightbox(e) : undefined}
                   onLink={() => setPicker({ mode: "link", entity: e })}
                   onGenerate={() => genOne(e)}
+                  onCandidates={() => setCandidate(e)}
                   onCover={
                     e.media_id
                       ? () => wrap("cover", () => api.setCover(project.id, e.media_id!))
@@ -254,6 +257,18 @@ export default function AssetsTab({
         <Lightbox imageSrc={lightbox.image_path} title={lightbox.name} onClose={() => setLightbox(null)} />
       )}
 
+      {candidate && (
+        <CandidatePicker
+          kind="entity"
+          id={candidate.id}
+          title={candidate.name}
+          onApplied={(updated) =>
+            setEntities((list) => list.map((x) => (x.id === updated.id ? updated : x)))
+          }
+          onClose={() => setCandidate(null)}
+        />
+      )}
+
       {picker && (
         <AssetPicker
           projectId={project.id}
@@ -286,6 +301,7 @@ function AssetCard({
   onPreview,
   onLink,
   onGenerate,
+  onCandidates,
   onCover,
   onDelete,
   onEdit,
@@ -295,6 +311,7 @@ function AssetCard({
   onPreview?: () => void;
   onLink?: () => void;
   onGenerate: () => void;
+  onCandidates?: () => void;
   onCover?: () => void;
   onDelete: () => void;
   onEdit?: () => void;
@@ -336,6 +353,16 @@ function AssetCard({
           >
             ⚡
           </button>
+          {onCandidates && (
+            <button
+              onClick={onCandidates}
+              disabled={generating}
+              title="Tạo nhiều mẫu rồi chọn ảnh đẹp nhất"
+              className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900/80 text-sm hover:bg-indigo-600"
+            >
+              🎲
+            </button>
+          )}
           {onLink && (
             <button
               onClick={onLink}
