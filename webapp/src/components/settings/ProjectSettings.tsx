@@ -1,5 +1,12 @@
-import { useEffect, useState } from "react";
-import { api, type Project } from "../../api/client";
+import { useEffect, useRef, useState } from "react";
+import {
+  api,
+  listVoices,
+  synthesize,
+  base64ToAudioUrl,
+  type Project,
+  type Voice,
+} from "../../api/client";
 
 // Per-project settings: prompt header/footer (always prepended/appended to every
 // image & video prompt), culture hint, style, and the image model.
@@ -24,12 +31,33 @@ export default function ProjectSettings({
   });
   const [bgmPath, setBgmPath] = useState(project.bgm_path ?? null);
   const [bgmVol, setBgmVol] = useState(project.bgm_volume ?? 0.18);
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [voiceId, setVoiceId] = useState<number>(project.voice_id ?? 0);
+  const [testing, setTesting] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     api.options().then(setOpts).catch(() => {});
+    listVoices().then(setVoices).catch(() => {});
   }, []);
+
+  const testVoice = async () => {
+    setTesting(true);
+    setErr(null);
+    try {
+      const r = await synthesize("Xin chào, đây là giọng đọc của dự án.", voiceId);
+      if (r.audio && audioRef.current) {
+        audioRef.current.src = base64ToAudioUrl(r.audio);
+        await audioRef.current.play().catch(() => {});
+      } else setErr("TTS không trả về audio (kiểm tra OmniVoice URL trong Settings).");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const set = (k: keyof typeof s, v: string) => setS((p) => ({ ...p, [k]: v }));
 
@@ -37,7 +65,11 @@ export default function ProjectSettings({
     setBusy(true);
     setErr(null);
     try {
-      const updated = await api.updateProject(project.id, { ...s, bgm_volume: bgmVol });
+      const updated = await api.updateProject(project.id, {
+        ...s,
+        bgm_volume: bgmVol,
+        voice_id: voiceId,
+      });
       onSaved(updated);
       onClose();
     } catch (e: any) {
@@ -140,6 +172,35 @@ export default function ProjectSettings({
               <option value="">(mặc định)</option>
               {(opts?.image_models || []).map((m: string) => <option key={m} value={m}>{m}</option>)}
             </select>
+          </Field>
+
+          <Field label="🎙 Giọng đọc (lồng tiếng dự án)">
+            <div className="flex gap-2">
+              <select
+                value={voiceId}
+                onChange={(e) => setVoiceId(Number(e.target.value))}
+                className={inp}
+              >
+                <option value={0}>Mặc định (id 0)</option>
+                {voices.map((v) => (
+                  <option key={v.voice_id} value={v.voice_id}>
+                    {v.title} (id {v.voice_id})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={testVoice}
+                disabled={testing}
+                title="Nghe thử giọng đã chọn"
+                className="shrink-0 rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 disabled:opacity-40"
+              >
+                {testing ? "…" : "▶ Test"}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-neutral-600">
+              Quản lý / thêm giọng trong ⚙ Settings. Cần đặt OmniVoice URL để test.
+            </p>
+            <audio ref={audioRef} className="hidden" />
           </Field>
 
           <Field label="🎵 Nhạc nền (tự trộn dưới giọng đọc khi ghép video)">

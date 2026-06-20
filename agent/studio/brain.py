@@ -313,19 +313,46 @@ def storyboard_autofill_prompt(scene_heading: str, scene_body: str,
     )
 
 
-def scene_voiceover_prompt(scene_heading: str, scene_body: str,
-                           language: str = "Vietnamese") -> str:
-    """Storytelling §2.6 — the WHOLE scene's voiceover as ONE continuous, emotional read.
-    This single text is sent to TTS in one piece (no chopping), so the narration keeps its
-    flow; beats are mapped onto its timeline afterwards."""
-    return (
-        f"Write the {language} VOICEOVER narration for this scene as ONE continuous, "
-        "emotionally connected passage — natural storytelling prose, no stage directions, "
-        "no character-name labels, no scene heading. It will be read aloud in a single take, "
-        "so it must flow smoothly start to finish.\n\n"
-        f"SCENE: {scene_heading}\n{scene_body}\n\n"
-        "Return ONLY JSON: {\"voiceover\":\"<the continuous narration>\"}"
-    )
+_SENT_RE = re.compile(r"[^.!?…\n]+[.!?…]+[\"'’”\)]*|\S[^.!?…\n]*(?:\n|$)", re.S)
+
+
+def _sentences(text: str) -> list[str]:
+    return [s.strip() for s in _SENT_RE.findall(text or "") if s.strip()]
+
+
+def partition_text(text: str, n: int) -> list[str]:
+    """Split `text` into up to `n` contiguous, VERBATIM parts on sentence boundaries,
+    balanced by length. Storytelling reads the user's ORIGINAL input — so every word is
+    kept, in order: concatenating the parts back gives the whole source (only inter-
+    sentence whitespace is normalized to single spaces). Never rewrites or drops content."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    sents = _sentences(text)
+    if not sents:
+        return [text]
+    n = max(1, min(n, len(sents)))
+    if n == 1:
+        return [" ".join(sents)]
+    total = sum(len(s) for s in sents) or 1
+    target = total / n
+    parts: list[str] = []
+    cur: list[str] = []
+    acc = 0
+    for i, s in enumerate(sents):
+        cur.append(s)
+        acc += len(s)
+        opened = len(parts)
+        sents_left = len(sents) - i - 1
+        slots_left = n - opened - 1               # parts still to open after this one
+        # must close now if we have to reserve ≥1 sentence for every remaining slot
+        must_close = sents_left <= slots_left
+        if opened < n - 1 and (acc >= target * (opened + 1) or must_close):
+            parts.append(" ".join(cur))
+            cur = []
+    if cur:
+        parts.append(" ".join(cur))
+    return parts
 
 
 def scene_segment_prompt(voiceover: str, entities: list[dict], style: str) -> str:

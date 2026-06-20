@@ -702,13 +702,22 @@ async def import_flow_media(pid: str, body: ImportMediaRequest):
 
 
 @router.post("/projects/{pid}/entities/extract")
-async def extract_entities(pid: str):
+async def extract_entities(pid: str, replace: bool = False):
+    """Trích entity từ kịch bản. `replace=true` → XOÁ toàn bộ entity hiện tại (kèm ảnh)
+    rồi trích lại từ đầu; mặc định chỉ thêm entity mới (bỏ qua tên đã có)."""
     p = await _project_or_404(pid)
     if not p.get("script_raw"):
         raise HTTPException(400, "Chưa có kịch bản để trích entity")
     items = await brain.run_json(brain.entity_extract_prompt(p["script_raw"]))
     if not isinstance(items, list):
         raise HTTPException(502, "AI không trả về danh sách entity")
+    if replace:
+        for r in await db.query_all(
+                "SELECT id, image_path FROM entity WHERE project_id=?", (pid,)):
+            await db.delete("entity", r["id"])
+            if r.get("image_path"):
+                f = media_store.MEDIA_DIR / r["image_path"].replace("/media/", "", 1)
+                f.unlink(missing_ok=True)
     # tránh trùng tên (đã có)
     existing = {r["name"].lower() for r in await db.query_all(
         "SELECT name FROM entity WHERE project_id=?", (pid,))}
@@ -1086,10 +1095,23 @@ def _concat_wav_bytes(chunks: list[bytes], dest) -> None:
             out.writeframes(f)
 
 
+async def _tts_one(text: str, voice_id: int) -> bytes:
+    """ONE TTS call for the whole text → WAV bytes. A single continuous read keeps the
+    narration's emotion (no seams from stitching many short clips)."""
+    import base64
+    from agent.api.tts import _proxy
+    res = await _proxy("POST", "/api/tts",
+                       json={"text": text, "voice_id": voice_id}, timeout=600.0)
+    b64 = res.get("audio") if isinstance(res, dict) else None
+    if not b64:
+        raise HTTPException(502, "OmniVoice không trả audio")
+    return base64.b64decode(b64)
+
+
 async def _tts_segments(text: str, voice_id: int) -> list[bytes]:
-    """Normalize VN text, split into short sentence-aligned segments, TTS each → WAV bytes.
-    Splitting is only for the engine's processing; the segments are re-joined into one
-    continuous scene WAV so the narration keeps its flow."""
+    """Fallback only: split VN text into short sentence-aligned segments and TTS each → WAV
+    bytes (re-joined by the caller). Used when a single-shot read fails (e.g. text too long
+    for the engine); per-scene narration prefers `_tts_one` to stay emotionally continuous."""
     import base64
     from agent.api.tts import _proxy
     out = []
@@ -1103,60 +1125,103 @@ async def _tts_segments(text: str, voice_id: int) -> list[bytes]:
     return out
 
 
-async def _scene_narration(text: str, voice_id: int, pid: str, scene_id: str,
-                           measure: bool) -> tuple[Optional[str], float]:
-    """Normalize the scene text (numbers/dates/times/currency/symbols → spoken Vietnamese),
-    TTS it (segmented then re-joined into ONE WAV so the read stays continuous), and return
-    (web_path, real_duration). If TTS is off, return (None, word-count estimate)."""
-    norm = vntext.normalize(text)
-    if measure and norm.strip():
-        try:
-            chunks = await _tts_segments(norm, voice_id)
-            rel = f"{pid}/narr_scene_{scene_id}.wav"
-            dest = media_store.MEDIA_DIR / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(_concat_wav_bytes, chunks, dest)
-            dur = await assembler.probe_duration(dest)
-            if dur > 0:
-                return f"/media/{rel}", dur
-        except HTTPException as e:
-            logger.warning("scene TTS unavailable (%s) — dùng ước lượng", e.detail)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("scene TTS failed: %s — dùng ước lượng", e)
-    return None, _estimate_narration_secs(norm or text)
+def _wav_bytes_duration(b: bytes) -> float:
+    """Duration (s) of a WAV byte buffer, read straight from its header (no ffprobe)."""
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(b), "rb") as w:
+            return w.getnframes() / float(w.getframerate() or 1)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+async def _tts_beats(texts: list[str], voice_id: int, pid: str,
+                     scene_id: str) -> tuple[str, list[float]]:
+    """TTS each beat's text as its OWN continuous read, then concat them into the scene WAV.
+    Returns (web_path, [per-beat real durations]). One read per beat keeps the emotion within
+    each visual unit AND gives the EXACT time each beat occupies, so the image changes land on
+    the narration — the cuts fall on beat (image-change) boundaries where a micro-pause is
+    natural. Raises if OmniVoice is unreachable (caller falls back to a word-count estimate)."""
+    chunks, durs = [], []
+    for txt in texts:
+        norm = vntext.normalize(txt) or txt
+        if not norm.strip():
+            continue
+        audio = await _tts_one(norm, voice_id)
+        chunks.append(audio)
+        durs.append(round(_wav_bytes_duration(audio), 3))
+    if not chunks:
+        raise HTTPException(502, "Không tạo được audio cho beat nào")
+    rel = f"{pid}/narr_scene_{scene_id}.wav"
+    dest = media_store.MEDIA_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(_concat_wav_bytes, chunks, dest)
+    return f"/media/{rel}", durs
 
 
 @router.post("/scenes/{sid}/beats")
 async def build_scene_beats(sid: str, body: BuildBeatsRequest):
-    """Storytelling (§2.6, audio-first): write the scene voiceover, TTS it as ONE
-    continuous read FIRST, then map visual beats onto that audio's timeline.
-
-    The whole scene is voiced in a single take (no per-beat chopping → keeps the emotion);
-    each beat's share of the audio is its word-count fraction of the scene. Key phrases get
-    timed caption windows. If TTS is off, durations fall back to a word-count estimate."""
+    """Storytelling (§2.6, audio-first): the scene reads a VERBATIM contiguous chunk of the
+    user's original input. We segment it into visual beats, then TTS each beat as its own
+    continuous read and measure its REAL duration, so image changes land exactly on the
+    narration (the cuts fall on beat = image-change boundaries). Key phrases get timed caption
+    windows. If TTS is off/unreachable, beat durations fall back to a word-count estimate."""
     scene = await _scene_or_404(sid)
     project = await _project_or_404(scene["project_id"])
     entities = await db.query_all(
         "SELECT name, type, description FROM entity WHERE project_id=?", (scene["project_id"],))
 
-    # 1) the scene's continuous voiceover text
-    lang = body.language or project.get("script_lang") or "Vietnamese"
-    vo = await brain.run_json(brain.scene_voiceover_prompt(
-        scene["heading"], scene.get("action") or "", lang))
-    voiceover = ((vo.get("voiceover") if isinstance(vo, dict) else "") or "").strip()
-    if not voiceover:
-        raise HTTPException(502, "AI không sinh được voiceover cho scene")
+    # 1) the scene's narration = its VERBATIM slice of the user's ORIGINAL input
+    #    (project.idea), read in full — NOT an AI rewrite of the screenplay. Storytelling
+    #    must speak the source text the user gave, complete and unaltered. We partition the
+    #    original across the project's scenes (in order) so the union covers the whole text.
+    source = (project.get("idea") or "").strip()
+    if source:
+        order = [r["id"] for r in await db.query_all(
+            "SELECT id FROM scene WHERE project_id=? ORDER BY idx", (scene["project_id"],))]
+        pos = order.index(sid) if sid in order else 0
+        parts = brain.partition_text(source, len(order) or 1)
+        voiceover = (parts[pos] if pos < len(parts) else "").strip()
+        if not voiceover:
+            raise HTTPException(
+                400, "Scene này không còn nội dung gốc để đọc — số scene đang nhiều hơn "
+                "số câu trong nội dung nguồn. Giảm bớt scene hoặc bổ sung nội dung gốc.")
+    else:
+        # no original input stored → fall back to the scene's own script text, verbatim
+        voiceover = (scene.get("action") or "").strip()
+        if not voiceover:
+            raise HTTPException(400, "Chưa có nội dung gốc (idea) để đọc cho scene này.")
 
-    # 2) TTS the WHOLE scene FIRST (one read) → real duration (or estimate if TTS off)
-    voice_id = project.get("voice_id") or 0
-    narr_web, scene_dur = await _scene_narration(
-        voiceover, voice_id, project["id"], sid, body.measure)
-
-    # 3) segment that voiceover into visual beats (verbatim contiguous slices)
+    # 2) segment the verbatim narration into visual beats (AI = visual structure + key
+    #    phrases). The SPOKEN text per beat is re-derived verbatim from the narration so the
+    #    audio always covers the whole scene in order — no AI drift, no dropped sentences.
     beats = await brain.run_json(brain.scene_segment_prompt(voiceover, entities, project["style"]))
     if not isinstance(beats, list) or not beats:
-        beats = [{"text": voiceover, "description": scene["heading"],
-                  "ref_entity_names": [], "key_phrases": []}]
+        beats = [{"description": scene["heading"], "ref_entity_names": [], "key_phrases": []}]
+    say = brain.partition_text(voiceover, len(beats))   # verbatim contiguous slices, complete
+    if len(say) < len(beats):                            # fewer sentences than beats → trim
+        beats = beats[:len(say)]
+    for i, b in enumerate(beats):
+        b["_say"] = (say[i] if i < len(say) else (b.get("text") or "")).strip()
+
+    # 3) TTS one continuous read PER BEAT → exact per-beat durations + the scene WAV (concat).
+    voice_id = project.get("voice_id") or 0
+    narr_web, durs = None, None
+    if body.measure and any(b.get("_say") for b in beats):
+        try:
+            narr_web, durs = await _tts_beats(
+                [b["_say"] for b in beats], voice_id, project["id"], sid)
+        except HTTPException as e:
+            logger.warning("beat TTS unavailable (%s) — dùng ước lượng theo số từ", e.detail)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("beat TTS failed: %s — dùng ước lượng theo số từ", e)
+    if durs is None or len(durs) != len(beats):          # TTS off/failed → word-count estimate
+        wc = [max(1, len((b.get("_say") or "").split())) for b in beats]
+        total_wc = sum(wc) or 1
+        scene_est = _estimate_narration_secs(voiceover)
+        durs = [max(0.8, round(scene_est * w / total_wc, 3)) for w in wc]
+    scene_dur = round(sum(durs), 3)
 
     erows = await db.query_all(
         "SELECT id, name, type FROM entity WHERE project_id=?", (scene["project_id"],))
@@ -1165,10 +1230,6 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     loc_id = next((r["id"] for r in erows
                    if r["type"] == "location" and r["name"].lower() in used), None)
 
-    # 4) allocate each beat its share of the scene audio (by word count) + caption timing
-    wc = [max(1, len((b.get("text") or "").split())) for b in beats]
-    total_wc = sum(wc) or 1
-
     await db.execute("DELETE FROM shot WHERE scene_id=?", (sid,))
     await db.update("scene", sid, {
         "narration_text": voiceover, "narration_path": narr_web,
@@ -1176,9 +1237,8 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     ts = db.now()
     t = 0.0
     for i, b in enumerate(beats):
-        b_dur = max(0.8, round(scene_dur * wc[i] / total_wc, 3)) if scene_dur else \
-            float(project["shot_duration"] or 8)
-        caps = _caption_windows(b.get("text") or "", b.get("key_phrases") or [], t, b_dur)
+        b_dur = durs[i]
+        caps = _caption_windows(b.get("_say") or "", b.get("key_phrases") or [], t, b_dur)
         ref_names = list(b.get("ref_entity_names", []))
         ref_ids = [name_to_id[n.lower()] for n in ref_names if n.lower() in name_to_id]
         if loc_id and loc_id not in ref_ids:
@@ -1186,14 +1246,15 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
         await db.insert("shot", {
             "id": db.new_id(), "scene_id": sid, "idx": i,
             "beat_id": db.new_id(), "part_idx": 0, "is_chained": 0,
-            "title": (b.get("text") or "")[:40] or f"Beat {i+1}",
+            "title": (b.get("_say") or "")[:40] or f"Beat {i+1}",
             "description": b.get("description", ""),
             "visual_prompt": b.get("visual_prompt") or None,
             "motion_prompt": b.get("motion_prompt") or None,
             "beat_action": b.get("beat_action") or None,
-            # narrator_text = this beat's slice (reference/SRT); the AUDIO lives on the scene.
-            "narrator_text": b.get("text") or None,
-            "narration_duration": b_dur,          # this beat's slice of the scene timeline
+            # narrator_text = this beat's VERBATIM spoken slice; its audio is the beat's
+            # segment of the scene WAV (measured duration above).
+            "narrator_text": b.get("_say") or None,
+            "narration_duration": b_dur,          # this beat's real share of the timeline
             "start_time": round(t, 3),            # scene-local offset
             "captions": json.dumps(caps, ensure_ascii=False),
             "ref_entity_ids": json.dumps(ref_ids),

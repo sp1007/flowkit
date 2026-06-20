@@ -11,6 +11,7 @@ import {
 import type { EditorTarget } from "../nodeeditor/NodeEditor";
 import MediaCard from "../common/MediaCard";
 import Lightbox from "../common/Lightbox";
+import { useConfirm } from "../common/Confirm";
 
 const slug = (s: string) =>
   (s || "")
@@ -63,6 +64,7 @@ export default function StoryboardTab({
   const [notice, setNotice] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   const setAsCover = async (shot: Shot) => {
     if (!shot.image_media_id) return;
@@ -178,16 +180,17 @@ export default function StoryboardTab({
 
   // Storytelling (§2.6): TTS each scene as ONE continuous read first, then map beats.
   const buildBeats = async () => {
-    if (
-      !window.confirm(
-        "Dựng shots theo LỜI ĐỌC (storytelling) cho mọi scene?\n\n" +
-          "Mỗi scene được đọc (TTS) liền mạch MỘT lần để giữ cảm xúc, rồi cắt thành beat " +
-          "(1 cảnh) bám đúng thời điểm audio; từ khoá quan trọng được canh giờ để hiện chữ " +
-          "lên video. Cần BẬT OmniVoice (TTS); nếu tắt sẽ ước lượng theo số từ.\n\n" +
-          "Thao tác này XÓA các shot hiện tại."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Dựng shots theo lời đọc?",
+      message:
+        "Mỗi scene được đọc (TTS) liền mạch MỘT lần để giữ cảm xúc, rồi cắt thành beat " +
+        "(1 cảnh) bám đúng thời điểm audio; từ khoá quan trọng được canh giờ để hiện chữ " +
+        "lên video. Cần BẬT OmniVoice (TTS); nếu tắt sẽ ước lượng theo số từ.\n\n" +
+        "Thao tác này XOÁ các shot hiện tại.",
+      confirmText: "Dựng theo lời đọc",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy("beats");
     setErr(null);
     try {
@@ -208,13 +211,14 @@ export default function StoryboardTab({
   // Rebuild the shot list for EVERY scene from the script (force) — deletes existing
   // shots (incl. manual edits) and re-splits via AI. Confirm because it's destructive.
   const rebuildAll = async () => {
-    if (
-      !window.confirm(
-        "Dựng lại TẤT CẢ shots từ kịch bản cho mọi scene?\n\n" +
-          "Thao tác này XÓA các shot hiện tại (kể cả prompt/ảnh đã chỉnh tay) và để AI tách lại từ script."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Dựng lại tất cả shots từ kịch bản?",
+      message:
+        "Thao tác này XOÁ các shot hiện tại (kể cả prompt/ảnh đã chỉnh tay) và để AI tách lại từ script.",
+      confirmText: "Dựng lại tất cả",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy("rebuild-all");
     setErr(null);
     try {

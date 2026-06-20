@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, thumbUrl, type Project, type FlowProject } from "../api/client";
 import Thumb from "./Thumb";
+import { useConfirm } from "./common/Confirm";
 
 interface Props {
   onOpen: (p: Project) => void;
@@ -12,6 +13,7 @@ export default function ProjectGrid({ onOpen }: Props) {
   const [showImport, setShowImport] = useState(false);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   const refresh = async () => {
     try {
@@ -47,7 +49,13 @@ export default function ProjectGrid({ onOpen }: Props) {
   };
 
   const remove = async (p: Project) => {
-    if (!confirm(`Xóa project "${p.title}"?`)) return;
+    const ok = await confirm({
+      title: "Xoá dự án?",
+      message: `Dự án "${p.title}" sẽ bị xoá khỏi Studio.`,
+      confirmText: "Xoá",
+      danger: true,
+    });
+    if (!ok) return;
     await api.deleteProject(p.id);
     refresh();
   };

@@ -13,6 +13,7 @@ export interface Project {
   script_raw: string | null;
   image_model?: string | null;
   video_model?: string | null;
+  voice_id?: number | null;
   prompt_header?: string | null;
   prompt_footer?: string | null;
   culture_hint?: string | null;
@@ -108,10 +109,11 @@ export const api = {
     }),
 
   listEntities: (id: string) => req<{ entities: Entity[] }>(`/projects/${id}/entities`),
-  extractEntities: (id: string) =>
-    req<{ added: number; entities: Entity[] }>(`/projects/${id}/entities/extract`, {
-      method: "POST",
-    }),
+  extractEntities: (id: string, replace = false) =>
+    req<{ added: number; entities: Entity[] }>(
+      `/projects/${id}/entities/extract${replace ? "?replace=true" : ""}`,
+      { method: "POST" }
+    ),
   addEntity: (id: string, body: Partial<Entity>) =>
     req<Entity>(`/projects/${id}/entities`, { method: "POST", body: JSON.stringify(body) }),
   updateEntity: (eid: string, body: Partial<Entity>) =>
@@ -332,4 +334,76 @@ export async function setTtsConfig(base_url: string): Promise<any> {
   });
   if (!res.ok) throw new Error("Không đặt được OmniVoice URL");
   return res.json();
+}
+
+// ─── Voices (OmniVoice TTS) ──────────────────────────────────
+export interface Voice {
+  voice_id: number;
+  title: string;
+  desciption?: string; // OmniVoice spelling
+}
+
+async function ttsReq<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api/tts${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return res.json() as Promise<T>;
+}
+
+/** Normalize OmniVoice's list response (array or {voices:[…]}, varied key names). */
+export async function listVoices(): Promise<Voice[]> {
+  const raw = await ttsReq<any>("/voices");
+  const arr: any[] = Array.isArray(raw) ? raw : raw?.voices || raw?.data || [];
+  return arr.map((v, i) => ({
+    voice_id: Number(v.voice_id ?? v.id ?? v.index ?? i),
+    title: String(v.title ?? v.name ?? v.voice ?? `Voice ${v.voice_id ?? i}`),
+    desciption: v.desciption ?? v.description ?? "",
+  }));
+}
+
+export const addVoice = (voice: string, title: string, desciption?: string) =>
+  ttsReq<any>("/voices", {
+    method: "POST",
+    body: JSON.stringify({ voice, title, desciption }),
+  });
+
+export const removeVoice = (voice_id: number) =>
+  ttsReq<any>("/voices/remove", {
+    method: "POST",
+    body: JSON.stringify({ voice_id }),
+  });
+
+/** Synthesize speech → returns base64 audio (WAV). */
+export const synthesize = (text: string, voice_id = 0) =>
+  ttsReq<{ audio: string; status?: string; msg?: string }>("/synthesize", {
+    method: "POST",
+    body: JSON.stringify({ text, voice_id }),
+  });
+
+/** Read a File as a bare base64 string (no data: prefix) for voice upload. */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",").pop() || "");
+    r.onerror = () => reject(new Error("Không đọc được file"));
+    r.readAsDataURL(file);
+  });
+}
+
+/** base64 (WAV) → playable object URL. */
+export function base64ToAudioUrl(b64: string, mime = "audio/wav"): string {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
 }

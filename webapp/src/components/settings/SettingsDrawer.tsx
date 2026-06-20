@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, getTtsConfig, setTtsConfig } from "../../api/client";
+import VoiceManager from "./VoiceManager";
 
 export default function SettingsDrawer({ onClose }: { onClose: () => void }) {
   const [opts, setOpts] = useState<any>(null);
@@ -82,7 +83,14 @@ export default function SettingsDrawer({ onClose }: { onClose: () => void }) {
           <Field label="OmniVoice base URL (TTS)">
             <input value={ttsUrl} onChange={(e) => setTtsUrl(e.target.value)}
               placeholder="https://xxxx.ngrok-free.app" className={inp} />
+            <p className="mt-1 text-xs text-neutral-600">
+              Đặt URL rồi “Lưu cấu hình” trước khi quản lý/test giọng bên dưới.
+            </p>
           </Field>
+
+          <div className="border-t border-neutral-800 pt-4">
+            <VoiceManager />
+          </div>
 
           <Field label="Font caption (vẽ chữ lên video)">
             <select value={s.caption_font || ""} onChange={(e) => set("caption_font", e.target.value)} className={inp}>

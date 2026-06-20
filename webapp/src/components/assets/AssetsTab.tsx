@@ -11,6 +11,7 @@ import {
 import type { EditorTarget } from "../nodeeditor/NodeEditor";
 import Thumb from "../Thumb";
 import Lightbox from "../common/Lightbox";
+import { useConfirm } from "../common/Confirm";
 
 const GROUPS: { type: Entity["type"]; label: string }[] = [
   { type: "character", label: "Nhân vật" },
@@ -36,6 +37,7 @@ export default function AssetsTab({
     { mode: "import" } | { mode: "link"; entity: Entity } | null
   >(null);
   const [err, setErr] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   const load = () =>
     api.listEntities(project.id).then((r) => setEntities(r.entities)).catch(() => {});
@@ -75,15 +77,10 @@ export default function AssetsTab({
     }
   };
 
-  // Auto gen on the client so each image shows its "Đang tạo…" overlay live and we
-  // can report progress + which ones failed (backend already verifies + retries).
-  const autoGen = async () => {
-    const todo = entities.filter((e) => !e.image_path);
-    if (!todo.length) {
-      setErr("Tất cả asset đã có ảnh.");
-      return;
-    }
-    setBusy("all");
+  // Run gen over a list on the client so each image shows its "Đang tạo…" overlay live
+  // and we can report progress + which ones failed (backend already verifies + retries).
+  const runBatch = async (todo: Entity[], label: string) => {
+    setBusy(label);
     setErr(null);
     let okN = 0;
     const failed: string[] = [];
@@ -96,6 +93,40 @@ export default function AssetsTab({
     setProgress(null);
     setBusy(null);
     if (failed.length) setErr(`Xong ${okN}/${todo.length}. Lỗi: ${failed.join(", ")}`);
+  };
+
+  // Auto gen only the assets that don't have an image yet.
+  const autoGen = async () => {
+    const todo = entities.filter((e) => !e.image_path);
+    if (!todo.length) {
+      setErr("Tất cả asset đã có ảnh.");
+      return;
+    }
+    await runBatch(todo, "all");
+  };
+
+  // Wipe the current entities and re-extract fresh ones from the script. Destructive
+  // (deletes existing assets incl. their reference images), so confirm first.
+  const rebuildAll = async () => {
+    const ok = await confirm({
+      title: "Dựng lại tất cả asset?",
+      message:
+        `XOÁ toàn bộ ${entities.length} asset hiện tại (nhân vật, bối cảnh, đạo cụ — kể cả ` +
+        "ảnh tham chiếu đã tạo) rồi để AI trích xuất lại danh sách entity mới từ kịch bản.",
+      confirmText: "Xoá & trích lại",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy("rebuild");
+    setErr(null);
+    try {
+      const r = await api.extractEntities(project.id, true);
+      setEntities(r.entities);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
   };
 
   const addManual = async (type: Entity["type"]) => {
@@ -136,6 +167,14 @@ export default function AssetsTab({
             className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
           >
             {busy === "all" ? "Đang tạo…" : "✦ Auto gen"}
+          </button>
+          <button
+            disabled={!!busy}
+            onClick={rebuildAll}
+            title="Xoá toàn bộ asset hiện tại rồi trích xuất lại entity mới từ kịch bản"
+            className="rounded-lg border border-rose-800 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40 disabled:opacity-40"
+          >
+            {busy === "rebuild" ? "Đang trích lại…" : "↻ Dựng lại tất cả"}
           </button>
         </div>
       </div>
