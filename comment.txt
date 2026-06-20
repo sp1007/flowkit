@@ -32,3 +32,6 @@ vẽ text lên video các từ mấu chốt hoặc các cụm từ quan trọng 
 
 ===
 trước khi tạo các audio tts, phải xử lý toàn bộ text, normalize các số và chữ sang số, xử lý viết tắt, giờ, ngày, tháng, năm, các đơn vị tiền tệ, các kí tự đặc biệt(ví dụ như %, $, #, - (sẽ bị đọc thành gạch ngang, cần phải bỏ đi hoặc thay thế), _ (sẽ bị đọc thành gạch dưới, cần phải bỏ đi hoặc thay thế), "DN-31" sẽ đọc là D N ba mươi mốt, "00.00" sẽ đọc là "không giờ", "02:17" đọc là hai giờ mười bảy phút (nếu có chữ thời gian sáng/chiều phía sau thì để nguyên, nếu không có thì là: hai giờ mười bảy phút sáng), v.v.) sao cho tts tạo ra audio chuẩn nhất, sau đó chia thành các đoạn ngắn để tts xử lý
+
+
+cho phép quản lý voices, tạo voice, upload voice, chọn voice trong dự án, có nút test voice để test voice, 
