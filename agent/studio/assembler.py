@@ -6,6 +6,7 @@ that clip's audio and -shortest trims the clip to the narration (the storytellin
 "đọc tới đâu hình tới đó" alignment); otherwise a silent track is added.
 """
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -102,105 +103,124 @@ async def _image_clip(img: Path, narration: Path | None, out: Path,
     await _run(args)
 
 
-def _group_beats(shots: list[dict]) -> list[list[dict]]:
-    """Group consecutive shots that belong to the same beat (storytelling sub-shots share
-    one narration). A null/blank beat_id → its own single-shot group (standard mode)."""
-    groups: list[list[dict]] = []
-    for sh in shots:
-        bid = sh.get("beat_id")
-        if bid and groups and groups[-1][0].get("beat_id") == bid:
-            groups[-1].append(sh)
-        else:
-            groups.append([sh])
-    return groups
+def _caption_font() -> str | None:
+    cand = os.environ.get("STUDIO_CAPTION_FONT") or "C:/Windows/Fonts/arial.ttf"
+    return cand if Path(cand).exists() else None
 
 
-async def _beat_image_clip(parts: list[dict], out: Path, w: int, h: int,
-                           default_duration: float, ken_burns: bool) -> float:
-    """Render one beat (1+ chained still images) to `out`. If the beat has a narration on
-    its first part, the part images are shown back-to-back to cover that audio and the
-    narration is the audio track; otherwise each part uses its own `duration`. Returns the
-    clip length (seconds)."""
-    part0 = parts[0]
-    narr = _local(part0["narration_path"]) if part0.get("narration_path") else None
+def _drawtext_chain(captions: list[dict], font: str, out_dir: Path, tag: str,
+                    h: int) -> str:
+    """Build a chain of ffmpeg drawtext filters that flash each caption during its window.
+    Text is read from a sidecar file (textfile=) to avoid escaping Vietnamese/punctuation."""
+    parts = []
+    fontposix = Path(font).as_posix()
+    for k, c in enumerate(captions):
+        txt = (c.get("text") or "").strip()
+        if not txt or c.get("end", 0) <= c.get("start", 0):
+            continue
+        tf = out_dir / f"cap_{tag}_{k}.txt"
+        tf.write_text(txt, encoding="utf-8")
+        parts.append(
+            f"drawtext=fontfile='{fontposix}':textfile='{tf.as_posix()}'"
+            f":enable='between(t,{c['start']:.3f},{c['end']:.3f})'"
+            f":fontsize={max(28, int(h*0.055))}:fontcolor=white:borderw=2:bordercolor=black"
+            f":box=1:boxcolor=black@0.45:boxborderw=14"
+            f":x=(w-text_w)/2:y=h-(text_h*2.2)"
+        )
+    return ",".join(parts)
+
+
+async def _scene_clip(parts: list[dict], scene: dict, out: Path, w: int, h: int,
+                      default_duration: float, ken_burns: bool, font: str | None) -> float:
+    """Render ONE scene to `out`: its shot images shown back-to-back over the scene's single
+    continuous narration (audio kept whole), with timed keyword captions burned on top."""
+    narr = _local(scene["narration_path"]) if scene.get("narration_path") else None
     narr = narr if (narr and narr.exists()) else None
-    audio_total = None
-    if narr:
-        audio_total = float(part0.get("narration_duration") or 0) or await probe_duration(narr)
+    scene_dur = float(scene.get("narration_duration") or 0)
+    if narr and scene_dur <= 0:
+        scene_dur = await probe_duration(narr)
 
-    # per-part display lengths
     base = [max(0.5, float(p.get("duration") or default_duration)) for p in parts]
-    if narr and audio_total and audio_total > 0:
+    if scene_dur > 0:                                  # scale image windows to cover audio
         s = sum(base) or 1.0
-        durs = [d * audio_total / s for d in base]   # scale parts to cover the real audio
+        durs = [d * scene_dur / s for d in base]
     else:
         durs = base
 
-    if len(parts) == 1:
-        src = _local(parts[0]["image_path"])
-        await _image_clip(src, narr, out, w, h, durs[0], ken_burns)
-        return durs[0]
-
-    # multi-part: build each silent sub-clip, concat, then mux the beat narration once
+    # one silent sub-clip per shot image, then concat → scene video
     tmp = []
     for k, p in enumerate(parts):
         src = _local(p["image_path"])
         if not src.exists():
             continue
-        sub = out.with_name(f"{out.stem}_p{k}.mp4")
+        sub = out.with_name(f"{out.stem}_s{k}.mp4")
         await _image_clip(src, None, sub, w, h, durs[k], ken_burns)
         tmp.append(sub)
     if not tmp:
-        raise RuntimeError("beat không có ảnh hợp lệ")
-    lst = out.with_name(f"{out.stem}_parts.txt")
+        raise RuntimeError("scene không có ảnh hợp lệ")
+    lst = out.with_name(f"{out.stem}_list.txt")
     lst.write_text("".join(f"file '{p.as_posix()}'\n" for p in tmp), encoding="utf-8")
     silent = out.with_name(f"{out.stem}_silent.mp4")
     await _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
                 "-c", "copy", str(silent)])
+
+    # captions are stored scene-local (already on the scene timeline)
+    caps: list[dict] = []
+    for p in parts:
+        try:
+            caps.extend(json.loads(p.get("captions") or "[]"))
+        except (json.JSONDecodeError, TypeError):
+            pass
+    chain = _drawtext_chain(caps, font, out.parent, out.stem, h) if font and caps else ""
+
+    args = ["ffmpeg", "-y", "-i", str(silent)]
     if narr:
-        await _run(["ffmpeg", "-y", "-i", str(silent), "-i", str(narr),
-                    "-map", "0:v", "-map", "1:a", "-c:v", "copy",
-                    "-c:a", "aac", "-ar", "44100", "-shortest", str(out)])
+        args += ["-i", str(narr)]
     else:
-        silent.replace(out)
+        args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
+    if chain:
+        args += ["-filter_complex", f"[0:v]{chain}[v]", "-map", "[v]", "-map", "1:a"]
+    else:
+        args += ["-map", "0:v", "-map", "1:a"]
+    args += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+             "-c:a", "aac", "-ar", "44100", "-shortest", str(out)]
+    await _run(args)
     return await probe_duration(out)
 
 
 async def assemble_from_images(project_id: str, ken_burns: bool = True,
                                default_duration: float = 4.0) -> dict:
-    """Build ONE long video from the shot IMAGES (scene/shot order).
+    """Build ONE long video from the shot IMAGES, grouped BY SCENE.
 
-    Each image is shown for the length of its TTS narration (storytelling "đọc tới đâu
-    hình tới đó"); shots without narration fall back to their `duration`. Storytelling
-    sub-shots of one beat share that beat's single narration (shown back-to-back to cover
-    it). Clips are concatenated into studio_media/<pid>/final.mp4. No Flow video gen — a
-    fast image-slideshow path.
+    Storytelling (§2.6): each scene has ONE continuous narration (kept whole for emotional
+    flow); its shot images play back-to-back to cover that audio ("đọc tới đâu hình tới
+    đó"), with timed keyword captions burned on. Scenes without narration fall back to each
+    shot's `duration`. Scene clips concat into studio_media/<pid>/final.mp4 — no Flow video.
     """
     project = await db.query_one("SELECT * FROM project WHERE id=?", (project_id,))
     if not project:
         raise RuntimeError("project not found")
-    shots = await db.query_all(
-        "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
-        "WHERE sc.project_id=? AND sh.image_path IS NOT NULL ORDER BY sc.idx, sh.idx",
-        (project_id,))
-    if not shots:
-        raise RuntimeError("Chưa có shot nào có ảnh để ghép")
-
+    scenes = await db.query_all(
+        "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (project_id,))
     out_dir = STUDIO_MEDIA_DIR / project_id
     out_dir.mkdir(parents=True, exist_ok=True)
     w, h = _res(project["aspect_ratio"])
+    font = _caption_font()
 
     clip_paths, total = [], 0.0
-    for gi, parts in enumerate(_group_beats(shots)):
+    for si, sc in enumerate(scenes):
+        parts = await db.query_all(
+            "SELECT * FROM shot WHERE scene_id=? AND image_path IS NOT NULL ORDER BY idx",
+            (sc["id"],))
         parts = [p for p in parts if _local(p["image_path"]).exists()]
         if not parts:
             continue
-        out = out_dir / f"img{gi:03d}.mp4"
-        total += await _beat_image_clip(parts, out, w, h, default_duration, ken_burns)
+        out = out_dir / f"scene{si:03d}.mp4"
+        total += await _scene_clip(parts, sc, out, w, h, default_duration, ken_burns, font)
         clip_paths.append(out)
 
     if not clip_paths:
-        raise RuntimeError("Không có ảnh hợp lệ để ghép")
+        raise RuntimeError("Chưa có shot nào có ảnh để ghép")
 
     list_file = out_dir / "concat_images.txt"
     list_file.write_text(

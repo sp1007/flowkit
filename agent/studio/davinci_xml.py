@@ -2,7 +2,10 @@
 
 References the local shot videos with cumulative in/out points so the user can do
 the final edit in Resolve. Frames are computed at a fixed fps from clip durations.
+A second video track carries timed keyword captions (FCP7 Text generators) aligned to
+when the narration reaches each phrase.
 """
+import json
 import os
 from pathlib import Path
 from urllib.request import pathname2url
@@ -41,6 +44,33 @@ def _clipitem(idx: int, name: str, path: Path, start_f: int, dur_f: int, w: int,
         </clipitem>"""
 
 
+def _title_item(idx: int, text: str, start_f: int, dur_f: int) -> str:
+    """FCP7 'Text' generator clip (Resolve imports these onto a title track)."""
+    end_f = start_f + dur_f
+    return f"""        <clipitem id="title{idx}">
+          <name>{escape(text[:40])}</name>
+          <enabled>TRUE</enabled>
+          <duration>{dur_f}</duration>
+          <rate><timebase>{FPS}</timebase><ntsc>FALSE</ntsc></rate>
+          <start>{start_f}</start>
+          <end>{end_f}</end>
+          <in>0</in>
+          <out>{dur_f}</out>
+          <effect>
+            <name>Text</name>
+            <effectid>Text</effectid>
+            <effectcategory>Text</effectcategory>
+            <effecttype>generator</effecttype>
+            <mediatype>video</mediatype>
+            <parameter>
+              <parameterid>str</parameterid>
+              <name>Text</name>
+              <value>{escape(text)}</value>
+            </parameter>
+          </effect>
+        </clipitem>"""
+
+
 async def build(project_id: str) -> dict:
     project = await db.query_one("SELECT * FROM project WHERE id=?", (project_id,))
     if not project:
@@ -53,7 +83,7 @@ async def build(project_id: str) -> dict:
         raise RuntimeError("Chưa có shot nào có video để export")
 
     w, h = assembler._res(project["aspect_ratio"])
-    items, start_f, total = [], 0, 0
+    items, titles, start_f, total, tnum = [], [], 0, 0, 0
     for i, sh in enumerate(shots):
         path = assembler._local(sh["video_path"])
         if not path.exists():
@@ -61,9 +91,24 @@ async def build(project_id: str) -> dict:
         dur_s = await assembler.probe_duration(path)
         dur_f = max(1, round(dur_s * FPS))
         items.append(_clipitem(i, sh.get("title") or f"Shot {i+1}", path, start_f, dur_f, w, h))
+        # timed keyword captions → title track (offset within this clip)
+        try:
+            caps = json.loads(sh.get("captions") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            caps = []
+        base = float(sh.get("start_time") or 0)   # caption times are scene-local
+        for c in caps:
+            off = max(0.0, float(c.get("start", 0)) - base)
+            cs = start_f + round(off * FPS)
+            cd = max(1, round((float(c.get("end", 0)) - float(c.get("start", 0))) * FPS))
+            cd = min(cd, max(1, start_f + dur_f - cs))  # clamp inside the clip
+            if c.get("text") and cd > 0 and cs < start_f + dur_f:
+                titles.append(_title_item(tnum, c["text"], cs, cd))
+                tnum += 1
         start_f += dur_f
         total += dur_f
 
+    title_track = f"\n        <track>\n{chr(10).join(titles)}\n        </track>" if titles else ""
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE xmeml>
 <xmeml version="5">
@@ -79,7 +124,7 @@ async def build(project_id: str) -> dict:
         </samplecharacteristics></format>
         <track>
 {chr(10).join(items)}
-        </track>
+        </track>{title_track}
       </video>
     </media>
   </sequence>

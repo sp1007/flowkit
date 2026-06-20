@@ -191,11 +191,12 @@ export const storyboard = {
       method: "POST",
       body: JSON.stringify({ n_frames: n_frames ?? null }),
     }),
-  // Storytelling (§2.6): build audio-driven beat-shots for every scene from the voiceover.
-  buildBeats: (pid: string, language = "Vietnamese") =>
-    req<{ requested: number; done: number; errors: any[]; total_duration_est: number; shots: number }>(
+  // Storytelling (§2.6): TTS each scene as one continuous read, then map beats onto it.
+  // measure=true uses real TTS durations (needs OmniVoice up); false estimates from words.
+  buildBeats: (pid: string, language = "Vietnamese", measure = true) =>
+    req<{ requested: number; done: number; errors: any[]; total_duration: number; measured: boolean; shots: number }>(
       `/projects/${pid}/voiceover`,
-      { method: "POST", body: JSON.stringify({ language }) }
+      { method: "POST", body: JSON.stringify({ language, measure }) }
     ),
   addShot: (sid: string) => req<Shot>(`/scenes/${sid}/shots`, { method: "POST" }),
   insertShot: (sid: string) => req<Shot>(`/shots/${sid}/insert`, { method: "POST" }),

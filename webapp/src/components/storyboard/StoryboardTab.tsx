@@ -176,13 +176,14 @@ export default function StoryboardTab({
     }
   };
 
-  // Storytelling (§2.6): build audio-driven beat-shots from the voiceover for every scene.
+  // Storytelling (§2.6): TTS each scene as ONE continuous read first, then map beats.
   const buildBeats = async () => {
     if (
       !window.confirm(
         "Dựng shots theo LỜI ĐỌC (storytelling) cho mọi scene?\n\n" +
-          "AI cắt từng scene thành beat (1 câu đọc = 1 cảnh), độ dài shot bám theo độ dài " +
-          "lời đọc (ước lượng); beat dài hơn ~8s tự tách thành nhiều shot nối tiếp. " +
+          "Mỗi scene được đọc (TTS) liền mạch MỘT lần để giữ cảm xúc, rồi cắt thành beat " +
+          "(1 cảnh) bám đúng thời điểm audio; từ khoá quan trọng được canh giờ để hiện chữ " +
+          "lên video. Cần BẬT OmniVoice (TTS); nếu tắt sẽ ước lượng theo số từ.\n\n" +
           "Thao tác này XÓA các shot hiện tại."
       )
     )
@@ -193,10 +194,10 @@ export default function StoryboardTab({
       const r = await storyboard.buildBeats(project.id);
       await reloadAll();
       setNotice(
-        `Đã dựng ${r.shots} shot theo lời đọc cho ${r.done}/${r.requested} scene ` +
-          `(~${r.total_duration_est}s). Tạo ảnh rồi sinh narration để khớp audio thật.`
+        `Đã dựng ${r.shots} shot cho ${r.done}/${r.requested} scene (~${r.total_duration}s, ` +
+          `${r.measured ? "đo bằng TTS thật" : "ước lượng — bật TTS để chính xác"}).`
       );
-      setTimeout(() => setNotice(null), 5000);
+      setTimeout(() => setNotice(null), 6000);
     } catch (e: any) {
       setErr(e.message);
     } finally {

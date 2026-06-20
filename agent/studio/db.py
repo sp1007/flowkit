@@ -92,6 +92,14 @@ _MIGRATIONS = [
     # A shot has two independent node graphs: graph_json = the storyboard IMAGE graph,
     # video_graph_json = the shots-tab VIDEO graph. They must not share storage.
     ("shot", "video_graph_json", "TEXT"),
+    # Storytelling (§2.6, audio-first): ONE continuous TTS per scene (kept whole so the
+    # narration keeps its emotional flow); beats are timing windows over it.
+    ("scene", "narration_text", "TEXT"),
+    ("scene", "narration_path", "TEXT"),
+    ("scene", "narration_duration", "REAL"),
+    # Timed keyword captions burned on the video / exported to DaVinci (JSON list of
+    # {text, start, end} in scene-local seconds).
+    ("shot", "captions", "TEXT"),
 ]
 
 

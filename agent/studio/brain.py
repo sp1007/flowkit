@@ -249,56 +249,58 @@ def storyboard_autofill_prompt(scene_heading: str, scene_body: str,
     )
 
 
-def scene_beats_prompt(scene_heading: str, scene_body: str, entities: list[dict],
-                       style: str, language: str = "Vietnamese") -> str:
-    """Storytelling (§2.6, audio-first): cut a scene into narration BEATS. Each beat is
-    one spoken moment / action → becomes one shot (split later if the audio runs long)."""
+def scene_voiceover_prompt(scene_heading: str, scene_body: str,
+                           language: str = "Vietnamese") -> str:
+    """Storytelling §2.6 — the WHOLE scene's voiceover as ONE continuous, emotional read.
+    This single text is sent to TTS in one piece (no chopping), so the narration keeps its
+    flow; beats are mapped onto its timeline afterwards."""
+    return (
+        f"Write the {language} VOICEOVER narration for this scene as ONE continuous, "
+        "emotionally connected passage — natural storytelling prose, no stage directions, "
+        "no character-name labels, no scene heading. It will be read aloud in a single take, "
+        "so it must flow smoothly start to finish.\n\n"
+        f"SCENE: {scene_heading}\n{scene_body}\n\n"
+        "Return ONLY JSON: {\"voiceover\":\"<the continuous narration>\"}"
+    )
+
+
+def scene_segment_prompt(voiceover: str, entities: list[dict], style: str) -> str:
+    """Split an ALREADY-WRITTEN scene voiceover into visual BEATS. Each beat's `text` is a
+    verbatim CONTIGUOUS slice of the voiceover (in order, concatenating back to the whole),
+    so each beat's share of the audio time can be derived from its word count. Also pick the
+    key phrases to flash on screen when the narration reaches them."""
     roster = "\n".join(
         f"- {{{e['name']}}} ({e['type']}): {e.get('description') or ''}" for e in entities
     ) or "(none)"
     locations = [e["name"] for e in entities if e.get("type") == "location"]
     loc_line = (
         "Location entities available: " + ", ".join("{" + n + "}" for n in locations)
-        + ". Every beat happens at the ONE location of this scene."
+        + ". Every beat is at the ONE location of this scene."
     ) if locations else (
         "No location entity yet — invent ONE consistent place name in curly braces and "
         "reuse it for every beat."
     )
     return (
-        "This is STORYTELLING mode (narration-driven). Break the scene into BEATS — each "
-        "beat = one continuous moment of the voiceover tied to a single on-screen action.\n"
+        "Split this scene VOICEOVER into visual BEATS (one beat = one on-screen moment). "
+        "Do NOT rewrite the narration — each beat's `text` MUST be a verbatim, contiguous "
+        "slice of the voiceover, and the slices in order MUST concatenate back to the whole "
+        "voiceover (no gaps, no overlaps).\n"
         f"{loc_line}\n\n"
         "For each beat return:\n"
-        f"- `narrator_text`: the spoken {language} voiceover for this beat (natural, 1–2 "
-        "sentences, no stage directions). This is the audio whose length drives the shot.\n"
-        "- `beat_action`: the concrete action happening during the beat (English ok).\n"
-        "- `description`: image prompt that MUST begin with the location then camera angle, "
+        "- `text`: the verbatim voiceover slice for this beat.\n"
+        "- `beat_action`: the concrete action happening on screen.\n"
+        "- `description`: image prompt beginning with the location then camera angle, "
         "e.g. \"At {Làng}, wide shot, {Tấm} scrubs the porch...\".\n"
-        "- `visual_prompt`: what is on screen (subject, composition, lighting), same entity refs.\n"
-        "- `motion_prompt`: the camera move + action during the clip, same entity refs.\n"
-        "- `ref_entity_names`: every entity used (names WITHOUT braces); MUST include the location.\n\n"
-        "Wrap known entity names in curly braces in description/visual/motion so they bind to "
-        f"their reference images. Visual style: {style}.\n\n"
-        f"AVAILABLE ENTITIES:\n{roster}\n\n"
-        f"SCENE: {scene_heading}\n{scene_body}\n\n"
-        "Return ONLY JSON array: [{\"narrator_text\":\"...\",\"beat_action\":\"...\","
+        "- `visual_prompt`: subject/composition/lighting (same entity refs).\n"
+        "- `motion_prompt`: camera move + action during the clip (same entity refs).\n"
+        "- `ref_entity_names`: entity names WITHOUT braces, MUST include the location.\n"
+        "- `key_phrases`: 1–3 SHORT punchy phrases taken VERBATIM from this beat's `text` "
+        "(the words worth flashing on screen as captions); [] if none.\n\n"
+        f"Wrap known entity names in curly braces. Visual style: {style}.\n\n"
+        f"AVAILABLE ENTITIES:\n{roster}\n\nVOICEOVER:\n{voiceover}\n\n"
+        "Return ONLY JSON array: [{\"text\":\"...\",\"beat_action\":\"...\","
         "\"description\":\"At {Loc}, <angle>, ...\",\"visual_prompt\":\"...\","
-        "\"motion_prompt\":\"...\",\"ref_entity_names\":[\"Loc\",\"...\"]}]"
-    )
-
-
-def beat_parts_prompt(beat_action: str, motion_prompt: str, n_parts: int) -> str:
-    """A beat's audio is longer than one clip (≤8s) → split into `n_parts` continuous
-    sub-clips. Returns a continuation motion prompt for each part (the visual flows on)."""
-    return (
-        f"A single beat lasts longer than one {8}-second clip, so it is split into "
-        f"{n_parts} consecutive sub-clips that play back-to-back as ONE continuous action. "
-        "Each sub-clip starts from the last frame of the previous one (chained), so the "
-        "motion must flow on without resetting.\n\n"
-        f"BEAT ACTION: {beat_action}\nFULL MOTION: {motion_prompt}\n\n"
-        f"Write {n_parts} motion prompts, one per sub-clip, each describing the portion of "
-        "the action in that ~8s window (continuous, no repetition, same entities/refs).\n"
-        "Return ONLY JSON: {\"parts\":[{\"part_idx\":0,\"motion_prompt\":\"...\"}, ...]}"
+        "\"motion_prompt\":\"...\",\"ref_entity_names\":[\"Loc\"],\"key_phrases\":[\"...\"]}]"
     )
 
 
