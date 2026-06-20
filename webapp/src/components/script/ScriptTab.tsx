@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Project, type Scene } from "../../api/client";
+import ScreenplayPreview from "./ScreenplayPreview";
 
 export default function ScriptTab({
   project,
@@ -13,6 +14,10 @@ export default function ScriptTab({
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // "preview" = formatted screenplay page; "edit" = raw Fountain textarea.
+  const [view, setView] = useState<"edit" | "preview">(
+    (project.script_raw ?? "").trim() ? "preview" : "edit"
+  );
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Insert a Fountain screenplay element at the cursor (on its own line).
@@ -49,6 +54,7 @@ export default function ScriptTab({
     setScript(r.script);
     setScenes(r.scenes);
     setDirty(false);
+    if (r.script.trim()) setView("preview"); // show the formatted page after AI writes/edits
     onScriptChange?.(r.script);
   };
 
@@ -68,48 +74,77 @@ export default function ScriptTab({
     <div className="flex h-full">
       {/* Main editor */}
       <div className="relative flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
           <span className="text-sm text-neutral-400">
             {hasScript
               ? `Screenplay (Fountain) · ${scenes.length} scene`
               : "Chưa có kịch bản"}
           </span>
           {hasScript && (
-            <button
-              disabled={!dirty || !!busy}
-              onClick={() => wrap("save", () => api.saveScript(project.id, script))}
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
-            >
-              {busy === "save" ? "Đang lưu…" : dirty ? "Lưu" : "Đã lưu"}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Xem (trang screenplay) ⇄ Sửa (Fountain thô) */}
+              <div className="flex rounded-lg bg-neutral-900 p-0.5 text-xs">
+                <button
+                  onClick={() => setView("preview")}
+                  className={`rounded-md px-2.5 py-1 transition ${
+                    view === "preview" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200"
+                  }`}
+                >
+                  📖 Xem
+                </button>
+                <button
+                  onClick={() => setView("edit")}
+                  className={`rounded-md px-2.5 py-1 transition ${
+                    view === "edit" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200"
+                  }`}
+                >
+                  ✏️ Sửa
+                </button>
+              </div>
+              {view === "edit" && (
+                <button
+                  disabled={!dirty || !!busy}
+                  onClick={() => wrap("save", () => api.saveScript(project.id, script))}
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+                >
+                  {busy === "save" ? "Đang lưu…" : dirty ? "Lưu" : "Đã lưu"}
+                </button>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Screenplay toolbar — chèn phần tử Fountain chuẩn ngành tại con trỏ */}
-        <div className="flex flex-wrap gap-1 px-4 pb-2">
-          <TBtn onClick={() => insertSnippet("INT. ĐỊA ĐIỂM - DAY\n")} title="Scene Heading (INT./EXT.)">🎬 Cảnh</TBtn>
-          <TBtn onClick={() => insertSnippet("Mô tả hành động đang diễn ra.\n")} title="Action — dòng mô tả">Hành động</TBtn>
-          <TBtn onClick={() => insertSnippet("TÊN NHÂN VẬT\n")} title="Character cue (in hoa)">👤 Nhân vật</TBtn>
-          <TBtn onClick={() => insertSnippet("(diễn giải)\n")} title="Parenthetical">(Diễn giải)</TBtn>
-          <TBtn onClick={() => insertSnippet("Lời thoại.\n")} title="Dialogue">💬 Thoại</TBtn>
-          <TBtn onClick={() => insertSnippet("CUT TO:\n")} title="Transition (căn phải)">Chuyển →</TBtn>
-        </div>
+        {/* Screenplay toolbar — chèn phần tử Fountain chuẩn ngành tại con trỏ (chỉ khi Sửa) */}
+        {view === "edit" && (
+          <div className="flex flex-wrap gap-1 px-4 pb-2">
+            <TBtn onClick={() => insertSnippet("INT. ĐỊA ĐIỂM - DAY\n")} title="Scene Heading (INT./EXT.)">🎬 Cảnh</TBtn>
+            <TBtn onClick={() => insertSnippet("Mô tả hành động đang diễn ra.\n")} title="Action — dòng mô tả">Hành động</TBtn>
+            <TBtn onClick={() => insertSnippet("TÊN NHÂN VẬT\n")} title="Character cue (in hoa)">👤 Nhân vật</TBtn>
+            <TBtn onClick={() => insertSnippet("(diễn giải)\n")} title="Parenthetical">(Diễn giải)</TBtn>
+            <TBtn onClick={() => insertSnippet("Lời thoại.\n")} title="Dialogue">💬 Thoại</TBtn>
+            <TBtn onClick={() => insertSnippet("CUT TO:\n")} title="Transition (căn phải)">Chuyển →</TBtn>
+          </div>
+        )}
 
         {/* Script area — always scrollable; large bottom padding so the floating
             composer never hides the last lines of the screenplay. */}
         <div className="relative flex-1 px-4">
-          <textarea
-            ref={taRef}
-            value={script}
-            onChange={(e) => {
-              setScript(e.target.value);
-              setDirty(true);
-            }}
-            spellCheck={false}
-            placeholder={hasScript ? "" : "Kịch bản sẽ hiện ở đây. Nhập ý tưởng bên dưới để tạo…"}
-            className="absolute inset-0 mx-4 resize-none overflow-auto rounded-xl border border-neutral-800 bg-neutral-950 p-4 font-mono text-[13px] leading-6 text-neutral-200 outline-none focus:border-indigo-500"
-            style={{ fontFamily: '"Courier New", ui-monospace, monospace', paddingBottom: 180 }}
-          />
+          {view === "preview" ? (
+            <ScreenplayPreview script={script} />
+          ) : (
+            <textarea
+              ref={taRef}
+              value={script}
+              onChange={(e) => {
+                setScript(e.target.value);
+                setDirty(true);
+              }}
+              spellCheck={false}
+              placeholder={hasScript ? "" : "Kịch bản sẽ hiện ở đây. Nhập ý tưởng bên dưới để tạo…"}
+              className="absolute inset-0 mx-4 resize-none overflow-auto rounded-xl border border-neutral-800 bg-neutral-950 p-4 font-mono text-[13px] leading-6 text-neutral-200 outline-none focus:border-indigo-500"
+              style={{ fontFamily: '"Courier New", ui-monospace, monospace', paddingBottom: 180 }}
+            />
+          )}
 
           {/* Floating composer */}
           <Composer
