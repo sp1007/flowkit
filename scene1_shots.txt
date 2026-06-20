@@ -1,0 +1,64 @@
+Shot 0:
+  Description: At {Phòng làm việc của Thiên Ân}, eye-level medium close-up, {Trần Thiên Ân} turns a page of printed documents, her face illuminated by a desk lamp.
+  Narrator Text: Hồ sơ được phân loại vào diện "tình huống đặc biệt", hoàn toàn không có thêm bất kỳ chi tiết nào. Cô tiếp tục đọc. Tài liệu thứ năm, thứ sáu, rồi thứ bảy. Đến hai giờ năm mươi phút sáng, cô có được bảy cái tên.
+
+Shot 1:
+  Description: At {Phòng làm việc của Thiên Ân}, low-angle wide shot, {Trần Thiên Ân} is sitting at her desk, a glowing cyan {Đồng hồ ba chiều} floating near her.
+  Narrator Text: Bảy kỹ sư trong vòng năm năm, tất cả đều làm việc tại chuỗi giếng khoan DN-series của tập đoàn Vortex Systems. Tất cả đều biến mất hoặc tử vong trong những "tai nạn" được phân loại gọn gàng và đóng hồ sơ chớp nhoáng sau một khoảng thời gian ngắn.
+
+Shot 2:
+  Description: At {Phòng làm việc của Thiên Ân}, overhead top-down close-up, a hand writes names in a {Sổ tay màu đen} with a black pen.
+  Narrator Text: Không có bất kỳ một cuộc điều tra độc lập nào được tiến hành. Không một lá đơn khởi kiện nào từ phía gia đình nạn nhân được đưa ra tòa. Cũng chẳng có tay nhà báo nào viết về chuỗi sự kiện này — bởi vì nếu tách riêng lẻ, mỗi vụ việc trông hệt như một vụ tai nạn lao động thông thường.
+
+Shot 3:
+  Description: At {Phòng làm việc của Thiên Ân}, eye-level medium shot, {Trần Thiên Ân} picks up a glass of coffee with a steaming metal {Phin cà phê}.
+  Narrator Text: Chỉ khi đặt chúng nằm cạnh nhau, quy luật mới bắt đầu hiện hình.
+
+Shot 4:
+  Description: At {Phòng làm việc của Thiên Ân}, extreme close-up, the eyes of {Trần Thiên Ân} behind her glasses, reflecting green text.
+  Narrator Text: Thiên Ân nhìn chằm chằm vào danh sách bảy cái tên trên tờ giấy. Đây chính là lý do khiến cô đệ đơn từ chức khỏi OmniSentinel Media hai năm về trước, và bước chân vào mạng lưới báo chí địa hạ ngầm — cái thế giới không tồn tại một văn phòng cố định, không có các ông trùm quảng cáo thao túng, và cũng không một thế lực nào có thể nhấc máy gọi cho tổng biên tập để yêu cầu gỡ bỏ một bài viết.
+
+Shot 5:
+  Description: At {Phòng làm việc của Thiên Ân}, high-angle medium wide shot, {Trần Thiên Ân} leans back, looking towards the rainy window showing the skyline.
+  Narrator Text: Cô đã sớm nhận ra sự thật: những câu chuyện mang tầm vóc quan trọng nhất sẽ không bao giờ được đưa tin bởi những kẻ nhận lương để đưa tin.
+
+Shot 6:
+  Description: At {Phòng làm việc của Thiên Ân}, low-angle close-up, a crispy {Bánh mì} sits next to the modified {Laptop cổ điển cải tiến}.
+  Narrator Text: Nhưng cô cũng thừa hiểu: quy luật không phải là bằng chứng.
+
+Shot 7:
+  Description: At {Phòng làm việc của Thiên Ân}, eye-level close-up, a hand holds a classic {Máy ghi âm Sony cổ điển}, pressing the play button.
+  Narrator Text: Bảy cái chết hay sự mất tích trong vòng năm năm, đặt trong bối cảnh của một ngành công nghiệp khoan sâu vốn nổi tiếng với tỷ lệ tai nạn cao ngất ngưởng — điều đó không tự động cấu thành một âm mưu.
+
+Shot 8:
+  Description: At {Phòng làm việc của Thiên Ân}, over-the-shoulder medium shot, {Trần Thiên Ân} looks at a spreadsheet on the modified {Laptop cổ điển cải tiến}.
+  Narrator Text: Đó chỉ mới là điểm khởi đầu. Cô lật nhanh sang phần cuối của tập tài liệu, lùng sục xem liệu còn thứ gì khác ngoài những bản báo cáo tai nạn khô khan hay không. Có. ◆ Phần cuối là một tệp Excel — bản gốc, hoàn toàn không qua scan, được ai đó gửi trực tiếp từ ổ cứng cá nhân.
+
+Shot 9:
+  Description: At {Phòng làm việc của Thiên Ân}, extreme close-up, the glowing screen of the {Laptop cổ điển cải tiến} displaying file metadata.
+  Narrator Text: Dữ liệu metadata vẫn còn nguyên vẹn: tệp được tạo lúc 23:41 ngày 12 tháng 9 năm 2047, tức là chỉ vỏn vẹn hai ngày trước.
+
+Shot 10:
+  Description: At {Phòng làm việc của Thiên Ân}, eye-level medium close-up, {Trần Thiên Ân} leans in towards her screen, examining details.
+  Narrator Text: Tên tác giả trong thuộc tính tệp là một chuỗi ký tự ngẫu nhiên — kẻ tạo ra nó đã cẩn thận xóa đi tên thật, nhưng lại quên mất rằng dấu thời gian (timestamp) vẫn còn lưu lại. Thiên Ân mở tệp. Đây là bản danh sách các nhân viên kỹ thuật hiện đang hoạt động tại chuỗi giếng khoan DN-series của Vortex Systems.
+
+Shot 11:
+  Description: At {Phòng làm việc của Thiên Ân}, close-up, the spreadsheet on the screen with colored rows highlighted in green, yellow, and red.
+  Narrator Text: Tên họ, chức danh, giếng được phân công, và ngày bắt đầu công việc. Khoảng sáu mươi người, được đánh dấu bằng những mã màu khác nhau — xanh lá, vàng, đỏ — theo một hệ thống phân loại mà cô chưa thể lập tức hiểu ngay ý nghĩa.
+
+Shot 12:
+  Description: At {Phòng làm việc của Thiên Ân}, overhead medium close-up, {Trần Thiên Ân}'s hand points at the notes column on the glowing laptop screen.
+  Narrator Text: Cô đưa mắt xuống cột ghi chú ở cuối bảng. Có một dòng chú thích nhỏ: Xanh lá = theo dõi thường lệ.
+
+Shot 13:
+  Description: At {Phòng làm việc của Thiên Ân}, eye-level medium shot, {Trần Thiên Ân} rubs her temples with both hands under the desk lamp.
+  Narrator Text: Vàng = gắn cờ (flagged), cần chú ý. Đỏ = ưu tiên xử lý. Có sáu người được đánh dấu đỏ. Cô lướt qua tên từng người một, chẳng nhận ra ai. Đọc lại lần nữa. Vẫn hoàn toàn xa lạ.
+
+Shot 14:
+  Description: At {Phòng làm việc của Thiên Ân}, extreme close-up, the laptop screen displaying {Phạm Trọng Hùng}'s name and details.
+  Narrator Text: Rồi cô chuyển hướng nhìn sang cột màu vàng. Có bốn người được đánh dấu vàng. Cô đọc cái tên đầu tiên: Phạm Trọng Hùng. Kỹ sư phân tích dao động địa nhiệt, giếng khoan DN-31. Ngày bắt đầu: 5 tháng 5 năm 2047.
+
+Shot 15:
+  Description: At {Phòng làm việc của Thiên Ân}, high-angle close-up, {Trần Thiên Ân} holds a printed paper next to the screen of the modified {Laptop cổ điển cải tiến}.
+  Narrator Text: Cô đăm đăm nhìn vào cái tên đó mất chừng mười lăm giây. Sau đó, cô lật lại trang đầu, mở lại danh sách bảy người đã mất tích hoặc tử vong, và dừng lại ở người thứ sáu: Vũ Đình Khải.
+
