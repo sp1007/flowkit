@@ -4,6 +4,7 @@ import {
   listVoices,
   synthesize,
   base64ToAudioUrl,
+  projectExportUrl,
   type Project,
   type Voice,
 } from "../../api/client";
@@ -297,7 +298,15 @@ export default function ProjectSettings({
           </Field>
         </div>
 
-        <div className="border-t border-neutral-800 p-4">
+        <div className="space-y-2 border-t border-neutral-800 p-4">
+          <a
+            href={projectExportUrl(project.id)}
+            download
+            className="block rounded-lg border border-neutral-700 py-2 text-center text-sm text-neutral-300 hover:bg-neutral-800"
+            title="Tải dự án (rows DB + media) thành .zip để sao lưu / chuyển máy"
+          >
+            ⬇ Xuất dự án (.zip)
+          </a>
           <button onClick={save} disabled={busy}
             className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40">
             {busy ? "Đang lưu…" : "Lưu cấu hình dự án"}

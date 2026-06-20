@@ -87,6 +87,13 @@ export const api = {
   },
   clearBgm: (id: string) =>
     req<Project>(`/projects/${id}/bgm`, { method: "DELETE" }),
+  importProjectZip: async (file: File): Promise<Project> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/studio/projects/import-zip", { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    return res.json();
+  },
   setCover: (id: string, media_id: string) =>
     req<{ project: Project; flow_updated: boolean }>(`/projects/${id}/cover`, {
       method: "PUT",
@@ -345,6 +352,10 @@ export interface ScriptResult {
 
 // Thumbnail URL for a Flow media key (backend caches locally).
 export const thumbUrl = (key: string) => `/api/studio/thumb/${key}`;
+
+// Direct URL to download a project backup (.zip: DB rows + media).
+export const projectExportUrl = (pid: string) =>
+  `/api/studio/projects/${pid}/export-zip`;
 
 // Direct URL to download all storyboard images of a project as a .zip.
 export const storyboardExportUrl = (pid: string) =>

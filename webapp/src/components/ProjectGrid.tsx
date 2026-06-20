@@ -12,8 +12,24 @@ export default function ProjectGrid({ onOpen }: Props) {
   const [flow, setFlow] = useState<FlowProject[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const confirm = useConfirm();
+
+  const importZip = async (file: File | undefined) => {
+    if (!file) return;
+    setImporting(true);
+    setErr(null);
+    try {
+      const p = await api.importProjectZip(file);
+      await refresh();
+      onOpen(p);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const refresh = async () => {
     try {
@@ -68,6 +84,19 @@ export default function ProjectGrid({ onOpen }: Props) {
           <p className="text-sm text-neutral-400">Tạo video từ ý tưởng bằng AI</p>
         </div>
         <div className="flex gap-2">
+          <label
+            title="Nhập dự án từ file .zip đã export"
+            className="cursor-pointer rounded-lg border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800"
+          >
+            {importing ? "Đang nhập…" : "⬆ Nhập .zip"}
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              disabled={importing}
+              onChange={(e) => importZip(e.target.files?.[0])}
+            />
+          </label>
           <button
             onClick={loadFlow}
             className="rounded-lg border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800"

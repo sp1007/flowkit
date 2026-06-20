@@ -10,10 +10,11 @@ import math
 import os
 import random
 import shutil
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from agent.config import (
@@ -1388,6 +1389,123 @@ async def reorder_scenes(pid: str, body: ReorderRequest):
                          (i, scene_id, pid))
     return {"scenes": await db.query_all(
         "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))}
+
+
+# ─── Project backup: export / import as .zip (§13#5) ──────────
+
+@router.get("/projects/{pid}/export-zip")
+async def export_project_zip(pid: str):
+    """Đóng gói dự án (rows DB + media local) thành .zip để sao lưu / chuyển máy."""
+    project = await _project_or_404(pid)
+    scenes = await db.query_all("SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))
+    shots: list[dict] = []
+    for sc in scenes:
+        shots += await db.query_all(
+            "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sc["id"],))
+    entities = await db.query_all("SELECT * FROM entity WHERE project_id=?", (pid,))
+    manifest = {"version": 1, "project": project, "scenes": scenes,
+                "shots": shots, "entities": entities}
+
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        media_dir = media_store.MEDIA_DIR / pid
+        if media_dir.exists():
+            for f in media_dir.iterdir():
+                if f.is_file():
+                    zf.write(f, f"media/{f.name}")
+        bgm = (project.get("bgm_path") or "").strip()
+        if bgm and Path(bgm).exists():
+            zf.write(bgm, f"bgm/{Path(bgm).name}")
+
+    safe = "".join(c if (c.isalnum() or c in "-_.") else "_"
+                   for c in (project.get("title") or "project"))[:50] or "project"
+    return Response(
+        content=buf.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe}.zip"'})
+
+
+@router.post("/projects/import-zip")
+async def import_project_zip(file: UploadFile = File(...)):
+    """Nhập dự án từ .zip đã export: tạo project MỚI (id mới), khôi phục media local +
+    rows DB. Giữ flow_project_id cũ (có thể cần re-link Flow), media hiển thị từ file local."""
+    import io
+    import zipfile
+    data = await file.read()
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        manifest = json.loads(zf.read("manifest.json"))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"File .zip không hợp lệ: {e}")
+
+    old_proj = manifest.get("project") or {}
+    old_pid = old_proj.get("id")
+    if not old_pid:
+        raise HTTPException(400, "manifest thiếu thông tin project")
+    new_pid = db.new_id()
+    ts = db.now()
+
+    # khôi phục media → ./media/<new_pid>/
+    dest = media_store.MEDIA_DIR / new_pid
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in zf.namelist():
+        if name.startswith("media/") and not name.endswith("/"):
+            (dest / Path(name).name).write_bytes(zf.read(name))
+    new_bgm = None
+    for name in zf.namelist():
+        if name.startswith("bgm/") and not name.endswith("/"):
+            bdir = assembler.STUDIO_MEDIA_DIR / new_pid
+            bdir.mkdir(parents=True, exist_ok=True)
+            bp = bdir / Path(name).name
+            bp.write_bytes(zf.read(name))
+            new_bgm = str(bp)
+
+    def remap(v):
+        if isinstance(v, str) and f"/media/{old_pid}/" in v:
+            return v.replace(f"/media/{old_pid}/", f"/media/{new_pid}/")
+        return v
+
+    # entities first (ref_entity_ids + location_entity_id reference these ids)
+    ent_map: dict[str, str] = {}
+    for e in manifest.get("entities", []):
+        nid = db.new_id()
+        ent_map[e["id"]] = nid
+        row = {k: remap(v) for k, v in e.items()}
+        row.update({"id": nid, "project_id": new_pid, "created_at": ts, "updated_at": ts})
+        await db.insert("entity", row)
+
+    proj = {k: remap(v) for k, v in old_proj.items()}
+    proj.update({"id": new_pid, "bgm_path": new_bgm,
+                 "title": (old_proj.get("title") or "Imported") + " (nhập)",
+                 "created_at": ts, "updated_at": ts})
+    await db.insert("project", proj)
+
+    sc_map: dict[str, str] = {}
+    for sc in manifest.get("scenes", []):
+        nid = db.new_id()
+        sc_map[sc["id"]] = nid
+        row = {k: remap(v) for k, v in sc.items()}
+        row.update({"id": nid, "project_id": new_pid})
+        if row.get("location_entity_id"):
+            row["location_entity_id"] = ent_map.get(row["location_entity_id"])
+        await db.insert("scene", row)
+
+    for sh in manifest.get("shots", []):
+        nsid = sc_map.get(sh.get("scene_id"))
+        if not nsid:
+            continue
+        row = {k: remap(v) for k, v in sh.items()}
+        row.update({"id": db.new_id(), "scene_id": nsid})
+        try:
+            ids = json.loads(row.get("ref_entity_ids") or "[]")
+            row["ref_entity_ids"] = json.dumps([ent_map.get(i, i) for i in ids])
+        except (json.JSONDecodeError, TypeError):
+            pass
+        await db.insert("shot", row)
+
+    return await db.query_one("SELECT * FROM project WHERE id=?", (new_pid,))
 
 
 @router.patch("/shots/{sid}")
