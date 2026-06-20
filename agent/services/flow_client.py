@@ -30,6 +30,13 @@ class FlowClient:
         self._extension_ws = None  # Set by WS server when extension connects
         self._pending: dict[str, asyncio.Future] = {}
         self._flow_key: Optional[str] = None
+        # Single-flight queue (video-app.md §9.1): the extension is ONE shared WS channel,
+        # so every mutating Flow command (generate / edit / upscale / upload / rename /
+        # get-url) is serialized through this lock — only one is in flight at a time. This
+        # stops a batch and a manual op (⚡ quick-gen, Node Editor) from interleaving requests
+        # and corrupting rate-limit/captcha state. Read-only polls (check-status, credits) opt
+        # out (serialize=False) so they don't block submits — they run on their own cadence.
+        self._flow_lock = asyncio.Lock()
         # WS stats
         self._ws_connect_count = 0
         self._ws_disconnect_count = 0
@@ -117,13 +124,26 @@ class FlowClient:
                 "Video reviewer uses get_media fallback automatically. "
                 "For URL refresh, open the project in Google Flow in Chrome."}
 
-    async def _send(self, method: str, params: dict, timeout: float = 300) -> dict:
+    async def _send(self, method: str, params: dict, timeout: float = 300,
+                    *, serialize: bool = True) -> dict:
         """Send request to extension and wait for response.
 
         Always returns a dict. On error, returns {"error": "<reason>"} — callers
         must check result.get("error") or use _is_ws_error() before reading data.
         Never raises; exceptions are caught and returned as error dicts.
+
+        `serialize=True` (default) routes the call through the single-flight lock so it
+        does not overlap another Flow command. Read-only polls pass `serialize=False`.
         """
+        if not self._extension_ws:
+            return {"error": "Extension not connected"}
+        if serialize:
+            async with self._flow_lock:
+                return await self._send_raw(method, params, timeout)
+        return await self._send_raw(method, params, timeout)
+
+    async def _send_raw(self, method: str, params: dict, timeout: float) -> dict:
+        """Actual send + await of one extension request (no serialization)."""
         if not self._extension_ws:
             return {"error": "Extension not connected"}
 
@@ -632,7 +652,7 @@ class FlowClient:
             "method": "POST",
             "headers": random_headers(),
             "body": body,
-        }, timeout=30)  # No captcha needed
+        }, timeout=30, serialize=False)  # poll is read-only → must not block submits (§9.1)
 
     async def get_credits(self) -> dict:
         """Get user credits and tier."""
@@ -641,7 +661,7 @@ class FlowClient:
             "url": url,
             "method": "GET",
             "headers": random_headers(),
-        }, timeout=15)
+        }, timeout=15, serialize=False)  # lightweight read (StatusPills) → don't block submits
 
     async def validate_media_id(self, media_id: str) -> bool:
         """Check if a mediaId is still valid.
