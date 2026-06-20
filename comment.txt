@@ -1,0 +1,34 @@
+trong storyboard, mỗi shot trong scene bắt buộc phải gắn với 1 địa điểm, và phải ghi rõ trong prompt. Ví dụ: Tại {khung cảnh 1}, góc quay từ trái sang, nhân vật A đang làm gì. Khi nhấn vào ảnh thì phải xem được ảnh to.
+
+trong storyboard khi nhấn auto gen tạo hàng loạt ảnh thì khi ảnh tạo xong và download về không hiện ra ngay, nhưng khi chuyển sang tab khác và chuyển lại tab storyboard thì ảnh hiện ra. Hãy khắc phục vấn đề này.
+
+trong assets khi nhấn auto gen tạo hàng loạt ảnh thì khi ảnh tạo xong và download về không hiện ra ngay, nhưng khi chuyển sang tab khác và chuyển lại tab assets thì ảnh hiện ra. Hãy khắc phục vấn đề này.
+
+trong assets không cuộn được xuống khi có nhiều ảnh. Hãy khắc phục vấn đề này.
+
+trong tab assets, khi tạo ảnh các location thì chia ảnh ra làm 4, với bốn góc độ khác nhau của location đó.
+
+trong storyboard, không có nút auto fill, auto gen toàn tab, để khi nhấn vào thì thực hiện trên tất các các scene (hiện tại chỉ có nút trên từng scene, sẽ rất bất tiện nếu nội dung dài và có rất nhiều scene). Hãy bổ sung nút này.
+
+trong tab script, khi chuyển sang tab khác thì phần hiển thị script chuẩn bị mất. Hãy khắc phục vấn đề này. form nhập thì đưa xuống dưới, float lên trên, nhưng không được che phần nội dung cuối cùng của script. Đảm bảo cuộn được, edit được.
+
+phần edit với node hình như chưa được thực hiện, từ ảnh nhấn vào edit, nhưng không thấy prompt, không thấy ảnh đã tạo, chỉ thấy các khối node nối với nhau. Hãy sửa lại sao cho khi nhấn edit thì hiện prompt và ảnh đã tạo.
+
+trong setting của riêng dự án, thêm phần inputbox: prompt header, prompt footer để luôn chèn vào đầu và cuối mỗi prompt tạo ảnh/video của các tab có tạo ảnh/video. Ví dụ prompt header: always output in Vietnamese. Prompt footer: super detailed, aspect ratio 16:9, cinematic lightning, 8k, sharp focus.
+
+style luôn được đưa lên đầu prompt.
+
+trong character sheet thì ngoài các góc độ thì thêm cả các biểu cảm, thêm ảnh(to) chi tiết bán thân trên. Để dễ dàng chọn các góc độ và biểu cảm trong scene.
+
+trong tab shots, các visual/motion prompt phải được tự động tạo ra từ quá trình auto fill của tab storyboard (để thống nhất giữa ảnh shot và các hành động diễn biến cho shot đó, ngoài ra ảnh shot tham chiếu tới các entity thế nào thì prompt của visual/motion cũng tham chiếu tới các entity tương ứng). Nếu shot được add thủ công thì người dùng phải tự viết các prompt này. Đảm bảo các video vừa được tạo ra và download về phải hiển thị ngay, không cần chờ người dùng refresh thủ công.
+
+Khi viết script thì nên có khả năng nhận biết nội dung đó liên quan đến quốc gia nào. Ví du, tôi đưa vào sự tích cây khế thì nó sẽ nhận biết ra là Việt Nam, từ đó đưa vào prompt câu: Vietnamese folk tale, traditional Vietnamese architecture, traditional Vietnamese clothing, Vietnamese landscape, etc. (hiện tại, prompt tạo ra các hình ảnh của Nhật khi tôi để style là chibi ghibli). Hãy sửa lại để prompt ra phong cách phù hợp với nội dung script, ví dụ, nếu là truyện cổ tích Việt Nam thì ra phong cách Việt Nam, nếu là truyện cổ tích Nhật thì ra phong cách Nhật, nếu là truyện cổ tích Trung Quốc thì ra phong cách Trung Quốc, nếu là truyện cổ tích Châu Âu thì ra phong cách Châu Âu, v.v.
+
+Ngoài ra, khi tạo dự án xong, và có 1 vài ảnh đã được tạo ra thì Flow sẽ tự động đặt 1 ảnh nào đó để làm ảnh đại diện, cần cập nhật ảnh này. Hoặc sử dụng /api/flow/change-project-cover/7a2b3eb3-4cb0-41ee-9662-4dd4d7d85cd5/296074c9-4ac5-4e3a-92e0-f608b67512f1  để thay đổi ảnh cover tùy chọn
+
+====
+
+vẽ text lên video các từ mấu chốt hoặc các cụm từ quan trọng trong video đúng thời điểm audio đọc tới trong cả tạo video và file xml cho davinci resolve
+
+===
+trước khi tạo các audio tts, phải xử lý toàn bộ text, normalize các số và chữ sang số, xử lý viết tắt, giờ, ngày, tháng, năm, các đơn vị tiền tệ, các kí tự đặc biệt(ví dụ như %, $, #, - (sẽ bị đọc thành gạch ngang, cần phải bỏ đi hoặc thay thế), _ (sẽ bị đọc thành gạch dưới, cần phải bỏ đi hoặc thay thế), "DN-31" sẽ đọc là D N ba mươi mốt, "00.00" sẽ đọc là "không giờ", "02:17" đọc là hai giờ mười bảy phút (nếu có chữ thời gian sáng/chiều phía sau thì để nguyên, nếu không có thì là: hai giờ mười bảy phút sáng), v.v.) sao cho tts tạo ra audio chuẩn nhất, sau đó chia thành các đoạn ngắn để tts xử lý
