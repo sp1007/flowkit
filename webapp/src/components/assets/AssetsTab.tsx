@@ -215,7 +215,7 @@ export default function AssetsTab({
                 + Thêm
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {items.map((e) => (
                 <AssetCard
                   key={e.id}
@@ -353,7 +353,7 @@ function AssetCard({
             <span className="animate-pulse">Đang tạo ảnh…</span>
           </div>
         )}
-        <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition group-hover:opacity-100">
+        <div className="absolute inset-x-1.5 top-1.5 flex flex-wrap justify-end gap-1 opacity-0 transition group-hover:opacity-100">
           {onPreview && (
             <button
               onClick={onPreview}
