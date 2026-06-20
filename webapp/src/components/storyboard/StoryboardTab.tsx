@@ -208,6 +208,22 @@ export default function StoryboardTab({
     },
   });
 
+  // Storytelling "Dựng theo lời đọc" runs as a job too (TTS is slow). Reload shots scene
+  // by scene as each is rebuilt, and announce the result.
+  const beatsJob = jobFor("beats");
+  useJobWatcher("beats", {
+    onAdvance: reloadAll,
+    onDone: (j) => {
+      reloadAll();
+      if (j.errors.length) {
+        setErr(`Dựng lời đọc: ${j.done}/${j.total} scene xong, ${j.errors.length} lỗi.`);
+      } else {
+        setNotice(`Đã dựng lời đọc + beats cho ${j.done}/${j.total} scene.`);
+        setTimeout(() => setNotice(null), 6000);
+      }
+    },
+  });
+
   const autofillAll = async () => {
     setBusy("autofill-all");
     setErr(null);
@@ -234,20 +250,13 @@ export default function StoryboardTab({
       danger: true,
     });
     if (!ok) return;
-    setBusy("beats");
     setErr(null);
     try {
-      const r = await storyboard.buildBeats(project.id);
-      await reloadAll();
-      setNotice(
-        `Đã dựng ${r.shots} shot cho ${r.done}/${r.requested} scene (~${r.total_duration}s, ` +
-          `${r.measured ? "đo bằng TTS thật" : "ước lượng — bật TTS để chính xác"}).`
-      );
-      setTimeout(() => setNotice(null), 6000);
+      // Background job (§9): TTS is slow, so we kick it off and watch progress in the
+      // banner instead of blocking. Shots rebuild scene-by-scene as it advances.
+      await storyboard.buildBeats(project.id);
     } catch (e: any) {
       setErr(e.message);
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -319,12 +328,12 @@ export default function StoryboardTab({
             </button>
             {!!project.storytelling && (
               <button
-                disabled={!!busy || !scenes.length}
+                disabled={!!busy || !!beatsJob || !scenes.length}
                 onClick={buildBeats}
                 title="Storytelling: dựng shots theo độ dài lời đọc (beat audio-driven)"
                 className="rounded-lg border border-violet-700/60 px-3 py-2 text-sm text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
               >
-                {busy === "beats" ? "Đang dựng beat…" : "🎙 Dựng theo lời đọc"}
+                {beatsJob ? `Đang dựng beat ${beatsJob.done}/${beatsJob.total}…` : "🎙 Dựng theo lời đọc"}
               </button>
             )}
             <button

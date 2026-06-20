@@ -288,7 +288,7 @@ export const storyboard = {
   // Storytelling (§2.6): TTS each scene as one continuous read, then map beats onto it.
   // measure=true uses real TTS durations (needs OmniVoice up); false estimates from words.
   buildBeats: (pid: string, language = "Vietnamese", measure = true) =>
-    req<{ requested: number; done: number; errors: any[]; total_duration: number; measured: boolean; shots: number }>(
+    req<{ job_id: string; total: number }>(
       `/projects/${pid}/voiceover`,
       { method: "POST", body: JSON.stringify({ language, measure }) }
     ),

@@ -123,13 +123,15 @@ class JobManager:
         label: str = "",
         throttle: tuple[float, float] = (2.0, 6.0),
         item_label: Optional[Callable[[object], str]] = None,
+        finalize: Optional[Callable[[], Awaitable[None]]] = None,
     ) -> Job:
         job = Job(db.new_id(), project_id, type_, len(items), label)
         self._jobs[job.id] = job
-        job.task = asyncio.create_task(self._run(job, items, worker, throttle, item_label))
+        job.task = asyncio.create_task(
+            self._run(job, items, worker, throttle, item_label, finalize))
         return job
 
-    async def _run(self, job, items, worker, throttle, item_label) -> None:
+    async def _run(self, job, items, worker, throttle, item_label, finalize=None) -> None:
         await self._broadcast(job)
         await self._persist(job)
         for i, item in enumerate(items):
@@ -153,6 +155,14 @@ class JobManager:
                     await asyncio.wait_for(job.cancel.wait(), timeout=random.uniform(*throttle))
                 except asyncio.TimeoutError:
                     pass
+        if finalize is not None and job.status != "cancelled":
+            job.current = "Hoàn tất…"
+            await self._broadcast(job)
+            try:
+                await finalize()
+            except Exception as ex:
+                logger.exception("job %s finalize failed", job.id)
+                job.errors.append({"item": "finalize", "error": str(ex)[:200]})
         if job.status != "cancelled":
             job.status = "error" if job.errors and not job.done else "done"
         job.current = ""

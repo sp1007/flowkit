@@ -6,12 +6,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, studioWsUrl, type Job } from "../api/client";
+import { api, type Job } from "../api/client";
 
-// One WebSocket per open project feeds realtime batch progress (§9). Tabs read the
-// active jobs from here and refetch their data when a relevant job advances, so a
-// batch keeps running (and stays visible) even if the user switches tabs or the
-// page is reloaded — the server is the source of truth.
+// Realtime batch progress (§9) via short-interval polling of GET /jobs. We deliberately
+// poll instead of using a WebSocket: the dev Vite proxy mangles ws upgrades (ECONNRESET /
+// 426) and these batches are slow (image/TTS take seconds), so a ~1.2s poll is plenty and
+// works identically in dev and prod over the plain /api HTTP proxy. The server is the
+// source of truth, so a batch keeps running (and stays visible) across tab switches and
+// full page reloads.
 type Ctx = {
   jobs: Job[];
   jobFor: (type: string) => Job | undefined;
@@ -20,70 +22,46 @@ type Ctx = {
 
 const JobsCtx = createContext<Ctx>({ jobs: [], jobFor: () => undefined, cancel: () => {} });
 
+const FAST_MS = 1200; // a job is running → poll snappily
+const IDLE_MS = 4000; // nothing running → poll lazily to catch newly-started jobs
+
 export function JobsProvider({ projectId, children }: { projectId: string; children: ReactNode }) {
   const [map, setMap] = useState<Record<string, Job>>({});
-  const wsRef = useRef<WebSocket | null>(null);
+  const mapRef = useRef(map);
+  mapRef.current = map;
 
   useEffect(() => {
     setMap({});
     let stopped = false;
-    let retry: ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const connect = () => {
+    const tick = async () => {
       if (stopped) return;
-      let ws: WebSocket;
+      let anyRunning = false;
       try {
-        ws = new WebSocket(studioWsUrl());
+        const r = await api.listJobs(projectId);
+        if (stopped) return;
+        const next: Record<string, Job> = {};
+        for (const j of r.jobs) next[j.id] = j;
+        // Keep just-finished jobs that the server already reaped around briefly so the
+        // banner can show the final state, but drop them once they age out.
+        for (const [id, j] of Object.entries(mapRef.current)) {
+          if (!next[id] && j.status !== "running" && j.updated_at * 1000 > Date.now() - 15000) {
+            next[id] = j;
+          }
+        }
+        setMap(next);
+        anyRunning = r.jobs.some((j) => j.status === "running");
       } catch {
-        retry = setTimeout(connect, 2000);
-        return;
+        /* transient — keep last known state, retry next tick */
       }
-      wsRef.current = ws;
-      ws.onmessage = (ev) => {
-        let msg: any;
-        try {
-          msg = JSON.parse(ev.data);
-        } catch {
-          return;
-        }
-        if (msg.type === "snapshot") {
-          const m: Record<string, Job> = {};
-          for (const j of msg.jobs as Job[]) m[j.id] = j;
-          setMap(m);
-        } else if (msg.type === "job") {
-          setMap((prev) => ({ ...prev, [msg.job.id]: msg.job }));
-        }
-      };
-      ws.onclose = () => {
-        if (!stopped) retry = setTimeout(connect, 1500);
-      };
-      ws.onerror = () => {
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
-      };
+      if (!stopped) timer = setTimeout(tick, anyRunning ? FAST_MS : IDLE_MS);
     };
 
-    // Seed once via REST in case the socket is slow to open.
-    api.listJobs(projectId)
-      .then((r) => setMap((prev) => {
-        const m = { ...prev };
-        for (const j of r.jobs) m[j.id] = j;
-        return m;
-      }))
-      .catch(() => {});
-    connect();
-
+    tick();
     return () => {
       stopped = true;
-      if (retry) clearTimeout(retry);
-      try {
-        wsRef.current?.close();
-      } catch {
-        /* ignore */
-      }
+      if (timer) clearTimeout(timer);
     };
   }, [projectId]);
 

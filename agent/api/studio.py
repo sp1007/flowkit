@@ -1346,36 +1346,33 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
 
 @router.post("/projects/{pid}/voiceover")
 async def build_project_beats(pid: str, body: BuildBeatsRequest):
-    """Storytelling: per-scene whole-read TTS + beat mapping for EVERY scene, then stitch
-    project.voiceover_raw from the scene narrations (deletes existing shots per scene)."""
+    """Storytelling (§2.6): per-scene whole-read TTS + beat mapping for EVERY scene → job
+    nền (§9). Mỗi scene là 1 bước (xoá shot cũ + TTS + dựng beat) nên tiến độ hiện theo
+    từng scene; sau cùng stitch project.voiceover_raw từ các narration. Trả job_id ngay —
+    quá trình TTS rất chậm nên KHÔNG block request, tránh tưởng treo."""
     await _project_or_404(pid)
     scenes = await db.query_all(
         "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))
     if not scenes:
         raise HTTPException(400, "Chưa có scene — tạo kịch bản (Script) trước.")
-    done, errors, total, measured_any = 0, [], 0.0, False
-    for sc in scenes:
-        try:
-            r = await build_scene_beats(sc["id"], body)
-            total += float(r.get("scene_duration") or 0)
-            measured_any = measured_any or bool(r.get("measured"))
-            done += 1
-        except HTTPException as ex:
-            errors.append({"scene": sc["id"], "error": str(ex.detail)[:200]})
-        except Exception as ex:  # noqa: BLE001
-            errors.append({"scene": sc["id"], "error": str(ex)[:200]})
 
-    scenes = await db.query_all(
-        "SELECT narration_text FROM scene WHERE project_id=? ORDER BY idx", (pid,))
-    vo = [s["narration_text"] for s in scenes if s.get("narration_text")]
-    await db.update("project", pid, {
-        "voiceover_raw": "\n\n".join(vo), "storytelling": 1, "updated_at": db.now()})
-    n_shots = await db.query_one(
-        "SELECT COUNT(*) AS n FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
-        "WHERE sc.project_id=?", (pid,))
-    return {"requested": len(scenes), "done": done, "errors": errors,
-            "total_duration": round(total, 1), "measured": measured_any,
-            "shots": (n_shots or {}).get("n", 0)}
+    async def _worker(sc):
+        await build_scene_beats(sc["id"], body)
+
+    async def _finalize():
+        rows = await db.query_all(
+            "SELECT narration_text FROM scene WHERE project_id=? ORDER BY idx", (pid,))
+        vo = [s["narration_text"] for s in rows if s.get("narration_text")]
+        await db.update("project", pid, {
+            "voiceover_raw": "\n\n".join(vo), "storytelling": 1, "updated_at": db.now()})
+
+    job = get_job_manager().start(
+        project_id=pid, type_="beats", items=scenes, worker=_worker,
+        label=f"Dựng lời đọc + beats ({len(scenes)} scene)",
+        throttle=(0.5, 1.5),  # TTS itself is the slow part; keep inter-scene gap small
+        item_label=lambda sc: sc.get("heading") or sc["id"],
+        finalize=_finalize)
+    return {"job_id": job.id, "total": len(scenes)}
 
 
 @router.post("/scenes/{sid}/shots")
