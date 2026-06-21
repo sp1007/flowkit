@@ -126,11 +126,12 @@ _SINGLE_FRAME = (
     "collage, no turnaround row, no side-by-side angles, no plain white reference backdrop. "
     "Each named character must EXACTLY match its OWN reference image — never swap, blend or mix "
     "up faces, hair or costumes between characters, keep each person's identity distinct, and "
-    "do NOT add any extra people who are not named in this shot. The location reference shows "
-    "the place from ONE angle for identity/look only — do NOT copy its camera angle or framing; "
-    "compose THIS shot at its own specified shot size and camera angle. Render NO text, labels, "
-    "captions, annotations, callouts or watermarks, and do not reproduce any text/labels that "
-    "appear in the reference images"
+    "do NOT add any extra people who are not named in this shot. The location reference is a "
+    "2x2 grid of FOUR angles of the place for identity only — PICK the ONE angle that suits "
+    "this shot and render it as a single full-frame scene; do NOT reproduce the grid, the four "
+    "panels, the split layout or any position labels from it, and compose THIS shot at its own "
+    "specified shot size and camera angle. Render NO text, labels, captions, annotations, "
+    "callouts or watermarks, and do not reproduce any text/labels that appear in the references"
 )
 
 
@@ -233,45 +234,23 @@ _SHEET = {
     "prop": ("object design sheet, multiple angles (front, 3/4, side, top), single isolated "
              "object on plain solid white background, no background scene, no shadow, "
              "studio product reference"),
-    # A SINGLE establishing shot (not a grid): a multi-panel location sheet gets copied
-    # wholesale into shot frames, tiling four angles into one image. One clean, ultra-detailed
-    # wide view doubles as a usable scene backdrop and a stable identity reference.
-    "location": ("a SINGLE ultra-detailed establishing WIDE shot of this place as ONE unified "
-                 "cinematic photograph, full-bleed edge to edge. The set is COMPLETELY EMPTY and "
-                 "DESERTED: absolutely NO people, NO characters, NO animals, NO crowds — an "
-                 "unpopulated empty location only (ignore any people mentioned in the description "
-                 "above; show the place itself with nobody in it). Deep focus showing the whole "
-                 "space with foreground, midground and background depth; precise architecture, "
-                 "materials, surface textures, set dressing and props, volumetric natural "
-                 "atmospheric lighting, photoreal detail. Absolutely NO text, labels, captions, "
-                 "name tags, annotations, callouts or watermarks anywhere in the image — do not "
-                 "label the objects. It must NOT be a grid, 2x2, multi-panel, split screen, "
-                 "collage or reference sheet — one continuous empty scene only"),
+    # ONE image = a 2x2 grid of four angles of the same place, in a FIXED quadrant order so
+    # we can overlay correct position labels afterwards (Toàn cảnh / Góc ngược / Trên cao /
+    # Cận cảnh). The model must not draw its own text. Shots use the single_frame guard to
+    # pick one angle instead of copying the grid.
+    "location": ("ONE image laid out as a tidy 2x2 grid of FOUR camera angles of the SAME "
+                 "place, in this EXACT order: TOP-LEFT a wide establishing shot, TOP-RIGHT the "
+                 "reverse angle, BOTTOM-LEFT a high overhead/bird's-eye angle, BOTTOM-RIGHT an "
+                 "eye-level closer detail. Consistent architecture, materials, colour and "
+                 "lighting across all four panels. The place is COMPLETELY EMPTY — no people, "
+                 "no animals (ignore any people mentioned above). Photoreal, cinematic, deep "
+                 "detail. Do NOT draw any text, captions, labels or watermarks yourself — clean "
+                 "panels only"),
 }
 
-
-# Extra location views besides the primary establishing shot. Each is generated FROM the
-# primary as a reference (same place), so a shot has several distinct angles to draw on
-# instead of copying one fixed framing — but each is a clean single full-frame image (NOT a
-# tiled grid, which the model would otherwise copy wholesale).
-_LOCATION_PRIMARY_LABEL = "Toàn cảnh"
-_LOCATION_EXTRA_VIEWS = [
-    ("Góc ngược", "the REVERSE angle, looking back across the space from the opposite side"),
-    ("Trên cao", "a HIGH overhead / bird's-eye angle looking down on the space"),
-    ("Cận cảnh", "an EYE-LEVEL closer detail of one key part or corner of the space"),
-]
-
-
-def location_view_prompt(name: str, base: str, view: str) -> str:
-    """Prompt for an alternate angle of a location, kept identical to the primary via ref."""
-    return (
-        f"{name}: {base}. Show the EXACT SAME place as the reference image — identical "
-        f"architecture, materials, set dressing, colour and lighting — but from {view}. A "
-        "SINGLE clean full-frame cinematic photograph, completely EMPTY and deserted (no "
-        "people, no animals), deep focus, photoreal. Absolutely no text, labels or watermarks. "
-        "It must NOT be a grid, 2x2, multi-panel, split screen or collage — one continuous "
-        "scene only"
-    )
+# Position labels overlaid on the location grid quadrants (TL, TR, BL, BR), matching the
+# order fixed in the _SHEET["location"] prompt above.
+LOCATION_GRID_LABELS = ["Toàn cảnh", "Góc ngược", "Trên cao", "Cận cảnh"]
 
 
 def ref_image_prompt(entity_type: str, name: str, description: str) -> str:

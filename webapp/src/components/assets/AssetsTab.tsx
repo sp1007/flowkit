@@ -427,26 +427,7 @@ function AssetCard({
         </div>
       </div>
       <div className="p-2">
-        <div className="flex items-center gap-1.5">
-          <div className="truncate text-sm font-medium">{entity.name}</div>
-          {(() => {
-            if (entity.type !== "location") return null;
-            let n = 0;
-            try {
-              n = (JSON.parse(entity.extra_media || "[]") || []).length;
-            } catch {
-              /* ignore */
-            }
-            return n ? (
-              <span
-                title={`Bối cảnh có ${n + 1} góc nhìn — shot sẽ đa dạng góc hơn`}
-                className="shrink-0 rounded bg-teal-900/50 px-1 py-0.5 text-[10px] text-teal-300"
-              >
-                🎞 {n + 1} góc
-              </span>
-            ) : null;
-          })()}
-        </div>
+        <div className="truncate text-sm font-medium">{entity.name}</div>
         {entity.description && (
           <p className="mt-0.5 line-clamp-2 text-xs text-neutral-500">{entity.description}</p>
         )}

@@ -678,9 +678,6 @@ async def _store_media_on_entity(entity: dict, project: dict, info: dict, label:
         "primary_media_id": info.get("primary_media_id"),
         "workflow_id": info.get("workflow_id"),
         "image_path": web, "updated_at": db.now(),
-        # New primary → any previously generated extra location views no longer match.
-        # _generate_location_views repopulates after a fresh location gen.
-        "extra_media": None,
     })
     await _record_media_history(project["id"], "entity", entity["id"], "image",
                                info.get("media_id"), info.get("primary_media_id"), web)
@@ -705,115 +702,58 @@ async def _generate_entity_image(entity: dict, project: dict) -> dict:
         store_call=lambda info: _store_media_on_entity(
             entity, project, info, f"{entity['type']}_{entity['name']}"),
         label_for_err=f"asset {entity['name']}")
-    # Locations get extra angle views so shots don't copy one fixed framing (best-effort).
+    # A location's reference image is ONE 2x2 grid of four angles. Overlay the position
+    # labels on the quadrants for management (display only; the underlying media stays clean).
     if entity["type"] == "location" and row.get("media_id"):
         try:
-            await _generate_location_views(row, project)
+            await _label_location_grid(row, project)
             row = await _entity_or_404(entity["id"])
         except Exception as ex:  # noqa: BLE001
-            logger.warning("location extra views failed for %s: %s", entity["name"], ex)
+            logger.warning("location grid labelling failed for %s: %s", entity["name"], ex)
     return row
 
 
-async def _generate_location_views(entity: dict, project: dict) -> None:
-    """Generate alternate-angle views of a location FROM its primary image and store them in
-    entity.extra_media, so _build_frame_references can offer a shot several angles of the place."""
-    primary_id = entity.get("media_id")
-    if not primary_id:
+async def _label_location_grid(entity: dict, project: dict) -> None:
+    """Overlay the four position labels (Toàn cảnh / Góc ngược / Trên cao / Cận cảnh) on the
+    location's 2x2 grid quadrants → a labeled DISPLAY copy set as image_path. The original
+    grid (media_id) stays unlabeled and is what shots reference."""
+    web = entity.get("image_path")
+    if not web:
         return
-    client = _require_extension()
-    base = entity.get("description") or entity.get("ref_prompt") or ""
-    model = await _resolve_image_model(project)
-    tier = await _current_tier()
-    refs = [{"handle": entity["name"], "media_id": primary_id}]
-    extras: list[dict] = []
-    for label, view in brain._LOCATION_EXTRA_VIEWS:
-        prompt = brain.compose_prompt(project, brain.location_view_prompt(entity["name"], base, view))
-        try:
-            res = await client.generate_images(
-                prompt=prompt, project_id=project["flow_project_id"],
-                aspect_ratio="IMAGE_ASPECT_RATIO_LANDSCAPE", user_paygate_tier=tier,
-                image_model=model, references=refs, seed=project.get("seed"))
-            if res.get("error"):
-                logger.warning("location view lỗi (%s): %s", entity["name"], res["error"])
-                continue
-            info = _extract_image_result(res.get("data", res))
-            mid = info.get("media_id")
-            if mid:
-                web = await media_store.ensure_local(mid, project["id"])
-                if web:
-                    extras.append({"media_id": mid,
-                                   "primary_media_id": info.get("primary_media_id") or mid,
-                                   "path": web, "label": label})
-        except Exception as ex:  # noqa: BLE001
-            logger.warning("location view exception (%s): %s", entity["name"], ex)
-        await asyncio.sleep(random.uniform(2, 5))
-    await db.update("entity", entity["id"],
-                    {"extra_media": json.dumps(extras, ensure_ascii=False), "updated_at": db.now()})
-
-    # For MANAGEMENT, the location shows ONE image: a labeled 2x2 contact sheet of all views.
-    # The individual clean images (primary + extras) remain the shot references, so we get easy
-    # management without re-introducing the grid-copy bug.
-    cells = [{"path": entity.get("image_path"), "label": brain._LOCATION_PRIMARY_LABEL}]
-    cells += [{"path": x["path"], "label": x.get("label") or ""} for x in extras]
-    sheet = await _build_location_contact_sheet(entity, project, cells)
-    if sheet:
-        await db.update("entity", entity["id"], {"image_path": sheet, "updated_at": db.now()})
-
-
-async def _build_location_contact_sheet(entity: dict, project: dict, cells: list[dict]):
-    """Compose a location's views into ONE labeled 2x2 contact sheet (display image only).
-    Returns its web path, or None on failure (keeps the primary image)."""
-    items: list[tuple] = []
-    for c in cells:
-        p = c.get("path")
-        if not p:
-            continue
-        local = media_store.MEDIA_DIR / p.replace("/media/", "", 1)
-        if local.exists():
-            items.append((local, c.get("label") or ""))
-    if len(items) < 2:
-        return None
-    out_rel = f"{project['id']}/loc_{entity['id']}_sheet.png"
+    src = media_store.MEDIA_DIR / web.replace("/media/", "", 1)
+    if not src.exists():
+        return
+    out_rel = f"{project['id']}/loc_{entity['id']}_labeled.png"
     out_abs = media_store.MEDIA_DIR / out_rel
     font_path = assembler._caption_font()
+    labels = brain.LOCATION_GRID_LABELS
 
-    def _compose():
-        from PIL import Image, ImageDraw, ImageFont, ImageOps
-        cw, ih, lh, gap, pad = 512, 288, 36, 10, 12
-        ch = ih + lh
-        cols = 2
-        rows = (min(len(items), 4) + 1) // 2
-        W = pad * 2 + cols * cw + (cols - 1) * gap
-        H = pad * 2 + rows * ch + (rows - 1) * gap
-        canvas = Image.new("RGB", (W, H), (12, 12, 14))
-        draw = ImageDraw.Draw(canvas)
+    def _draw():
+        from PIL import Image, ImageDraw, ImageFont
+        im = Image.open(src).convert("RGB")
+        W, H = im.size
+        hw, hh = W // 2, H // 2
+        draw = ImageDraw.Draw(im, "RGBA")
+        size = max(16, W // 38)
         try:
-            font = ImageFont.truetype(font_path, 22) if font_path else ImageFont.load_default()
+            font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
         except Exception:
             font = ImageFont.load_default()
-        for idx, (lp, label) in enumerate(items[:4]):
-            r, c = divmod(idx, cols)
-            x = pad + c * (cw + gap)
-            y = pad + r * (ch + gap)
-            try:
-                im = ImageOps.fit(Image.open(lp).convert("RGB"), (cw, ih), Image.LANCZOS)
-                canvas.paste(im, (x, y))
-            except Exception:
-                pass
-            if label:
-                tw = draw.textlength(label, font=font)
-                draw.text((x + (cw - tw) / 2, y + ih + (lh - 24) / 2), label,
-                          font=font, fill=(232, 232, 236))
+        quads = [(0, 0), (hw, 0), (0, hh), (hw, hh)]  # TL, TR, BL, BR
+        for (qx, qy), label in zip(quads, labels):
+            tw = draw.textlength(label, font=font)
+            bx = qx + (hw - tw) / 2
+            by = qy + hh - size - 16
+            pad = 6
+            draw.rectangle([bx - pad, by - pad, bx + tw + pad, by + size + pad],
+                           fill=(0, 0, 0, 150))
+            draw.text((bx, by), label, font=font, fill=(245, 245, 248))
         out_abs.parent.mkdir(parents=True, exist_ok=True)
-        canvas.save(out_abs, "PNG")
+        im.save(out_abs, "PNG")
 
-    try:
-        await asyncio.to_thread(_compose)
-    except Exception as ex:  # noqa: BLE001
-        logger.warning("contact sheet failed (%s): %s", entity["name"], ex)
-        return None
-    return f"/media/{out_rel}"
+    await asyncio.to_thread(_draw)
+    await db.update("entity", entity["id"],
+                    {"image_path": f"/media/{out_rel}", "updated_at": db.now()})
 
 
 @router.get("/projects/{pid}/entities")
@@ -1092,17 +1032,6 @@ async def _build_frame_references(shot: dict, scene: dict) -> list[dict]:
         if e and e.get("media_id") and e["media_id"] not in seen:
             refs.append({"handle": e["name"], "media_id": e["media_id"]})
             seen.add(e["media_id"])
-            # A location also contributes its extra angle views (same handle) so the model
-            # has several framings of the place to reference instead of copying one.
-            if e.get("type") == "location" and e.get("extra_media"):
-                try:
-                    for v in (json.loads(e["extra_media"]) or []):
-                        mid = v.get("media_id")
-                        if mid and mid not in seen and len(refs) < 10:
-                            refs.append({"handle": e["name"], "media_id": mid})
-                            seen.add(mid)
-                except (json.JSONDecodeError, TypeError):
-                    pass
         if len(refs) >= 10:
             break
     return refs
