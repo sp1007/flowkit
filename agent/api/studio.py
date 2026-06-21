@@ -2104,6 +2104,13 @@ async def apply_entity_media(eid: str, body: ApplyMediaRequest):
     await db.update("entity", eid, {
         "media_id": body.media_id, "primary_media_id": body.media_id,
         "image_path": web, "updated_at": db.now()})
+    # A location's media is a 2x2 grid → overlay the position labels for display (same as
+    # quick-gen), so node "tạo nhanh" and candidate-pick get labels too.
+    if entity.get("type") == "location" and web:
+        try:
+            await _label_location_grid(await _entity_or_404(eid), project)
+        except Exception as ex:  # noqa: BLE001
+            logger.warning("location grid labelling (apply-media) failed for %s: %s", eid, ex)
     await _record_media_history(project["id"], "entity", eid, "image", body.media_id, body.media_id, web)
     return {"ok": True, "path": web, "entity": await _entity_or_404(eid)}
 
