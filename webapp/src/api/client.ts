@@ -413,7 +413,8 @@ export const assemble = {
       { method: "POST" }
     ),
   davinci: (pid: string) =>
-    req<{ web_path: string; clips: number; captions_srt: string | null; captions: number }>(`/projects/${pid}/export/davinci-xml`, {
+    req<{ web_path: string; clips: number; captions_srt: string | null; captions: number;
+          missing: number; missing_titles: string[] }>(`/projects/${pid}/export/davinci-xml`, {
       method: "POST",
     }),
 };

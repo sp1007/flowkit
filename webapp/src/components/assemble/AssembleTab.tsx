@@ -8,7 +8,7 @@ export default function AssembleTab({ project }: { project: Project }) {
   const [finalUrl, setFinalUrl] = useState<string | null>(null);
   const [xmlUrl, setXmlUrl] = useState<string | null>(null);
   const [srtUrl, setSrtUrl] = useState<string | null>(null);
-  const [xmlInfo, setXmlInfo] = useState<{ clips: number; captions: number } | null>(null);
+  const [xmlInfo, setXmlInfo] = useState<{ clips: number; captions: number; missing: number; missingTitles: string[] } | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [kenBurns, setKenBurns] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -75,7 +75,7 @@ export default function AssembleTab({ project }: { project: Project }) {
       const r = await asm.davinci(project.id);
       setXmlUrl(r.web_path + "?t=" + Date.now());
       setSrtUrl(r.captions_srt ? r.captions_srt + "?t=" + Date.now() : null);
-      setXmlInfo({ clips: r.clips, captions: r.captions });
+      setXmlInfo({ clips: r.clips, captions: r.captions, missing: r.missing, missingTitles: r.missing_titles });
     });
 
   return (
@@ -144,6 +144,13 @@ export default function AssembleTab({ project }: { project: Project }) {
           {xmlInfo && (
             <div className="mb-1 text-emerald-400">
               ✓ Đã tạo timeline: {xmlInfo.clips} clip · {xmlInfo.captions} caption
+            </div>
+          )}
+          {xmlInfo && xmlInfo.missing > 0 && (
+            <div className="mb-2 text-amber-400">
+              ⚠ {xmlInfo.missing} shot bị bỏ qua (thiếu ảnh/video local, tải lại từ Flow không được):
+              {" "}
+              {xmlInfo.missingTitles.join(" · ")}. Hãy tạo lại ảnh cho các shot này rồi export lại.
             </div>
           )}
           DaVinci timeline:{" "}

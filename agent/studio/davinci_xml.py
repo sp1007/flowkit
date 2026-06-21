@@ -31,6 +31,23 @@ def _alpha(i: int) -> str:
     return s
 
 
+async def _resolve_local(web_path, media_id, ext: str, project_id: str):
+    """Local file for a shot media; if the cache file is missing, re-download from Flow by
+    media_id — a generated shot whose local copy was pruned/never cached still exports."""
+    if not web_path:
+        return None
+    p = assembler._local(web_path)
+    if p.exists() and p.stat().st_size > 0:
+        return p
+    if media_id:
+        web = await media_store.ensure_local(media_id, project_id, ext)
+        if web:
+            p = assembler._local(web)
+            if p.exists() and p.stat().st_size > 0:
+                return p
+    return None
+
+
 def _stage(src: Path, name: str, dv_dir: Path) -> Path:
     """Hardlink (or copy across volumes) `src` into dv_dir/<name><ext>; return the staged path.
     Lets the timeline reference sequence-safe filenames in one self-contained folder."""
@@ -150,6 +167,7 @@ async def build(project_id: str) -> dict:
 
     items, titles, srt, start_f, total, tnum = [], [], [], 0, 0, 0
     audio_segs = []   # (scene narration WAV, timeline start frame)
+    skipped = []      # shots with media in the DB but no usable file (even after re-download)
     i = 0
     for sc in scenes:
         rows = await db.query_all(
@@ -158,12 +176,15 @@ async def build(project_id: str) -> dict:
         # Resolve each shot to a usable media file: prefer video, else the still image.
         usable = []   # (shot, path, is_image)
         for sh in rows:
-            vp = assembler._local(sh["video_path"]) if sh.get("video_path") else None
-            ip = assembler._local(sh["image_path"]) if sh.get("image_path") else None
-            if vp and vp.exists():
+            vp = await _resolve_local(sh.get("video_path"), sh.get("video_media_id"), "mp4", project_id)
+            if vp:
                 usable.append((sh, vp, False))
-            elif ip and ip.exists():
+                continue
+            ip = await _resolve_local(sh.get("image_path"), sh.get("image_media_id"), "png", project_id)
+            if ip:
                 usable.append((sh, ip, True))
+            else:
+                skipped.append(sh.get("title") or sh["id"])
         if not usable:
             continue
 
@@ -275,4 +296,5 @@ async def build(project_id: str) -> dict:
         "path": str(out), "meta_json": None, "created_at": db.now()})
     return {"path": str(out), "web_path": f"/studio-media/{project_id}/timeline.xml",
             "clips": len(items), "captions_srt": srt_web, "captions": len(srt),
-            "audio_tracks": len(audio_items)}
+            "audio_tracks": len(audio_items), "missing": len(skipped),
+            "missing_titles": skipped[:20]}
