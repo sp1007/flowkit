@@ -98,52 +98,87 @@ def _audio_item(idx: int, name: str, path: Path, start_f: int, dur_f: int) -> st
         </clipitem>"""
 
 
+DEFAULT_IMG_S = 4.0
+
+
 async def build(project_id: str) -> dict:
+    """Resolve timeline from each shot's VIDEO, or its IMAGE as a still when no video exists
+    yet (storytelling: review storyboard images, then edit in Resolve without rendering Flow
+    videos). Per scene: video shots use their probed length; image-only scenes scale their
+    stills to fill the scene's continuous narration — same timing as 'Tạo video từ ảnh'."""
     project = await db.query_one("SELECT * FROM project WHERE id=?", (project_id,))
     if not project:
         raise RuntimeError("project not found")
-    shots = await db.query_all(
-        "SELECT sh.*, sc.id AS _scene_id, sc.narration_path AS _scene_narr "
-        "FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
-        "WHERE sc.project_id=? AND sh.video_path IS NOT NULL ORDER BY sc.idx, sh.idx",
-        (project_id,))
-    if not shots:
-        raise RuntimeError("Chưa có shot nào có video để export")
+    scenes = await db.query_all(
+        "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (project_id,))
 
     w, h = assembler._res(project["aspect_ratio"])
     items, titles, srt, start_f, total, tnum = [], [], [], 0, 0, 0
-    audio_segs, cur_scene = [], None   # scene narration WAV placed at its timeline start
-    for i, sh in enumerate(shots):
-        path = assembler._local(sh["video_path"])
-        if not path.exists():
+    audio_segs = []   # (scene narration WAV, timeline start frame)
+    i = 0
+    for sc in scenes:
+        rows = await db.query_all(
+            "SELECT * FROM shot WHERE scene_id=? AND "
+            "(video_path IS NOT NULL OR image_path IS NOT NULL) ORDER BY idx", (sc["id"],))
+        # Resolve each shot to a usable media file: prefer video, else the still image.
+        usable = []   # (shot, path, is_image)
+        for sh in rows:
+            vp = assembler._local(sh["video_path"]) if sh.get("video_path") else None
+            ip = assembler._local(sh["image_path"]) if sh.get("image_path") else None
+            if vp and vp.exists():
+                usable.append((sh, vp, False))
+            elif ip and ip.exists():
+                usable.append((sh, ip, True))
+        if not usable:
             continue
-        dur_s = await assembler.probe_duration(path)
-        dur_f = max(1, round(dur_s * FPS))
-        if sh.get("_scene_id") != cur_scene:        # new scene → anchor its narration here
-            cur_scene = sh.get("_scene_id")
-            if sh.get("_scene_narr"):
-                audio_segs.append((sh["_scene_narr"], start_f))
-        items.append(_clipitem(i, sh.get("title") or f"Shot {i+1}", path, start_f, dur_f, w, h))
-        # timed keyword captions → FCP7 title track (Studio) + a sibling SRT (works on Free)
-        try:
-            caps = json.loads(sh.get("captions") or "[]")
-        except (json.JSONDecodeError, TypeError):
-            caps = []
-        base = float(sh.get("start_time") or 0)   # caption times are scene-local
-        clip_start_s = start_f / FPS
-        for c in caps:
-            off = max(0.0, float(c.get("start", 0)) - base)
-            cs = start_f + round(off * FPS)
-            cd = max(1, round((float(c.get("end", 0)) - float(c.get("start", 0))) * FPS))
-            cd = min(cd, max(1, start_f + dur_f - cs))  # clamp inside the clip
-            if c.get("text") and cd > 0 and cs < start_f + dur_f:
-                titles.append(_title_item(tnum, c["text"], cs, cd))
-                gstart = clip_start_s + off
-                gend = min((start_f + dur_f) / FPS, gstart + (cd / FPS))
-                srt.append((gstart, gend, c["text"]))
-                tnum += 1
-        start_f += dur_f
-        total += dur_f
+
+        # Per-shot durations (seconds). Video → its real length; image-only scene → scale the
+        # stills to fill the scene narration (mirrors assembler._scene_clip).
+        scene_dur = float(sc.get("narration_duration") or 0)
+        if sc.get("narration_path") and scene_dur <= 0:
+            np_ = assembler._local(sc["narration_path"])
+            if np_.exists():
+                scene_dur = await assembler.probe_duration(np_)
+        base = []
+        for (sh, path, is_img) in usable:
+            base.append(max(0.5, float(sh.get("duration") or DEFAULT_IMG_S)) if is_img
+                        else await assembler.probe_duration(path))
+        if scene_dur > 0 and all(is_img for (_, _, is_img) in usable):
+            s = sum(base) or 1.0
+            durs = [d * scene_dur / s for d in base]
+        else:
+            durs = base
+
+        if sc.get("narration_path"):                 # anchor scene narration at its start
+            audio_segs.append((sc["narration_path"], start_f))
+
+        for (sh, path, _is_img), dur_s in zip(usable, durs):
+            dur_f = max(1, round(dur_s * FPS))
+            items.append(_clipitem(i, sh.get("title") or f"Shot {i+1}", path, start_f, dur_f, w, h))
+            # timed keyword captions → FCP7 title track (Studio) + a sibling SRT (works on Free)
+            try:
+                caps = json.loads(sh.get("captions") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                caps = []
+            base_t = float(sh.get("start_time") or 0)   # caption times are scene-local
+            clip_start_s = start_f / FPS
+            for c in caps:
+                off = max(0.0, float(c.get("start", 0)) - base_t)
+                cs = start_f + round(off * FPS)
+                cd = max(1, round((float(c.get("end", 0)) - float(c.get("start", 0))) * FPS))
+                cd = min(cd, max(1, start_f + dur_f - cs))  # clamp inside the clip
+                if c.get("text") and cd > 0 and cs < start_f + dur_f:
+                    titles.append(_title_item(tnum, c["text"], cs, cd))
+                    gstart = clip_start_s + off
+                    gend = min((start_f + dur_f) / FPS, gstart + (cd / FPS))
+                    srt.append((gstart, gend, c["text"]))
+                    tnum += 1
+            start_f += dur_f
+            total += dur_f
+            i += 1
+
+    if not items:
+        raise RuntimeError("Chưa có shot nào có ảnh hoặc video để export")
 
     # narration audio track: each scene's continuous WAV at its timeline start
     audio_items = []

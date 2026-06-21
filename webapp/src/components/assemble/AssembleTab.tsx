@@ -119,7 +119,8 @@ export default function AssembleTab({ project }: { project: Project }) {
           className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
           {busy === "export" ? "…" : "📝 Export SEO + SRT + Thumbnail"}
         </button>
-        <button onClick={doDavinci} disabled={!!busy || !withVideo.length}
+        <button onClick={doDavinci} disabled={!!busy || (!withVideo.length && !withImage.length)}
+          title="Tạo timeline cho DaVinci Resolve: dùng video shot, hoặc ẢNH shot (still) khi chưa có video. Kèm narration từng scene + caption (.srt)"
           className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
           {busy === "xml" ? "…" : "🎞 Export DaVinci XML"}
         </button>
