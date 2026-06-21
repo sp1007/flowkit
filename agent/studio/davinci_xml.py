@@ -206,18 +206,29 @@ async def build(project_id: str) -> dict:
         if not usable:
             continue
 
-        # Per-shot durations (seconds). Video → its real length; image-only scene → scale the
-        # stills to fill the scene narration (mirrors assembler._scene_clip).
+        # Per-shot durations (seconds). Video → its real length; image → the beat's MEASURED
+        # narration_duration (so the still lands exactly on its spoken segment). Only when a
+        # beat lacks a measured time do we fall back to scaling stills across the scene.
         scene_dur = float(sc.get("narration_duration") or 0)
         if sc.get("narration_path") and scene_dur <= 0:
             np_ = assembler._local(sc["narration_path"])
             if np_.exists():
                 scene_dur = await assembler.probe_duration(np_)
-        base = []
+        base, have_measured = [], True
         for (sh, path, is_img) in usable:
-            base.append(max(0.5, float(sh.get("duration") or DEFAULT_IMG_S)) if is_img
-                        else await assembler.probe_duration(path))
-        if scene_dur > 0 and all(is_img for (_, _, is_img) in usable):
+            if not is_img:
+                have_measured = False
+                base.append(await assembler.probe_duration(path))
+                continue
+            nd = float(sh.get("narration_duration") or 0)
+            if nd > 0:
+                base.append(nd)
+            else:
+                have_measured = False
+                base.append(max(0.5, float(sh.get("duration") or DEFAULT_IMG_S)))
+        if have_measured:
+            durs = base                                  # measured beats → images sync to audio
+        elif scene_dur > 0 and all(is_img for (_, _, is_img) in usable):
             s = sum(base) or 1.0
             durs = [d * scene_dur / s for d in base]
         else:

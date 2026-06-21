@@ -1260,6 +1260,28 @@ def _caption_windows(beat_text: str, key_phrases: list[str],
     return [c for c in caps if c["end"] > c["start"]]
 
 
+_SENT_RE = re.compile(r"[^.!?…\n]+[.!?…]?(?:\n+)?")
+
+
+def _subtitle_windows(beat_text: str, b_start: float, read_dur: float) -> list[dict]:
+    """Subtitle the beat's SPOKEN text, one entry per sentence, each held for its share of the
+    read (by word count). Together they tile the whole read — the subtitle is on screen nearly
+    the entire time the beat is spoken, changing at sentence boundaries — and stay in sync
+    because times come from the measured read duration."""
+    sents = [s.strip() for s in _SENT_RE.findall(beat_text or "") if s.strip()] or [(beat_text or "").strip()]
+    sents = [s for s in sents if s]
+    if not sents or read_dur <= 0:
+        return []
+    wc = [max(1, len(s.split())) for s in sents]
+    tot = sum(wc) or 1
+    out, t = [], b_start
+    for s, w in zip(sents, wc):
+        d = read_dur * w / tot
+        out.append({"text": s, "start": round(t, 3), "end": round(t + d, 3)})
+        t += d
+    return out
+
+
 def _concat_wav_bytes(chunks: list[bytes], dest) -> None:
     """Join same-format WAV byte blobs (the per-segment TTS outputs) into one WAV file."""
     import io
@@ -1319,13 +1341,30 @@ def _wav_bytes_duration(b: bytes) -> float:
         return 0.0
 
 
-async def _tts_beats(texts: list[str], voice_id: int, pid: str,
-                     scene_id: str, speed: float = 1.0) -> tuple[str, list[float]]:
-    """TTS each beat's text as its OWN continuous read, then concat them into the scene WAV.
-    Returns (web_path, [per-beat real durations]). One read per beat keeps the emotion within
-    each visual unit AND gives the EXACT time each beat occupies, so the image changes land on
-    the narration — the cuts fall on beat (image-change) boundaries where a micro-pause is
-    natural. Raises if OmniVoice is unreachable (caller falls back to a word-count estimate)."""
+def _silence_wav_bytes(template: bytes, seconds: float) -> bytes:
+    """A silent WAV blob matching `template`'s format — inserted between beats as a breathing
+    pause so the read isn't an exhausting run-on."""
+    import io
+    import wave
+    with wave.open(io.BytesIO(template), "rb") as w:
+        params = w.getparams()
+    n = max(0, int(round(params.framerate * seconds)))
+    silence = b"\x00" * (n * params.sampwidth * params.nchannels)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as out:
+        out.setparams(params)
+        out.writeframes(silence)
+    return buf.getvalue()
+
+
+async def _tts_beats(texts: list[str], voice_id: int, pid: str, scene_id: str,
+                     speed: float = 1.0, gap: float = 0.0) -> tuple[str, list[float]]:
+    """TTS each beat's text as its OWN continuous read, then concat them into the scene WAV
+    with `gap` seconds of silence between beats (a natural breath at each beat boundary).
+    Returns (web_path, [per-beat READ durations] — excluding the trailing gap). One read per
+    beat keeps the emotion within each visual unit AND gives the EXACT spoken time each beat
+    occupies, so images + subtitles land on the narration. Raises if OmniVoice is unreachable
+    (caller falls back to a word-count estimate)."""
     chunks, durs = [], []
     for txt in texts:
         norm = vntext.normalize(txt) or txt
@@ -1336,6 +1375,15 @@ async def _tts_beats(texts: list[str], voice_id: int, pid: str,
         durs.append(round(_wav_bytes_duration(audio), 3))
     if not chunks:
         raise HTTPException(502, "Không tạo được audio cho beat nào")
+    # weave a silence pad between consecutive beats (not after the last one)
+    if gap > 0 and len(chunks) > 1:
+        sil = _silence_wav_bytes(chunks[0], gap)
+        woven = []
+        for k, ch in enumerate(chunks):
+            woven.append(ch)
+            if k < len(chunks) - 1:
+                woven.append(sil)
+        chunks = woven
     rel = f"{pid}/narr_scene_{scene_id}.wav"
     dest = media_store.MEDIA_DIR / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1396,23 +1444,32 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     for i, b in enumerate(beats):
         b["_say"] = (say[i] if i < len(say) else (b.get("text") or "")).strip()
 
-    # 3) TTS one continuous read PER BEAT → exact per-beat durations + the scene WAV (concat).
+    # 3) TTS one continuous read PER BEAT (with a breathing GAP between beats) → the scene WAV
+    #    + each beat's exact READ duration. The beat occupies read+gap on the timeline; the
+    #    subtitle covers the spoken read; the gap is a silent pause (less tiring, natural cut).
     voice_id = project.get("voice_id") or 0
     speed = float(project.get("tts_speed") or 1.0)
-    narr_web, durs = None, None
+    gap = float(await db.kv_get("tts_gap", 0.4) or 0.0)
+    gap = min(max(gap, 0.0), 2.0)
+    narr_web, reads = None, None
     if body.measure and any(b.get("_say") for b in beats):
         try:
-            narr_web, durs = await _tts_beats(
-                [b["_say"] for b in beats], voice_id, project["id"], sid, speed)
+            narr_web, reads = await _tts_beats(
+                [b["_say"] for b in beats], voice_id, project["id"], sid, speed, gap)
         except HTTPException as e:
             logger.warning("beat TTS unavailable (%s) — dùng ước lượng theo số từ", e.detail)
         except Exception as e:  # noqa: BLE001
             logger.warning("beat TTS failed: %s — dùng ước lượng theo số từ", e)
-    if durs is None or len(durs) != len(beats):          # TTS off/failed → word-count estimate
+    if reads is None or len(reads) != len(beats):        # TTS off/failed → word-count estimate
         wc = [max(1, len((b.get("_say") or "").split())) for b in beats]
         total_wc = sum(wc) or 1
         scene_est = _estimate_narration_secs(voiceover)
-        durs = [max(0.8, round(scene_est * w / total_wc, 3)) for w in wc]
+        reads = [max(0.8, round(scene_est * w / total_wc, 3)) for w in wc]
+        narr_web = None
+    # per-beat timeline duration = its read + the trailing gap (no gap after the last beat),
+    # so durations sum to the gapped scene WAV and start_times stay in sync with the audio.
+    n = len(beats)
+    durs = [round(reads[i] + (gap if i < n - 1 else 0.0), 3) for i in range(n)]
     scene_dur = round(sum(durs), 3)
 
     await db.execute("DELETE FROM shot WHERE scene_id=?", (sid,))
@@ -1423,7 +1480,8 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     t = 0.0
     for i, b in enumerate(beats):
         b_dur = durs[i]
-        caps = _caption_windows(b.get("_say") or "", b.get("key_phrases") or [], t, b_dur)
+        # subtitle spans the SPOKEN read (nearly the whole shot), not the trailing pause
+        caps = _subtitle_windows(b.get("_say") or "", t, reads[i])
         text = " ".join(filter(None, [b.get("description"), b.get("visual_prompt"), b.get("motion_prompt")]))
         ref_ids = _resolve_shot_refs(text, b.get("ref_entity_names"), by_name, scene_loc_id)
         await db.insert("shot", {
@@ -1435,7 +1493,7 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
             "motion_prompt": b.get("motion_prompt") or None,
             "beat_action": b.get("beat_action") or None,
             # narrator_text = this beat's VERBATIM spoken slice; its audio is the beat's
-            # segment of the scene WAV (measured duration above).
+            # segment of the scene WAV (read duration above, then a gap).
             "narrator_text": b.get("_say") or None,
             "narration_duration": b_dur,          # this beat's real share of the timeline
             "start_time": round(t, 3),            # scene-local offset

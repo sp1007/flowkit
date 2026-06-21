@@ -305,12 +305,19 @@ async def _scene_clip(parts: list[dict], scene: dict, out: Path, w: int, h: int,
     if narr and scene_dur <= 0:
         scene_dur = await probe_duration(narr)
 
-    base = [max(0.5, float(p.get("duration") or default_duration)) for p in parts]
-    if scene_dur > 0:                                  # scale image windows to cover audio
-        s = sum(base) or 1.0
-        durs = [d * scene_dur / s for d in base]
+    # Each shot's image is shown for its beat's MEASURED narration_duration, so the still lands
+    # exactly on its spoken segment (incl. the trailing breathing gap). Fall back to scaling the
+    # shot `duration` across the scene only when a beat has no measured time.
+    measured = [float(p.get("narration_duration") or 0) for p in parts]
+    if all(m > 0 for m in measured):
+        durs = measured
     else:
-        durs = base
+        base = [max(0.5, float(p.get("duration") or default_duration)) for p in parts]
+        if scene_dur > 0:                              # scale image windows to cover audio
+            s = sum(base) or 1.0
+            durs = [d * scene_dur / s for d in base]
+        else:
+            durs = base
 
     # one silent sub-clip per shot image, then concat → scene video
     tmp = []
