@@ -2170,6 +2170,38 @@ class ApplyMediaRequest(BaseModel):
     ext: str = "png"
 
 
+async def _flow_workflow_name_for_media(flow_project_id: str, media_id: str) -> Optional[str]:
+    """Workflow (theo primaryMediaId) chứa media_id → trả `name` để đổi tên hiển thị. Dùng
+    cho media gán bằng node/candidate (apply-media) vốn không giữ workflow_id như auto-gen."""
+    if not (flow_project_id and media_id):
+        return None
+    try:
+        raw = await get_flow_client().get_project(flow_project_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("rename: đọc project Flow lỗi: %s", e)
+        return None
+    data = raw.get("data", raw) if isinstance(raw, dict) else {}
+    for w in (_deep_find(data, "workflows") or []):
+        if isinstance(w, dict) and (w.get("metadata") or {}).get("primaryMediaId") == media_id:
+            return w.get("name")
+    return None
+
+
+async def _rename_flow_media(project: dict, media_id: str, label: str) -> None:
+    """Đổi tên hiển thị của media trên Flow (để dễ tìm khi chọn ảnh tham chiếu) — giống
+    auto-gen. Bỏ qua nếu project chưa gắn Flow / không tìm thấy workflow tương ứng."""
+    fpid = project.get("flow_project_id")
+    if not (fpid and media_id and label):
+        return
+    name = await _flow_workflow_name_for_media(fpid, media_id)
+    if not name:
+        return
+    try:
+        await get_flow_client().change_display_name(name, fpid, label[:60])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("đổi tên media trên Flow lỗi: %s", e)
+
+
 # Commit a media (e.g. the result of a per-node "tạo nhanh") to a shot/entity so the
 # storyboard / asset reflects it without a full graph run.
 @router.post("/shots/{sid}/apply-media")
@@ -2183,6 +2215,10 @@ async def apply_shot_media(sid: str, body: ApplyMediaRequest):
         f"{col}_media_id": body.media_id, f"{col}_primary_id": body.media_id,
         f"{col}_path": web, "updated_at": db.now()})
     await _record_media_history(project["id"], "shot", sid, col, body.media_id, body.media_id, web)
+    # Đổi tên trên Flow giống auto-gen (s01_03_img / _vid) để dễ tìm khi tham chiếu.
+    slot = "vid" if col == "video" else "img"
+    await _rename_flow_media(project, body.media_id,
+                             f"s{scene['idx']+1:02d}_{shot['idx']+1:02d}_{slot}")
     return {"ok": True, "path": web, "shot": await _shot_or_404(sid)}
 
 
@@ -2202,6 +2238,8 @@ async def apply_entity_media(eid: str, body: ApplyMediaRequest):
         except Exception as ex:  # noqa: BLE001
             logger.warning("location grid labelling (apply-media) failed for %s: %s", eid, ex)
     await _record_media_history(project["id"], "entity", eid, "image", body.media_id, body.media_id, web)
+    # Đổi tên trên Flow giống auto-gen (type_tên) để dễ tìm khi tham chiếu.
+    await _rename_flow_media(project, body.media_id, f"{entity['type']}_{entity['name']}")
     return {"ok": True, "path": web, "entity": await _entity_or_404(eid)}
 
 
