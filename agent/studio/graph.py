@@ -125,9 +125,32 @@ def _block_reason(payload):
     return None
 
 
-async def _img_gen_retry(call, pid):
+def _generated_media_id(payload, exclude=None):
+    """The GENERATED image id from a generate/edit response. An edit passes the source as a
+    BASE_IMAGE input and Flow echoes it back in `media`, so we scan ALL items for a
+    generatedImage.mediaId and skip the source (`exclude`) — taking media[0] blindly would
+    return the input image. Falls back to a raw media `name` if no generatedImage is present."""
+    media = payload.get("media") or []
+    found = []
+    for m in media:
+        if not isinstance(m, dict):
+            continue
+        mid = ((m.get("image") or {}).get("generatedImage") or {}).get("mediaId")
+        if mid and mid != exclude:
+            found.append(mid)
+    if found:
+        return found[-1]            # the generated result comes after any echoed inputs
+    for m in media:                 # fallback: first raw media id that isn't the source
+        name = m.get("name") if isinstance(m, dict) else None
+        if name and name != exclude:
+            return name
+    return None
+
+
+async def _img_gen_retry(call, pid, exclude=None):
     """Run an image-producing Flow call, VERIFY a media was made + downloaded, and retry
-    on content-policy blocks / transient failures. Returns (media_id, web_path)."""
+    on content-policy blocks / transient failures. Returns (media_id, web_path). `exclude`
+    is the edit's source id, skipped so the result isn't the (echoed) input image."""
     last = ""
     for attempt in range(_GRAPH_IMG_RETRIES):
         res = await call()
@@ -135,7 +158,7 @@ async def _img_gen_retry(call, pid):
             last = str(res["error"])
         else:
             p = res.get("data", res)
-            mid = (p.get("media") or [{}])[0].get("image", {}).get("generatedImage", {}).get("mediaId")
+            mid = _generated_media_id(p, exclude)
             if mid:
                 web = await media_store.ensure_local(mid, pid)
                 if web:
@@ -332,10 +355,13 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             src = inp["media_id"]
             if not src:
                 raise GraphError("editImage cần ảnh nguồn")
+            # The edit prompt is used VERBATIM (no compose_prompt wrapping) — the user's exact
+            # instruction edits the source. `exclude=src` skips the echoed input so the result
+            # is the edited image, not the original.
             mid, web = await _img_gen_retry(lambda: client.edit_image(
                 inp["text"] or data.get("text") or "", src, flow_pid,
                 aspect_ratio=_img_aspect(project, data),
-                user_paygate_tier=project["paygate_tier"]), pid)
+                user_paygate_tier=project["paygate_tier"]), pid, exclude=src)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "png", "handle": "image"}
 
         elif t == "video":
