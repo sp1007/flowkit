@@ -5,12 +5,15 @@ the final edit in Resolve. Frames are computed at a fixed fps from clip duration
 A second video track carries timed keyword captions (FCP7 Text generators) aligned to
 when the narration reaches each phrase.
 """
+import asyncio
 import json
 import os
 import shutil
 from pathlib import Path
 from urllib.request import pathname2url
 from xml.sax.saxutils import escape
+
+from PIL import Image
 
 from agent.config import BASE_DIR
 from agent.studio import assembler, db, media_store
@@ -59,6 +62,21 @@ def _stage(src: Path, name: str, dv_dir: Path) -> Path:
     except OSError:
         shutil.copy2(src, dst)
     return dst
+
+
+def _stage_image_jpg(src: Path, name: str, dv_dir: Path) -> Path:
+    """Re-encode a still to JPG (flatten alpha) into dv_dir. Resolve reliably imports JPG
+    stills but chokes on some PNGs ('media offline'), so storyboard frames are exported as
+    JPG. Falls back to a plain hardlink if PIL can't read the source."""
+    dst = dv_dir / f"{name}.jpg"
+    try:
+        with Image.open(src) as im:
+            if im.mode != "RGB":
+                im = im.convert("RGB")
+            im.save(dst, "JPEG", quality=92)
+        return dst
+    except OSError:
+        return _stage(src, name, dv_dir)
 
 
 def _file_url(p: Path) -> str:
@@ -208,9 +226,11 @@ async def build(project_id: str) -> dict:
         if sc.get("narration_path"):                 # anchor scene narration at its start
             audio_segs.append((sc["narration_path"], start_f))
 
-        for (sh, path, _is_img), dur_s in zip(usable, durs):
+        for (sh, path, is_img), dur_s in zip(usable, durs):
             dur_f = max(1, round(dur_s * FPS))
-            staged = _stage(path, f"clip{_alpha(i)}", dv_dir)
+            name = f"clip{_alpha(i)}"
+            staged = await asyncio.to_thread(_stage_image_jpg, path, name, dv_dir) if is_img \
+                else _stage(path, name, dv_dir)
             items.append(_clipitem(i, sh.get("title") or f"Shot {i+1}", staged, start_f, dur_f, w, h))
             # timed keyword captions → FCP7 title track (Studio) + a sibling SRT (works on Free)
             try:
