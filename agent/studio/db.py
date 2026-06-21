@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS entity (
   name TEXT, description TEXT, ref_prompt TEXT,
   media_id TEXT, primary_media_id TEXT, workflow_id TEXT,
   image_path TEXT, image_url TEXT, graph_json TEXT,
+  extra_media TEXT,
   created_at REAL, updated_at REAL
 );
 
@@ -129,6 +130,10 @@ _MIGRATIONS = [
     # Timed keyword captions burned on the video / exported to DaVinci (JSON list of
     # {text, start, end} in scene-local seconds).
     ("shot", "captions", "TEXT"),
+    # Location entities get extra angle views (besides the primary establishing shot) so a
+    # shot has several angles of the place to reference — JSON list of {media_id,
+    # primary_media_id, path}. Stops shots from copying one fixed location framing.
+    ("entity", "extra_media", "TEXT"),
 ]
 
 

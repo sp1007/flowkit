@@ -253,6 +253,8 @@ export interface Entity {
   ref_prompt: string | null;
   media_id: string | null;
   image_path: string | null;
+  // Location entities: JSON list of extra angle views ({media_id, primary_media_id, path}).
+  extra_media?: string | null;
 }
 
 export interface Shot {

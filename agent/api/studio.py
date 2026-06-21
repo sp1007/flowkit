@@ -678,6 +678,9 @@ async def _store_media_on_entity(entity: dict, project: dict, info: dict, label:
         "primary_media_id": info.get("primary_media_id"),
         "workflow_id": info.get("workflow_id"),
         "image_path": web, "updated_at": db.now(),
+        # New primary → any previously generated extra location views no longer match.
+        # _generate_location_views repopulates after a fresh location gen.
+        "extra_media": None,
     })
     await _record_media_history(project["id"], "entity", entity["id"], "image",
                                info.get("media_id"), info.get("primary_media_id"), web)
@@ -695,13 +698,58 @@ async def _generate_entity_image(entity: dict, project: dict) -> dict:
               else _to_image_aspect(project["aspect_ratio"]))
     model = await _resolve_image_model(project)
     tier = await _current_tier()
-    return await _generate_image_verified(
+    row = await _generate_image_verified(
         gen_call=lambda: client.generate_images(
             prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
             user_paygate_tier=tier, image_model=model, seed=project.get("seed")),
         store_call=lambda info: _store_media_on_entity(
             entity, project, info, f"{entity['type']}_{entity['name']}"),
         label_for_err=f"asset {entity['name']}")
+    # Locations get extra angle views so shots don't copy one fixed framing (best-effort).
+    if entity["type"] == "location" and row.get("media_id"):
+        try:
+            await _generate_location_views(row, project)
+            row = await _entity_or_404(entity["id"])
+        except Exception as ex:  # noqa: BLE001
+            logger.warning("location extra views failed for %s: %s", entity["name"], ex)
+    return row
+
+
+async def _generate_location_views(entity: dict, project: dict) -> None:
+    """Generate alternate-angle views of a location FROM its primary image and store them in
+    entity.extra_media, so _build_frame_references can offer a shot several angles of the place."""
+    primary_id = entity.get("media_id")
+    if not primary_id:
+        return
+    client = _require_extension()
+    base = entity.get("description") or entity.get("ref_prompt") or ""
+    model = await _resolve_image_model(project)
+    tier = await _current_tier()
+    refs = [{"handle": entity["name"], "media_id": primary_id}]
+    extras: list[dict] = []
+    for view in brain._LOCATION_EXTRA_VIEWS:
+        prompt = brain.compose_prompt(project, brain.location_view_prompt(entity["name"], base, view))
+        try:
+            res = await client.generate_images(
+                prompt=prompt, project_id=project["flow_project_id"],
+                aspect_ratio="IMAGE_ASPECT_RATIO_LANDSCAPE", user_paygate_tier=tier,
+                image_model=model, references=refs, seed=project.get("seed"))
+            if res.get("error"):
+                logger.warning("location view lỗi (%s): %s", entity["name"], res["error"])
+                continue
+            info = _extract_image_result(res.get("data", res))
+            mid = info.get("media_id")
+            if mid:
+                web = await media_store.ensure_local(mid, project["id"])
+                if web:
+                    extras.append({"media_id": mid,
+                                   "primary_media_id": info.get("primary_media_id") or mid,
+                                   "path": web})
+        except Exception as ex:  # noqa: BLE001
+            logger.warning("location view exception (%s): %s", entity["name"], ex)
+        await asyncio.sleep(random.uniform(2, 5))
+    await db.update("entity", entity["id"],
+                    {"extra_media": json.dumps(extras), "updated_at": db.now()})
 
 
 @router.get("/projects/{pid}/entities")
@@ -980,6 +1028,17 @@ async def _build_frame_references(shot: dict, scene: dict) -> list[dict]:
         if e and e.get("media_id") and e["media_id"] not in seen:
             refs.append({"handle": e["name"], "media_id": e["media_id"]})
             seen.add(e["media_id"])
+            # A location also contributes its extra angle views (same handle) so the model
+            # has several framings of the place to reference instead of copying one.
+            if e.get("type") == "location" and e.get("extra_media"):
+                try:
+                    for v in (json.loads(e["extra_media"]) or []):
+                        mid = v.get("media_id")
+                        if mid and mid not in seen and len(refs) < 10:
+                            refs.append({"handle": e["name"], "media_id": mid})
+                            seen.add(mid)
+                except (json.JSONDecodeError, TypeError):
+                    pass
         if len(refs) >= 10:
             break
     return refs

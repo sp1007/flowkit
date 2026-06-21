@@ -250,6 +250,29 @@ _SHEET = {
 }
 
 
+# Extra location views besides the primary establishing shot. Each is generated FROM the
+# primary as a reference (same place), so a shot has several distinct angles to draw on
+# instead of copying one fixed framing — but each is a clean single full-frame image (NOT a
+# tiled grid, which the model would otherwise copy wholesale).
+_LOCATION_EXTRA_VIEWS = [
+    "the REVERSE angle, looking back across the space from the opposite side",
+    "a HIGH overhead / bird's-eye angle looking down on the space",
+    "an EYE-LEVEL closer detail of one key part or corner of the space",
+]
+
+
+def location_view_prompt(name: str, base: str, view: str) -> str:
+    """Prompt for an alternate angle of a location, kept identical to the primary via ref."""
+    return (
+        f"{name}: {base}. Show the EXACT SAME place as the reference image — identical "
+        f"architecture, materials, set dressing, colour and lighting — but from {view}. A "
+        "SINGLE clean full-frame cinematic photograph, completely EMPTY and deserted (no "
+        "people, no animals), deep focus, photoreal. Absolutely no text, labels or watermarks. "
+        "It must NOT be a grid, 2x2, multi-panel, split screen or collage — one continuous "
+        "scene only"
+    )
+
+
 def ref_image_prompt(entity_type: str, name: str, description: str) -> str:
     """Build the (style-less) body of an entity's reference-art prompt."""
     base = (description or name).strip()
