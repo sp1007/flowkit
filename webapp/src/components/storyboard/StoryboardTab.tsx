@@ -74,6 +74,8 @@ export default function StoryboardTab({
   const { jobFor } = useJobs();
   // Scenes currently being rebuilt by a per-scene "Lời đọc" job (shots cleared optimistically).
   const [rebuilding, setRebuilding] = useState<Set<string>>(new Set());
+  // Scenes currently having their camera angles re-varied (per-scene 🎬).
+  const [revarying, setRevarying] = useState<Set<string>>(new Set());
   // Narration preview playback (one scene at a time).
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -314,6 +316,7 @@ export default function StoryboardTab({
     onAdvance: reloadAll,
     onDone: (j) => {
       reloadAll();
+      setRevarying(new Set());
       if (j.errors.length) {
         setErr(`Đa dạng góc máy: ${j.done}/${j.total} scene xong, ${j.errors.length} lỗi.`);
       } else {
@@ -329,6 +332,21 @@ export default function StoryboardTab({
       await storyboard.revaryProject(project.id);
     } catch (e: any) {
       setErr(e.message);
+    }
+  };
+
+  const revaryScene = async (sid: string) => {
+    setErr(null);
+    setRevarying((s) => new Set(s).add(sid));
+    try {
+      await storyboard.revaryScene(sid);
+    } catch (e: any) {
+      setErr(e.message);
+      setRevarying((s) => {
+        const n = new Set(s);
+        n.delete(sid);
+        return n;
+      });
     }
   };
 
@@ -563,6 +581,14 @@ export default function StoryboardTab({
                       {rebuilding.has(sc.id) ? "Đang dựng…" : "🎙 Lời đọc"}
                     </button>
                   )}
+                  <button
+                    disabled={!!busy || !!revaryJob || !shots.length}
+                    onClick={() => revaryScene(sc.id)}
+                    title="Đổi/đa dạng góc máy cho các shot của scene này (giữ lời đọc — không chạy lại TTS). Xong bấm Auto gen để vẽ lại ảnh."
+                    className="rounded-md border border-teal-700/60 px-2.5 py-1 text-xs text-teal-300 hover:bg-teal-950/40 disabled:opacity-40"
+                  >
+                    {revarying.has(sc.id) ? "Đổi góc…" : "🎬 Góc máy"}
+                  </button>
                   <button
                     disabled={!!busy || !!imgJob || !shots.length}
                     onClick={() => sceneAll(sc.id)}

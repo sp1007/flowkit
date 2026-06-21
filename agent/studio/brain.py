@@ -62,7 +62,7 @@ def _extract_json(text: str):
     raise ValueError("unbalanced JSON in agent output")
 
 
-async def run_json(prompt: str, *, timeout: float = 300.0, retries: int = 1):
+async def run_json(prompt: str, *, timeout: float = 300.0, retries: int = 2):
     """Run the agent and return parsed JSON. Raises HTTPException(502) on failure."""
     agent = await _agent_name()
     last_err = None

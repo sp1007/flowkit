@@ -1355,9 +1355,21 @@ async def _revary_scene(sid: str) -> int:
         return 0
     entities = await db.query_all(
         "SELECT name, type, description FROM entity WHERE project_id=?", (scene["project_id"],))
-    out = await brain.run_json(brain.revary_shots_prompt(shots, entities, project["style"]))
-    if not isinstance(out, list) or not out:
-        raise HTTPException(502, "AI không trả về danh sách góc máy")
+    # Retry the AI step until we get a usable list (covers agent errors, bad JSON AND a
+    # valid-but-wrong-shape reply, which run_json's own retry doesn't catch).
+    out = None
+    for attempt in range(3):
+        try:
+            cand = await brain.run_json(brain.revary_shots_prompt(shots, entities, project["style"]))
+            if isinstance(cand, list) and cand:
+                out = cand
+                break
+            logger.warning("revary scene %s attempt %d: AI trả về sai định dạng", sid, attempt)
+        except Exception as ex:  # noqa: BLE001
+            logger.warning("revary scene %s attempt %d failed: %s", sid, attempt, ex)
+        await asyncio.sleep(1.0 + attempt)
+    if not out:
+        raise HTTPException(502, "AI không trả về danh sách góc máy (đã thử lại nhiều lần)")
     mapped: dict[int, dict] = {}
     for pos, o in enumerate(out):
         if not isinstance(o, dict):
