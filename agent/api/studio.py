@@ -65,6 +65,7 @@ class UpdateProjectRequest(BaseModel):
     bgm_volume: Optional[float] = None
     bgm_duck: Optional[bool] = None
     tts_speed: Optional[float] = None
+    tts_gap: Optional[float] = None
     seed: Optional[int] = None
     prompt_header: Optional[str] = None
     prompt_footer: Optional[str] = None
