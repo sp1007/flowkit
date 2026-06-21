@@ -355,6 +355,8 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             src = inp["media_id"]
             if not src:
                 raise GraphError("editImage cần ảnh nguồn")
+            logger.info("editImage: source=%s prompt=%r", src,
+                        (inp["text"] or data.get("text") or "")[:80])
             # The edit prompt is used VERBATIM (no compose_prompt wrapping) — the user's exact
             # instruction edits the source. `exclude=src` skips the echoed input so the result
             # is the edited image, not the original.

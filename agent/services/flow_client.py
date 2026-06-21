@@ -376,10 +376,16 @@ class FlowClient:
             for mid in character_media_ids:
                 image_inputs.append({"name": mid, "imageInputType": "IMAGE_INPUT_TYPE_REFERENCE"})
 
+        # Bind the source into the structuredPrompt as a reference part (same mechanism as
+        # generate_images), not only as a bare BASE_IMAGE input — otherwise the model may not
+        # actually condition on the image and the edit comes out as a fresh, unreferenced gen.
+        parts = [{"reference": {"media": {"handle": "base", "mediaId": source_media_id}}},
+                 {"text": prompt}]
+
         request_item = {
             "clientContext": {**ctx, "sessionId": f";{ts}"},
             "seed": ts % 1000000,
-            "structuredPrompt": {"parts": [{"text": prompt}]},
+            "structuredPrompt": {"parts": parts},
             "imageAspectRatio": aspect_ratio,
             "imageModelName": IMAGE_MODELS["NANO_BANANA_PRO"],
             "imageInputs": image_inputs,
