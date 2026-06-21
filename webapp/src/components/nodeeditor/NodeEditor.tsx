@@ -597,12 +597,20 @@ function Editor({
         out.push({ key: `e:${e.id}`, kind: "entity", label: e.name,
                    media_id: e.media_id, web: e.image_path, entity_id: e.id });
     }
-    shots.forEach((s, i) => {
-      if (s.id === target.id || !s.image_media_id || !s.image_path) return;
+    // Number scenes by first appearance (projectShots is ordered by scene then shot), so a
+    // shot reads "SC001-S001-mô tả" — far easier to find in the dropdown than a bare blurb.
+    const sceneNo = new Map<string, number>();
+    for (const s of shots)
+      if (!sceneNo.has(s.scene_id)) sceneNo.set(s.scene_id, sceneNo.size + 1);
+    const pad3 = (n: number) => String(n).padStart(3, "0");
+    for (const s of shots) {
+      if (s.id === target.id || !s.image_media_id || !s.image_path) continue;
+      const desc = (s.description || s.title || "").replace(/\s+/g, " ").trim().slice(0, 40);
+      const code = `SC${pad3(sceneNo.get(s.scene_id) || 0)}-S${pad3(s.idx + 1)}`;
       out.push({ key: `s:${s.id}`, kind: "shot",
-                 label: s.title || `Shot ${i + 1}`,
+                 label: desc ? `${code}-${desc}` : code,
                  media_id: s.image_media_id, web: s.image_path });
-    });
+    }
     return out;
   }, [entities, shots, target.id]);
 
