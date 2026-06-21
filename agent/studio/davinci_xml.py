@@ -19,7 +19,10 @@ STUDIO_MEDIA_DIR = Path(os.environ.get("STUDIO_OUT_DIR", BASE_DIR / "studio_medi
 
 
 def _file_url(p: Path) -> str:
-    return "file://localhost" + pathname2url(str(p.resolve()))
+    # Canonical Resolve form: file://localhost/<path>. On Windows pathname2url yields
+    # '///D:/...'; the extra slashes (file://localhost///D:/...) trip Resolve's relink, so
+    # collapse to a single slash → file://localhost/D:/... (and /home/... on posix).
+    return "file://localhost/" + pathname2url(str(p.resolve())).lstrip("/")
 
 
 def _srt_ts(sec: float) -> str:
