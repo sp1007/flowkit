@@ -8,6 +8,7 @@ export default function AssembleTab({ project }: { project: Project }) {
   const [finalUrl, setFinalUrl] = useState<string | null>(null);
   const [xmlUrl, setXmlUrl] = useState<string | null>(null);
   const [srtUrl, setSrtUrl] = useState<string | null>(null);
+  const [xmlInfo, setXmlInfo] = useState<{ clips: number; captions: number } | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [kenBurns, setKenBurns] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -70,9 +71,11 @@ export default function AssembleTab({ project }: { project: Project }) {
 
   const doDavinci = () =>
     run("xml", async () => {
+      setProgress("Đang tạo timeline DaVinci… (có thể mất chút thời gian)");
       const r = await asm.davinci(project.id);
-      setXmlUrl(r.web_path);
-      setSrtUrl(r.captions_srt || null);
+      setXmlUrl(r.web_path + "?t=" + Date.now());
+      setSrtUrl(r.captions_srt ? r.captions_srt + "?t=" + Date.now() : null);
+      setXmlInfo({ clips: r.clips, captions: r.captions });
     });
 
   return (
@@ -138,6 +141,11 @@ export default function AssembleTab({ project }: { project: Project }) {
 
       {xmlUrl && (
         <div className="mb-6 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 text-sm">
+          {xmlInfo && (
+            <div className="mb-1 text-emerald-400">
+              ✓ Đã tạo timeline: {xmlInfo.clips} clip · {xmlInfo.captions} caption
+            </div>
+          )}
           DaVinci timeline:{" "}
           <a href={xmlUrl} download className="text-indigo-400 hover:text-indigo-300">
             ⭳ timeline.xml

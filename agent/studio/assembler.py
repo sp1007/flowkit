@@ -37,10 +37,17 @@ async def _run(args: list[str]) -> None:
 
 
 async def probe_duration(path: Path) -> float:
-    proc = await asyncio.create_subprocess_exec(
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", str(path),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    """Media duration in seconds, or 0.0 if it can't be determined. Never raises — if
+    ffprobe isn't installed/on PATH (common on Windows) we degrade to 0 so callers fall
+    back to their own timing (e.g. DaVinci export, which doesn't need ffmpeg at all)."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    except (FileNotFoundError, NotImplementedError, OSError) as e:
+        logger.warning("ffprobe không chạy được (%s) — dùng thời lượng mặc định", e)
+        return 0.0
     out, _ = await proc.communicate()
     try:
         return float(out.decode().strip())

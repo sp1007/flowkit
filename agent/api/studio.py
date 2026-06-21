@@ -2449,6 +2449,9 @@ async def export_davinci(pid: str):
         return await davinci_xml.build(pid)
     except RuntimeError as e:
         raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001 — surface a clear message instead of a bare 500
+        logger.exception("export DaVinci XML lỗi cho %s", pid)
+        raise HTTPException(500, f"Export DaVinci lỗi: {e}")
 
 
 @router.post("/projects/{pid}/export")
