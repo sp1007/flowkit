@@ -397,6 +397,7 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
     # apply to target
     web = final.get("web") or await media_store.ensure_local(
         final["media_id"], pid, final.get("ext", "png"))
+    display_path = web  # what the entity/shot SHOWS (may differ from the raw media, e.g. labels)
     if kind == "entity":
         await db.update("entity", target["id"], {
             "media_id": final["media_id"], "primary_media_id": final["media_id"],
@@ -411,11 +412,12 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                     assembler.label_quadrants, src, media_store.MEDIA_DIR / out_rel,
                     brain.LOCATION_GRID_LABELS, assembler._caption_font())
                 if ok:
-                    await db.update("entity", target["id"], {"image_path": f"/media/{out_rel}"})
+                    display_path = f"/media/{out_rel}"
+                    await db.update("entity", target["id"], {"image_path": display_path})
     else:
         col = "video" if final.get("ext") == "mp4" else "image"
         await db.update("shot", target["id"], {
             f"{col}_media_id": final["media_id"], f"{col}_primary_id": final["media_id"],
             f"{col}_path": web, "updated_at": db.now()})
     return {"media_id": final["media_id"], "path": web, "ext": final.get("ext", "png"),
-            "node_outputs": node_outputs}
+            "display_path": display_path, "node_outputs": node_outputs}

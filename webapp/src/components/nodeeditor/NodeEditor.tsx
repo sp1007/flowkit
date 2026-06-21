@@ -687,6 +687,26 @@ function Editor({
 
   const save = () => graphApi.save(target.kind, target.id, serialize(), goal);
 
+  // After a generation commits, the entity/shot may SHOW a different image than the raw node
+  // media (e.g. a location grid gets position labels overlaid). Reflect that committed image
+  // on the Output node + the gen node feeding it, so the editor shows labels like quick-gen.
+  const reflectDisplay = (path?: string, ext?: string) => {
+    if (!path) return;
+    const outIds = new Set(nodes.filter((n) => n.type === "output").map((n) => n.id));
+    const ids = new Set<string>(outIds);
+    for (const e of edges) if (outIds.has(e.target)) ids.add(e.source);
+    setResults((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = { web: path, ext: ext || "png" };
+      return next;
+    });
+    setNodes((ns) =>
+      ns.map((n) =>
+        ids.has(n.id) ? { ...n, data: { ...n.data, _result: path, _ext: ext || "png" } } : n
+      )
+    );
+  };
+
   const run = async () => {
     setBusy(true);
     setErr(null);
@@ -694,6 +714,7 @@ function Editor({
     try {
       const r = await graphApi.run(target.kind, target.id, serialize(), goal);
       applyOutputs((r.node_outputs || {}) as Record<string, Out>);
+      reflectDisplay(r.display_path, r.ext);
       setDone(true);
       onApplied(r);
     } catch (e: any) {
@@ -718,8 +739,13 @@ function Editor({
         const up = outNode && edges.find((e) => e.target === outNode.id)?.source;
         const m = up ? outs[up] : undefined;
         if (m?.media_id) {
-          await graphApi.applyMedia(target.kind, target.id, m.media_id, m.ext || "png");
+          const applied = await graphApi.applyMedia(target.kind, target.id, m.media_id, m.ext || "png");
           onApplied(r);
+          // Show the committed image (e.g. labeled location grid) in the previews.
+          reflectDisplay(
+            applied?.entity?.image_path || applied?.shot?.image_path || applied?.path,
+            m.ext || "png"
+          );
         }
       } catch (e: any) {
         setErr(e.message);
