@@ -214,11 +214,12 @@ async def _poll_video(client, media_id, scene_key, timeout=240, interval=8):
     return None
 
 
-def _reuse_locked(data: dict, ext: str, handle: str):
-    """If a gen node is locked and already has a result, return its stored output so a
-    full run won't regenerate media the user is happy with. Else None."""
+def _reuse_locked(data: dict, ext: str, handle: str, force: bool = False):
+    """Stored output of a gen node, to skip regenerating it. Reused when the node is locked
+    (so a full run keeps media the user is happy with) OR `force` (a per-node gen: only the
+    requested node regenerates, its upstream gen nodes keep their existing images). Else None."""
     mid = data.get("result_media_id")
-    if data.get("locked") and mid:
+    if (data.get("locked") or force) and mid:
         return {"media_id": mid, "web": data.get("result_web"), "ext": ext, "handle": handle,
                 "_reused": True}
     return None
@@ -288,11 +289,13 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             continue  # per-node run: only this node + its upstream chain
         inp = merged_inputs(nid)
 
-        # Locked gen nodes reuse their stored result (the explicitly-requested only_node
-        # always regenerates).
+        # Locked gen nodes reuse their stored result. In a per-node gen (only_node set), the
+        # UPSTREAM gen nodes also reuse — only the requested node regenerates, so editing one
+        # node doesn't re-roll the image feeding it. The only_node itself always regenerates.
         if t in ("image", "editImage", "video") and nid != only_node:
             reused = _reuse_locked(data, "mp4" if t == "video" else "png",
-                                   "video" if t == "video" else "image")
+                                   "video" if t == "video" else "image",
+                                   force=only_node is not None)
             if reused:
                 if not reused.get("web") and reused.get("media_id"):
                     reused["web"] = await media_store.ensure_local(
