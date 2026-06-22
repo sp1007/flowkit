@@ -18,6 +18,7 @@ import {
   reconnectEdge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   MarkerType,
   type Node,
   type Edge,
@@ -59,18 +60,20 @@ const META: Record<string, { label: string; icon: string; color: string }> = {
   refs: { label: "References", icon: "🔗", color: "#0ea5e9" },
   image: { label: "Tạo ảnh AI", icon: "🎨", color: "#a855f7" },
   editImage: { label: "Sửa ảnh AI", icon: "🖌", color: "#f59e0b" },
+  removebg: { label: "Tách nền AI", icon: "✂", color: "#f43f5e" },
   filter: { label: "Filter ảnh", icon: "🎚", color: "#14b8a6" },
   text: { label: "Chèn chữ", icon: "🔤", color: "#22c55e" },
   upscale: { label: "Upscale / nét", icon: "🔍", color: "#06b6d4" },
   crop: { label: "Crop / tỉ lệ", icon: "🖼", color: "#84cc16" },
   vignette: { label: "Vignette", icon: "🌑", color: "#8b5cf6" },
+  border: { label: "Khung viền", icon: "🔲", color: "#eab308" },
   blend: { label: "Ghép / Blend", icon: "🔀", color: "#ec4899" },
   video: { label: "Tạo video AI", icon: "🎬", color: "#a855f7" },
   output: { label: "Output", icon: "📤", color: "#64748b" },
 };
 
 // "refs" intentionally dropped — use one "Nguồn ảnh" (source) node per reference image.
-const PALETTE = ["source", "prompt", "image", "editImage", "filter", "text", "upscale", "crop", "vignette", "blend", "video", "output"];
+const PALETTE = ["source", "prompt", "image", "editImage", "removebg", "filter", "text", "upscale", "crop", "vignette", "border", "blend", "video", "output"];
 
 const prettyModel = (m: string) =>
   m.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -546,6 +549,7 @@ function FilterNode({ id, data }: NodeProps) {
       <Slider label="Độ nét" value={num("sharpness", 1)} min={0} max={2} step={0.05} onChange={(v) => update(id, { sharpness: v })} />
       <Slider label="Làm mờ" value={num("blur", 0)} min={0} max={20} step={0.5} suffix="px" onChange={(v) => update(id, { blur: v })} />
       <ToggleChips id={id} data={d} items={[
+        { key: "auto", label: "Auto" },
         { key: "grayscale", label: "Đen trắng" },
         { key: "sepia", label: "Sepia" },
         { key: "flip_h", label: "⇆ Lật ngang" },
@@ -664,17 +668,61 @@ function BlendNode({ id, data }: NodeProps) {
   );
 }
 
+function RemoveBgNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  return (
+    <Shell type="removebg" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả tách nền" />
+      <label className="block">
+        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-neutral-500">Nền mới</div>
+        <select className={fieldCls} value={d.bg || "white"} onChange={(e) => update(id, { bg: e.target.value })}>
+          <option value="white">Trắng</option>
+          <option value="black">Đen</option>
+          <option value="green">Phông xanh (chroma)</option>
+          <option value="gray">Xám trung tính</option>
+        </select>
+      </label>
+      <div className="text-[10px] text-amber-400/80">⚠ Dùng AI (tốn credit)</div>
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
+function BorderNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  return (
+    <Shell type="border" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả khung viền" />
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <Slider label="Độ dày" value={d.width ?? 0.04} min={0} max={0.25} step={0.01} onChange={(v) => update(id, { width: v })} />
+        </div>
+        <label>
+          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-neutral-500">Màu</div>
+          <input type="color" value={d.color || "#000000"} onChange={(e) => update(id, { color: e.target.value })}
+            className="nodrag h-[26px] w-9 cursor-pointer rounded border border-neutral-700 bg-neutral-900" />
+        </label>
+      </div>
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
 const NODE_TYPES = {
   source: SourceNode,
   prompt: PromptNode,
   refs: RefsNode,
   image: ImageNode,
   editImage: ImageNode,
+  removebg: RemoveBgNode,
   filter: FilterNode,
   text: TextNode,
   upscale: UpscaleNode,
   crop: CropNode,
   vignette: VignetteNode,
+  border: BorderNode,
   blend: BlendNode,
   video: VideoNode,
   output: OutputNode,
@@ -966,6 +1014,8 @@ function Editor({
     if (type === "prompt") base.text = "";
     if (type === "refs") base.entity_ids = [];
     if (type === "image" || type === "editImage") Object.assign(base, { aspect: "16:9", model: "", count: 1 });
+    if (type === "removebg") Object.assign(base, { bg: "white" });
+    if (type === "border") Object.assign(base, { width: 0.04, color: "#000000" });
     if (type === "video") Object.assign(base, { aspect: "16:9", model: "omni", duration: 8, count: 1 });
     if (type === "filter")
       Object.assign(base, { brightness: 1, contrast: 1, saturation: 1, sharpness: 1, blur: 0, rotate: 0 });
@@ -979,6 +1029,41 @@ function Editor({
       { id, type, position: { x: 80 + Math.random() * 160, y: 80 + Math.random() * 200 }, data: base },
     ]);
   };
+
+  // Drag-drop image file(s) from the desktop onto the canvas → a "Nguồn ảnh" node at the drop
+  // point, uploaded to Flow. A placeholder node appears immediately, then fills when uploaded.
+  const rf = useReactFlow();
+  const onPaneDragOver = useCallback((e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer?.types || []).includes("Files")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  }, []);
+  const onPaneDrop = useCallback(
+    async (e: React.DragEvent) => {
+      const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith("image/"));
+      if (!files.length) return;
+      e.preventDefault();
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const id = `source-${Date.now()}-${i}`;
+        setNodes((ns) => [
+          ...ns,
+          { id, type: "source", position: { x: at.x + i * 36, y: at.y + i * 36 },
+            data: { _type: "source", label: "Đang tải…" } },
+        ]);
+        try {
+          const r = await api.uploadImage(projectId, f);
+          update(id, { media_id: r.media_id, web: r.web, label: r.name || "ảnh tải lên" });
+        } catch (err: any) {
+          update(id, { label: "Tải lỗi" });
+          setErr(err.message || "Upload lỗi");
+        }
+      }
+    },
+    [rf, projectId, setNodes, update]
+  );
 
   // Drop transient preview fields; keep durable ones (locked + result_* so locks persist).
   const serializeGraph = (ns: Node[], es: Edge[]) => ({
@@ -1200,7 +1285,7 @@ function Editor({
         </div>
       </div>
       {err && <div className="bg-rose-950/50 px-4 py-1.5 text-sm text-rose-300">{err}</div>}
-      <div className="flex-1">
+      <div className="flex-1" onDrop={onPaneDrop} onDragOver={onPaneDragOver}>
         <NodeOps.Provider value={ops}>
           <ReactFlow
             nodes={nodes}
@@ -1229,7 +1314,7 @@ function Editor({
         </NodeOps.Provider>
       </div>
       <div className="border-t border-neutral-800 px-4 py-1 text-[11px] text-neutral-500">
-        ⓘ ⚡ Tạo riêng 1 node · ⏬ Tạo & cập nhật mọi node phía sau (xuôi dòng) · 🔒 Khóa để không tạo lại · Filter/Chèn chữ/Upscale/Ghép chạy cục bộ (không tốn credit) · Nhấn ảnh/video để phóng to · Kéo đầu đường nối ra chỗ trống để xóa · ✕ để xóa node
+        ⓘ ⚡ Tạo riêng 1 node · ⏬ Tạo & cập nhật mọi node phía sau · 🔒 Khóa để không tạo lại · Filter/Chèn chữ/Upscale/Crop/Vignette/Khung/Ghép chạy cục bộ (không tốn credit) · Kéo-thả ảnh từ máy vào canvas để tạo Nguồn ảnh · Nhấn ảnh/video để phóng to · Kéo đầu đường nối ra chỗ trống để xóa · ✕ để xóa node
       </div>
       {lightbox && (
         <Lightbox

@@ -28,6 +28,8 @@ def apply_filter(img, d: dict):
     from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
     img = img.convert("RGB")
+    if d.get("auto"):                       # one-click auto contrast/levels
+        img = ImageOps.autocontrast(img, cutoff=1)
     if d.get("grayscale"):
         img = ImageOps.grayscale(img).convert("RGB")
     if d.get("sepia"):
@@ -163,6 +165,20 @@ def crop(img, d: dict):
         t = (H - nh) // 2
         img = img.crop((0, t, W, t + nh))
     return img
+
+
+def border(img, d: dict):
+    """Add a solid border/frame around the image. d.width = fraction of the short side
+    (0–0.25), d.color = #hex. width 0 → unchanged."""
+    from PIL import ImageOps
+
+    img = img.convert("RGB")
+    W, H = img.size
+    frac = _clamp(d.get("width", 0.04), 0.0, 0.25, 0.04)
+    px = int(round(min(W, H) * frac))
+    if px <= 0:
+        return img
+    return ImageOps.expand(img, border=px, fill=d.get("color") or "#000000")
 
 
 def vignette(img, d: dict):

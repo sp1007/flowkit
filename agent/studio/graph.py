@@ -121,9 +121,9 @@ _GRAPH_VID_RETRIES = 2
 
 # Node types that PRODUCE media (so they support lock/reuse + refresh on propagate). The
 # local-processing ones (filter/text/upscale/blend) run with Pillow then re-upload to Flow.
-_GEN_TYPES = ("image", "editImage", "video",
-              "filter", "text", "upscale", "blend", "crop", "vignette")
-_LOCAL_TYPES = ("filter", "text", "upscale", "blend", "crop", "vignette")
+_GEN_TYPES = ("image", "editImage", "removebg", "video",
+              "filter", "text", "upscale", "blend", "crop", "vignette", "border")
+_LOCAL_TYPES = ("filter", "text", "upscale", "blend", "crop", "vignette", "border")
 
 
 def _deep_find(obj, key):
@@ -264,6 +264,8 @@ async def _run_local_node(t: str, data: dict, inp: dict, pid: str):
         return await asyncio.to_thread(imgproc.crop, img, data)
     if t == "vignette":
         return await asyncio.to_thread(imgproc.vignette, img, data)
+    if t == "border":
+        return await asyncio.to_thread(imgproc.border, img, data)
     if t == "text":
         font = await asyncio.to_thread(assembler._caption_font)
         return await asyncio.to_thread(imgproc.overlay_text, img, data, font)
@@ -486,6 +488,24 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             mid, web = await _img_gen_retry(lambda: client.edit_image(
                 inp["text"] or data.get("text") or "", src, flow_pid,
                 aspect_ratio=_img_aspect(project, data),
+                user_paygate_tier=project["paygate_tier"]), pid, exclude=src)
+            outputs[nid] = {"media_id": mid, "web": web, "ext": "png", "handle": "image"}
+
+        elif t == "removebg":
+            # AI background swap via edit (no extra ML dep). Replaces the background with a
+            # clean solid colour, keeping the subject — a preset edit_image instruction.
+            src = inp["media_id"]
+            if not src:
+                raise GraphError("Tách nền cần ảnh nguồn (nối từ Nguồn ảnh / Tạo ảnh).")
+            bg = (data.get("bg") or "white").lower()
+            bg_desc = {"white": "a plain solid white", "black": "a plain solid black",
+                       "green": "a plain solid chroma-key green (#00b140)",
+                       "gray": "a plain solid neutral gray"}.get(bg, "a plain solid white")
+            prompt = (f"Completely remove and replace the background with {bg_desc} background. "
+                      "Keep the main subject perfectly intact with clean, sharp edges; do not "
+                      "alter the subject. Studio cut-out look, even lighting, no shadows.")
+            mid, web = await _img_gen_retry(lambda: client.edit_image(
+                prompt, src, flow_pid, aspect_ratio=_img_aspect(project, data),
                 user_paygate_tier=project["paygate_tier"]), pid, exclude=src)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "png", "handle": "image"}
 
