@@ -383,11 +383,12 @@ export const graphApi = {
     id: string,
     graph: any,
     goal?: "image" | "video",
-    onlyNode?: string
+    onlyNode?: string,
+    propagate = false
   ) =>
     req<any>(graphUrl(kind, id, "/run", goal), {
       method: "POST",
-      body: JSON.stringify({ graph, only_node: onlyNode }),
+      body: JSON.stringify({ graph, only_node: onlyNode, propagate }),
     }),
   save: (kind: "shot" | "entity", id: string, graph: any, goal?: "image" | "video") =>
     req<any>(graphUrl(kind, id, "", goal), {

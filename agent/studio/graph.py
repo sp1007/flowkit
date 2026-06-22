@@ -13,7 +13,7 @@ import time as _t
 
 from agent.config import IMAGE_MODELS
 from agent.services.flow_client import get_flow_client
-from agent.studio import db, media_store, brain, assembler
+from agent.studio import db, media_store, brain, assembler, imgproc
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,25 @@ def _ancestors(node_id: str, edges: list[dict]) -> set[str]:
     return seen
 
 
+def _descendants(node_id: str, edges: list[dict]) -> set[str]:
+    """All nodes reachable FROM node_id (its downstream chain), including node_id itself.
+    Used by propagate: regenerating a node should refresh everything it feeds."""
+    fwd: dict[str, list[str]] = {}
+    for e in edges:
+        fwd.setdefault(e.get("source"), []).append(e.get("target"))
+    seen: set[str] = set()
+    stack = [node_id]
+    while stack:
+        x = stack.pop()
+        if x in seen:
+            continue
+        seen.add(x)
+        for t in fwd.get(x, []):
+            if t:
+                stack.append(t)
+    return seen
+
+
 from agent.config import OMNI_FLASH_MODELS
 
 # Friendly aspect tokens used by the node UI → Flow enums.
@@ -99,6 +118,11 @@ def _vid_aspect(project: dict, data: dict | None = None) -> str:
 
 _GRAPH_IMG_RETRIES = 3
 _GRAPH_VID_RETRIES = 2
+
+# Node types that PRODUCE media (so they support lock/reuse + refresh on propagate). The
+# local-processing ones (filter/text/upscale/blend) run with Pillow then re-upload to Flow.
+_GEN_TYPES = ("image", "editImage", "video", "filter", "text", "upscale", "blend")
+_LOCAL_TYPES = ("filter", "text", "upscale", "blend")
 
 
 def _deep_find(obj, key):
@@ -171,6 +195,76 @@ async def _img_gen_retry(call, pid, exclude=None):
     raise GraphError(f"Tạo ảnh thất bại sau {_GRAPH_IMG_RETRIES} lần: {last}")
 
 
+async def _load_local_image(media_id: str, pid: str):
+    """Open a media's local file as a PIL image (downloading from Flow first if needed).
+    Ext-robust via media_store.find_local (png/jpg/webp)."""
+    from PIL import Image
+    p = media_store.find_local(media_id, pid)
+    if not p:
+        web = await media_store.ensure_local(media_id, pid)
+        p = media_store.find_local(media_id, pid) if web else None
+    if not p:
+        raise GraphError("Không tải được ảnh nguồn để xử lý")
+    return await asyncio.to_thread(lambda: Image.open(p).convert("RGB"))
+
+
+async def _save_and_upload(img, pid: str, flow_pid: str) -> tuple[str, str]:
+    """Save a processed PIL image locally AND upload it to Flow → (media_id, web). Uploading
+    keeps the chain alive: a locally-filtered image still gets a Flow media_id so downstream
+    edit/video/output nodes (and 'Áp dụng') keep working."""
+    import base64
+    import io
+
+    def _encode():
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="PNG")
+        return buf.getvalue()
+
+    raw = await asyncio.to_thread(_encode)
+    res = await get_flow_client().upload_image(
+        base64.b64encode(raw).decode(), mime_type="image/png",
+        project_id=flow_pid, file_name="node.png")
+    if res.get("error"):
+        raise GraphError(f"Upload ảnh đã xử lý lên Flow lỗi: {res['error']}")
+    mid = res.get("_mediaId") or _generated_media_id(res.get("data", res))
+    if not mid:
+        raise GraphError("Flow không trả media_id cho ảnh đã xử lý")
+    rel = f"{pid}/{mid}.png"
+    dest = media_store.MEDIA_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(dest.write_bytes, raw)
+    return mid, f"/media/{rel}"
+
+
+async def _run_local_node(t: str, data: dict, inp: dict, pid: str):
+    """Produce a PIL image for a local-processing node (filter/text/upscale/blend) from its
+    upstream image(s). Raises GraphError with a clear message if inputs are missing."""
+    if t == "blend":
+        seen: list[str] = []
+        for r in inp.get("references", []):
+            mid = r.get("media_id")
+            if mid and mid not in seen:
+                seen.append(mid)
+        if len(seen) < 2:
+            raise GraphError("Node Ghép/Blend cần 2 ảnh đầu vào (nối 2 nguồn ảnh).")
+        a = await _load_local_image(seen[0], pid)
+        b = await _load_local_image(seen[1], pid)
+        return await asyncio.to_thread(imgproc.blend, a, b, data)
+
+    src = inp.get("media_id")
+    if not src:
+        raise GraphError(f"Node '{t}' cần 1 ảnh đầu vào (nối từ Nguồn ảnh / Tạo ảnh).")
+    img = await _load_local_image(src, pid)
+    if t == "filter":
+        return await asyncio.to_thread(imgproc.apply_filter, img, data)
+    if t == "upscale":
+        return await asyncio.to_thread(imgproc.upscale, img, data)
+    if t == "text":
+        font = await asyncio.to_thread(assembler._caption_font)
+        return await asyncio.to_thread(imgproc.overlay_text, img, data, font)
+    raise GraphError(f"Loại node cục bộ không hỗ trợ: {t}")
+
+
 async def _vid_gen_retry(submit, scene_key, pid):
     """Submit a video, poll, download — verify the clip exists and retry on failure.
     Returns (media_id, web_path)."""
@@ -226,13 +320,19 @@ def _reuse_locked(data: dict, ext: str, handle: str, force: bool = False):
 
 
 async def run_graph(graph: dict, target: dict, project: dict, kind: str,
-                    only_node: str | None = None) -> dict:
+                    only_node: str | None = None, propagate: bool = False) -> dict:
     """Execute the graph; return {media_id, image_path|video_path} of the Output.
 
     only_node: when set, run only that node + its upstream chain and return its media
-    (no Output node required, target not modified) — used by the per-node "tạo nhanh".
-    Locked gen nodes reuse their stored result instead of regenerating (except the node
-    explicitly requested via only_node, which always regenerates)."""
+    (no Output node required, target not modified) — used by the per-node "⚡ tạo nhanh".
+    propagate: with only_node, ALSO regenerate everything DOWNSTREAM of it (the "⏬ cập nhật
+    xuôi dòng" button) so a change to one node flows through the whole chain.
+
+    Reuse rules (so iterating one node doesn't re-roll the rest):
+    - full run (no only_node): a gen node reuses its stored result iff LOCKED.
+    - per-node run: nodes being refreshed (only_node + its descendants when propagating)
+      regenerate unless locked; every other node needed only as INPUT reuses its stored
+      result. The explicitly-requested only_node always regenerates (lock ignored)."""
     nodes = graph.get("nodes") or []
     edges = graph.get("edges") or []
     if not nodes:
@@ -247,7 +347,14 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
     pid = project["id"]
     flow_pid = project["flow_project_id"]
     final = None
-    allowed = _ancestors(only_node, edges) if only_node else None
+    # refresh = nodes that should regenerate; allowed = refresh ∪ all their inputs (ancestors).
+    refresh: set[str] | None = None
+    allowed: set[str] | None = None
+    if only_node:
+        refresh = _descendants(only_node, edges) if propagate else {only_node}
+        allowed = set()
+        for r in refresh:
+            allowed |= _ancestors(r, edges)   # pull in side-inputs of refreshed nodes too
 
     def merged_inputs(nid):
         """Collect from upstream nodes: text, reference images (refs + any source/generated
@@ -289,13 +396,21 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             continue  # per-node run: only this node + its upstream chain
         inp = merged_inputs(nid)
 
-        # Locked gen nodes reuse their stored result. In a per-node gen (only_node set), the
-        # UPSTREAM gen nodes also reuse — only the requested node regenerates, so editing one
-        # node doesn't re-roll the image feeding it. The only_node itself always regenerates.
-        if t in ("image", "editImage", "video") and nid != only_node:
-            reused = _reuse_locked(data, "mp4" if t == "video" else "png",
-                                   "video" if t == "video" else "image",
-                                   force=only_node is not None)
+        # Decide whether this gen-like node reuses its stored result or regenerates.
+        #  - full run: reuse iff locked.
+        #  - per-node run: a node being REFRESHED regenerates (unless locked); the
+        #    requested only_node always regenerates; any other node (needed only as input)
+        #    reuses. See run_graph docstring.
+        if t in _GEN_TYPES and nid != only_node:
+            ext = "mp4" if t == "video" else "png"
+            handle = "video" if t == "video" else "image"
+            if allowed is None:                       # full run
+                force = False
+            elif refresh and nid in refresh:          # being refreshed → reuse only if locked
+                force = bool(data.get("locked"))
+            else:                                     # input-only ancestor → always reuse
+                force = True
+            reused = _reuse_locked(data, ext, handle, force=force)
             if reused:
                 if not reused.get("web") and reused.get("media_id"):
                     reused["web"] = await media_store.ensure_local(
@@ -394,6 +509,13 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                     aspect_ratio=aspect_v, user_paygate_tier=project["paygate_tier"])
             mid, web = await _vid_gen_retry(submit, target["id"], pid)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "mp4", "handle": "video"}
+
+        elif t in _LOCAL_TYPES:
+            # Local Pillow processing (no AI): filter / text / upscale / blend. Result is
+            # re-uploaded to Flow so the chain (→ edit / video / output) keeps a media_id.
+            out_img = await _run_local_node(t, data, inp, pid)
+            mid, web = await _save_and_upload(out_img, pid, flow_pid)
+            outputs[nid] = {"media_id": mid, "web": web, "ext": "png", "handle": "image"}
 
         elif t == "output":
             # The Output node designates the final result: whatever media flows into it.

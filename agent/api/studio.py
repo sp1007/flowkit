@@ -2289,7 +2289,8 @@ async def generate_all_videos(pid: str, force: bool = False):
 
 class SaveGraphRequest(BaseModel):
     graph: dict
-    only_node: str | None = None  # run just this node + upstream (per-node "tạo nhanh")
+    only_node: str | None = None  # run just this node + upstream (per-node "⚡ tạo nhanh")
+    propagate: bool = False        # with only_node: also refresh everything downstream (⏬)
 
 
 # A shot owns two separate graphs: the storyboard IMAGE graph (graph_json) and the
@@ -2322,7 +2323,7 @@ async def run_shot_graph(sid: str, body: SaveGraphRequest, goal: str | None = No
     project = {**project, "paygate_tier": await _current_tier()}
     try:
         out = await graph_mod.run_graph(body.graph, shot, project, "shot",
-                                        only_node=body.only_node)
+                                        only_node=body.only_node, propagate=body.propagate)
     except graph_mod.GraphError as e:
         raise HTTPException(400, str(e))
     return {**out, "shot": await _shot_or_404(sid)}
@@ -2349,7 +2350,7 @@ async def run_entity_graph(eid: str, body: SaveGraphRequest):
     project = {**project, "paygate_tier": await _current_tier()}
     try:
         out = await graph_mod.run_graph(body.graph, entity, project, "entity",
-                                        only_node=body.only_node)
+                                        only_node=body.only_node, propagate=body.propagate)
     except graph_mod.GraphError as e:
         raise HTTPException(400, str(e))
     return {**out, "entity": await _entity_or_404(eid)}

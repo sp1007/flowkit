@@ -59,12 +59,16 @@ const META: Record<string, { label: string; icon: string; color: string }> = {
   refs: { label: "References", icon: "🔗", color: "#0ea5e9" },
   image: { label: "Tạo ảnh AI", icon: "🎨", color: "#a855f7" },
   editImage: { label: "Sửa ảnh AI", icon: "🖌", color: "#f59e0b" },
+  filter: { label: "Filter ảnh", icon: "🎚", color: "#14b8a6" },
+  text: { label: "Chèn chữ", icon: "🔤", color: "#22c55e" },
+  upscale: { label: "Upscale / nét", icon: "🔍", color: "#06b6d4" },
+  blend: { label: "Ghép / Blend", icon: "🔀", color: "#ec4899" },
   video: { label: "Tạo video AI", icon: "🎬", color: "#a855f7" },
   output: { label: "Output", icon: "📤", color: "#64748b" },
 };
 
 // "refs" intentionally dropped — use one "Nguồn ảnh" (source) node per reference image.
-const PALETTE = ["source", "prompt", "image", "video", "editImage", "output"];
+const PALETTE = ["source", "prompt", "image", "editImage", "filter", "text", "upscale", "blend", "video", "output"];
 
 const prettyModel = (m: string) =>
   m.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -75,7 +79,7 @@ const NodeOps = createContext<{
   update: (id: string, patch: any) => void;
   remove: (id: string) => void;
   preview: (src: string, video: boolean) => void;
-  genNode: (id: string) => void;
+  genNode: (id: string, propagate?: boolean) => void;
   genningId: string | null;
   results: Record<string, { web: string; ext: string }>;
   // Effective media currently flowing INTO each node id (from its upstream) — lets the
@@ -230,6 +234,37 @@ function Slider({
   );
 }
 
+// A row of compact on/off chips bound to boolean node-data keys.
+function ToggleChips({
+  id,
+  data,
+  items,
+}: {
+  id: string;
+  data: any;
+  items: { key: string; label: string }[];
+}) {
+  const { update } = useContext(NodeOps);
+  return (
+    <div className="flex flex-wrap gap-1">
+      {items.map((it) => {
+        const on = !!data[it.key];
+        return (
+          <button
+            key={it.key}
+            onClick={() => update(id, { [it.key]: !on })}
+            className={`nodrag rounded px-1.5 py-0.5 text-[10px] ${
+              on ? "bg-indigo-600 text-white" : "border border-neutral-700 text-neutral-400 hover:bg-neutral-800"
+            }`}
+          >
+            {it.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Node components ────────────────────────────────────────
 function SourceNode({ id, data }: NodeProps) {
   const { update, images } = useContext(NodeOps);
@@ -380,15 +415,23 @@ function GenControls({ id, data }: { id: string; data: any }) {
       <div className="flex items-center gap-1.5">
         <button
           onClick={() => genNode(id)}
-          disabled={busy}
-          title="Tạo riêng node này (không chạy toàn tuyến)"
+          disabled={!!genningId}
+          title="Tạo riêng node này (không chạy node phía sau)"
           className="nodrag flex-1 rounded-md bg-indigo-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
         >
           {busy ? "Đang tạo…" : "⚡ Tạo nhanh"}
         </button>
         <button
+          onClick={() => genNode(id, true)}
+          disabled={!!genningId}
+          title="Tạo node này RỒI cập nhật mọi node phía sau (xuôi dòng) — chuỗi luôn đồng bộ"
+          className="nodrag grid h-[26px] w-7 place-items-center rounded-md border border-sky-600 text-xs text-sky-300 hover:bg-sky-950/40 disabled:opacity-40"
+        >
+          ⏬
+        </button>
+        <button
           onClick={() => update(id, { locked: !locked })}
-          title={locked ? "Đang khóa — bỏ khóa để cho phép tạo lại" : "Khóa: không tạo lại khi chạy toàn tuyến"}
+          title={locked ? "Đang khóa — bỏ khóa để cho phép tạo lại" : "Khóa: không tạo lại khi chạy toàn tuyến / cập nhật xuôi dòng"}
           className={`nodrag grid h-[26px] w-7 place-items-center rounded-md border text-xs ${
             locked
               ? "border-amber-500 bg-amber-500/20 text-amber-300"
@@ -398,7 +441,7 @@ function GenControls({ id, data }: { id: string; data: any }) {
           {locked ? "🔒" : "🔓"}
         </button>
       </div>
-      {locked && <div className="text-[10px] text-amber-400/90">Đã khóa — giữ nguyên khi chạy toàn tuyến</div>}
+      {locked && <div className="text-[10px] text-amber-400/90">Đã khóa — giữ nguyên khi chạy toàn tuyến / xuôi dòng</div>}
     </div>
   );
 }
@@ -448,12 +491,117 @@ function OutputNode({ id, data }: NodeProps) {
   );
 }
 
+// Local (Pillow) image-processing nodes — no AI/credit, result re-uploaded so the chain
+// continues. All take an image input and produce an image.
+function FilterNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  const num = (k: string, dflt: number) => (d[k] ?? dflt);
+  return (
+    <Shell type="filter" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả filter" />
+      <Slider label="Sáng" value={num("brightness", 1)} min={0} max={2} step={0.05} onChange={(v) => update(id, { brightness: v })} />
+      <Slider label="Tương phản" value={num("contrast", 1)} min={0} max={2} step={0.05} onChange={(v) => update(id, { contrast: v })} />
+      <Slider label="Bão hòa" value={num("saturation", 1)} min={0} max={2} step={0.05} onChange={(v) => update(id, { saturation: v })} />
+      <Slider label="Độ nét" value={num("sharpness", 1)} min={0} max={2} step={0.05} onChange={(v) => update(id, { sharpness: v })} />
+      <Slider label="Làm mờ" value={num("blur", 0)} min={0} max={20} step={0.5} suffix="px" onChange={(v) => update(id, { blur: v })} />
+      <ToggleChips id={id} data={d} items={[
+        { key: "grayscale", label: "Đen trắng" },
+        { key: "sepia", label: "Sepia" },
+        { key: "flip_h", label: "⇆ Lật ngang" },
+        { key: "flip_v", label: "⥯ Lật dọc" },
+      ]} />
+      <label className="block">
+        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-neutral-500">Xoay</div>
+        <select className={fieldCls} value={String(d.rotate || 0)} onChange={(e) => update(id, { rotate: Number(e.target.value) })}>
+          {[0, 90, 180, 270].map((r) => <option key={r} value={r}>{r}°</option>)}
+        </select>
+      </label>
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
+function TextNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  return (
+    <Shell type="text" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả chèn chữ" />
+      <textarea
+        className={`${fieldCls} nowheel h-14 resize-none leading-snug`}
+        value={d.text ?? ""}
+        placeholder="Nội dung chữ…"
+        onChange={(e) => update(id, { text: e.target.value })}
+      />
+      <div className="flex gap-2">
+        <label className="flex-1">
+          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-neutral-500">Vị trí</div>
+          <select className={fieldCls} value={d.anchor || "bottom"} onChange={(e) => update(id, { anchor: e.target.value })}>
+            {["top", "center", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"].map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-neutral-500">Màu</div>
+          <input type="color" value={d.color || "#ffffff"} onChange={(e) => update(id, { color: e.target.value })}
+            className="nodrag h-[26px] w-9 cursor-pointer rounded border border-neutral-700 bg-neutral-900" />
+        </label>
+      </div>
+      <Slider label="Cỡ chữ" value={d.font_scale ?? 0.06} min={0.02} max={0.3} step={0.01} onChange={(v) => update(id, { font_scale: v })} />
+      <ToggleChips id={id} data={d} items={[{ key: "stroke", label: "Viền đen" }]} />
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
+function UpscaleNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  return (
+    <Shell type="upscale" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả upscale" />
+      <Slider label="Phóng to" value={d.scale ?? 2} min={1} max={4} step={0.5} suffix="×" onChange={(v) => update(id, { scale: v })} />
+      <ToggleChips id={id} data={d} items={[{ key: "sharpen", label: "Làm nét" }]} />
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
+function BlendNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  const mode = d.mode || "alpha";
+  return (
+    <Shell type="blend" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả ghép" />
+      <label className="block">
+        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-neutral-500">Kiểu</div>
+        <select className={fieldCls} value={mode} onChange={(e) => update(id, { mode: e.target.value })}>
+          <option value="alpha">Hòa trộn (alpha)</option>
+          <option value="side">Cạnh nhau</option>
+        </select>
+      </label>
+      {mode === "alpha" && (
+        <Slider label="Tỷ lệ trộn" value={d.alpha ?? 0.5} min={0} max={1} step={0.05} onChange={(v) => update(id, { alpha: v })} />
+      )}
+      <div className="text-[10px] text-neutral-500">ⓘ nối 2 nguồn ảnh vào node này</div>
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
 const NODE_TYPES = {
   source: SourceNode,
   prompt: PromptNode,
   refs: RefsNode,
   image: ImageNode,
   editImage: ImageNode,
+  filter: FilterNode,
+  text: TextNode,
+  upscale: UpscaleNode,
+  blend: BlendNode,
   video: VideoNode,
   output: OutputNode,
 };
@@ -725,6 +873,11 @@ function Editor({
     if (type === "refs") base.entity_ids = [];
     if (type === "image" || type === "editImage") Object.assign(base, { aspect: "16:9", model: "", count: 1 });
     if (type === "video") Object.assign(base, { aspect: "16:9", model: "omni", duration: 8, count: 1 });
+    if (type === "filter")
+      Object.assign(base, { brightness: 1, contrast: 1, saturation: 1, sharpness: 1, blur: 0, rotate: 0 });
+    if (type === "text") Object.assign(base, { text: "", anchor: "bottom", color: "#ffffff", font_scale: 0.06, stroke: true });
+    if (type === "upscale") Object.assign(base, { scale: 2, sharpen: true });
+    if (type === "blend") Object.assign(base, { mode: "alpha", alpha: 0.5 });
     setNodes((ns) => [
       ...ns,
       { id, type, position: { x: 80 + Math.random() * 160, y: 80 + Math.random() * 200 }, data: base },
@@ -811,13 +964,14 @@ function Editor({
     }
   };
 
-  // Generate just one node (+ its upstream chain), without running the whole pipeline.
+  // Generate one node (+ its upstream chain). propagate=true also refreshes everything
+  // DOWNSTREAM of it (the ⏬ button) so a change flows through the whole chain.
   const genNode = useCallback(
-    async (id: string) => {
+    async (id: string, propagate = false) => {
       setGenningId(id);
       setErr(null);
       try {
-        const r = await graphApi.run(target.kind, target.id, serialize(), goal, id);
+        const r = await graphApi.run(target.kind, target.id, serialize(), goal, id, propagate);
         const outs = (r.node_outputs || {}) as Record<string, Out>;
         applyOutputs(outs);
         // If this regenerated the node feeding the Output, commit that media to the
@@ -979,7 +1133,7 @@ function Editor({
         </NodeOps.Provider>
       </div>
       <div className="border-t border-neutral-800 px-4 py-1 text-[11px] text-neutral-500">
-        ⓘ ⚡ Tạo nhanh để tạo riêng 1 node · 🔒 Khóa để không tạo lại khi Run toàn tuyến · Nhấn ảnh/video để phóng to · Kéo đầu đường nối ra chỗ trống để xóa · Nút ✕ để xóa node
+        ⓘ ⚡ Tạo riêng 1 node · ⏬ Tạo & cập nhật mọi node phía sau (xuôi dòng) · 🔒 Khóa để không tạo lại · Filter/Chèn chữ/Upscale/Ghép chạy cục bộ (không tốn credit) · Nhấn ảnh/video để phóng to · Kéo đầu đường nối ra chỗ trống để xóa · ✕ để xóa node
       </div>
       {lightbox && (
         <Lightbox
