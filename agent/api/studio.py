@@ -857,6 +857,29 @@ async def extract_entities(pid: str, replace: bool = False):
             "description": it.get("description", ""),
             "ref_prompt": it.get("ref_prompt", ""),
             "created_at": ts, "updated_at": ts})
+        existing.add(name.lower())
+        added += 1
+
+    # Every scene heading names a LOCATION (heading minus the INT./EXT. prefix minus the
+    # trailing time-of-day). The AI extractor often misses some of these, so harvest them
+    # deterministically: any heading-location not already an entity becomes a location entity.
+    headings = [r["heading"] for r in await db.query_all(
+        "SELECT heading FROM scene WHERE project_id=? ORDER BY idx", (pid,))]
+    if not headings:                                  # scenes not parsed yet → read the script
+        headings = [s["heading"] for s in brain.parse_scenes(p["script_raw"])]
+    seen_loc: set[str] = set()
+    for h in headings:
+        loc = _location_from_heading(h)
+        key = _norm(loc)
+        if not loc or key in seen_loc or loc.lower() in existing:
+            continue
+        seen_loc.add(key)
+        await db.insert("entity", {
+            "id": db.new_id(), "project_id": pid,
+            "type": "location", "name": loc,
+            "description": "", "ref_prompt": "",
+            "created_at": ts, "updated_at": ts})
+        existing.add(loc.lower())
         added += 1
     return {"added": added, "entities": await db.query_all(
         "SELECT * FROM entity WHERE project_id=? ORDER BY type, created_at", (pid,))}
@@ -1115,10 +1138,27 @@ def _brace_names(text: str) -> set[str]:
     return {m.strip() for m in _BRACE_RE.findall(text or "") if m.strip()}
 
 
+# Time-of-day tokens that may trail a scene heading (VN + EN). The LOCATION is the heading
+# minus the INT./EXT. prefix minus these trailing time segments — NOT just the first segment
+# (a location can itself contain " - ", e.g. 'KHU 4 - LỐI ĐI KỸ THUẬT - NGÀY').
+_TIME_TOKENS = {
+    "ngày", "đêm", "sáng", "trưa", "chiều", "tối", "khuya", "rạng đông", "rạng sáng",
+    "bình minh", "hoàng hôn", "đêm khuya", "sáng sớm", "chạng vạng", "nửa đêm",
+    "ngày/đêm", "đêm/ngày", "liên tục", "sau đó", "lát sau", "cùng lúc", "hồi tưởng",
+    "day", "night", "morning", "afternoon", "evening", "noon", "dusk", "dawn",
+    "midnight", "continuous", "later", "moments later", "sunset", "sunrise",
+}
+
+
 def _location_from_heading(heading: str) -> str:
-    """'INT. BẾP CỦA THIÊN ÂN - NGÀY' → 'BẾP CỦA THIÊN ÂN'."""
+    """'INT. BẾP CỦA THIÊN ÂN - NGÀY' → 'BẾP CỦA THIÊN ÂN'; 'EXT. KHU 4 - LỐI ĐI KỸ THUẬT -
+    NGÀY' → 'KHU 4 - LỐI ĐI KỸ THUẬT'. Strip the INT./EXT. prefix, then drop TRAILING
+    time-of-day segments (only the time is removed; an internal ' - ' in the place stays)."""
     h = _HEADING_PREFIX_RE.sub("", (heading or "").strip())
-    return re.split(r"\s+[-–—]\s+", h)[0].strip()
+    parts = [p.strip() for p in re.split(r"\s+[-–—]\s+", h) if p.strip()]
+    while len(parts) > 1 and _norm(parts[-1]) in _TIME_TOKENS:
+        parts.pop()
+    return " - ".join(parts).strip()
 
 
 def _match_location_entity(heading: str, locations: list[dict]) -> Optional[dict]:
