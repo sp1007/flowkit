@@ -136,6 +136,52 @@ def upscale(img, d: dict):
     return img
 
 
+_CROP_RATIOS = {"16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1.0, "4:3": 4 / 3, "3:4": 3 / 4}
+
+
+def crop(img, d: dict):
+    """Center-crop to a target aspect ratio. d.aspect: 16:9 / 9:16 / 1:1 / 4:3 / 3:4 / free
+    ('free' or unknown → keep ratio). d.zoom (1–3) crops in further (punch-in) first."""
+    img = img.convert("RGB")
+    W, H = img.size
+    zoom = _clamp(d.get("zoom", 1), 1.0, 3.0, 1.0)
+    if zoom > 1.001:
+        cw, ch = int(W / zoom), int(H / zoom)
+        l, t = (W - cw) // 2, (H - ch) // 2
+        img = img.crop((l, t, l + cw, t + ch))
+        W, H = img.size
+    target = _CROP_RATIOS.get(d.get("aspect") or "free")
+    if not target:
+        return img
+    cur = W / H
+    if cur > target:                       # too wide → trim width
+        nw = max(1, int(round(H * target)))
+        l = (W - nw) // 2
+        img = img.crop((l, 0, l + nw, H))
+    elif cur < target:                     # too tall → trim height
+        nh = max(1, int(round(W / target)))
+        t = (H - nh) // 2
+        img = img.crop((0, t, W, t + nh))
+    return img
+
+
+def vignette(img, d: dict):
+    """Darken the edges with a soft radial falloff. d.strength 0–1 (default 0.5)."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    img = img.convert("RGB")
+    strength = _clamp(d.get("strength", 0.5), 0.0, 1.0, 0.5)
+    if strength <= 0.01:
+        return img
+    W, H = img.size
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).ellipse(
+        [-W * 0.12, -H * 0.12, W * 1.12, H * 1.12], fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=max(8, min(W, H) * 0.15)))
+    faded = Image.composite(img, Image.new("RGB", (W, H), (0, 0, 0)), mask)
+    return Image.blend(img, faded, strength)
+
+
 def blend(img_a, img_b, d: dict):
     """Combine two images. mode 'alpha' = cross-fade (alpha 0–1, b over a); mode 'side' =
     place side by side (horizontal) on matched height."""

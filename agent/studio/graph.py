@@ -121,8 +121,9 @@ _GRAPH_VID_RETRIES = 2
 
 # Node types that PRODUCE media (so they support lock/reuse + refresh on propagate). The
 # local-processing ones (filter/text/upscale/blend) run with Pillow then re-upload to Flow.
-_GEN_TYPES = ("image", "editImage", "video", "filter", "text", "upscale", "blend")
-_LOCAL_TYPES = ("filter", "text", "upscale", "blend")
+_GEN_TYPES = ("image", "editImage", "video",
+              "filter", "text", "upscale", "blend", "crop", "vignette")
+_LOCAL_TYPES = ("filter", "text", "upscale", "blend", "crop", "vignette")
 
 
 def _deep_find(obj, key):
@@ -259,6 +260,10 @@ async def _run_local_node(t: str, data: dict, inp: dict, pid: str):
         return await asyncio.to_thread(imgproc.apply_filter, img, data)
     if t == "upscale":
         return await asyncio.to_thread(imgproc.upscale, img, data)
+    if t == "crop":
+        return await asyncio.to_thread(imgproc.crop, img, data)
+    if t == "vignette":
+        return await asyncio.to_thread(imgproc.vignette, img, data)
     if t == "text":
         font = await asyncio.to_thread(assembler._caption_font)
         return await asyncio.to_thread(imgproc.overlay_text, img, data, font)

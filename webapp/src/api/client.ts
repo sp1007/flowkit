@@ -122,6 +122,19 @@ export const api = {
   },
   clearBgm: (id: string) =>
     req<Project>(`/projects/${id}/bgm`, { method: "DELETE" }),
+  // Every image in the project's Flow project (for the Node Editor "Nguồn ảnh" picker).
+  projectImages: (id: string) => req<{ media: FlowMedia[] }>(`/projects/${id}/images`),
+  // Upload an image from the user's machine → Flow (gets a media_id) + local cache.
+  uploadImage: async (
+    id: string,
+    file: File
+  ): Promise<{ media_id: string; web: string; name: string }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/studio/projects/${id}/upload-image`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    return res.json();
+  },
   importProjectZip: async (file: File): Promise<Project> => {
     const fd = new FormData();
     fd.append("file", file);

@@ -2356,6 +2356,45 @@ async def run_entity_graph(eid: str, body: SaveGraphRequest):
     return {**out, "entity": await _entity_or_404(eid)}
 
 
+@router.get("/projects/{pid}/images")
+async def project_images(pid: str):
+    """Mọi ẢNH trong project Flow của dự án — cho node 'Nguồn ảnh' tham chiếu toàn bộ ảnh
+    (không chỉ asset/storyboard). Trả [{media_id, name, kind}]."""
+    project = await _project_or_404(pid)
+    if not project.get("flow_project_id"):
+        return {"media": []}
+    client = _require_extension()
+    raw = await client.get_project(project["flow_project_id"])
+    return {"media": [m for m in _flow_media_items(raw) if m["kind"] == "image"]}
+
+
+@router.post("/projects/{pid}/upload-image")
+async def upload_image(pid: str, file: UploadFile = File(...)):
+    """Tải ảnh từ máy lên Flow (lấy media_id) + lưu local — để dùng làm Nguồn ảnh trong Node
+    Editor. Upload lên Flow để ảnh có media_id thật, dùng được làm tham chiếu/edit/video."""
+    project = await _project_or_404(pid)
+    client = _require_extension()
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "File rỗng")
+    import base64
+    mime = (file.content_type or "image/png").lower()
+    res = await client.upload_image(
+        base64.b64encode(raw).decode(), mime_type=mime,
+        project_id=project["flow_project_id"], file_name=file.filename or "upload.png")
+    if isinstance(res, dict) and res.get("error"):
+        raise HTTPException(502, f"Upload lên Flow lỗi: {res['error']}")
+    mid = res.get("_mediaId") if isinstance(res, dict) else None
+    if not mid:
+        raise HTTPException(502, "Flow không trả media_id cho ảnh tải lên")
+    ext = "jpg" if ("jpeg" in mime or "jpg" in mime) else "webp" if "webp" in mime else "png"
+    rel = f"{pid}/{mid}.{ext}"
+    dest = media_store.MEDIA_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(dest.write_bytes, raw)
+    return {"media_id": mid, "web": f"/media/{rel}", "name": file.filename or mid}
+
+
 class ApplyMediaRequest(BaseModel):
     media_id: str
     ext: str = "png"

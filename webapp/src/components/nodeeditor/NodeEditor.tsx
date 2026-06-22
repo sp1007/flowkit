@@ -25,14 +25,14 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { api, graphApi, storyboard, type Entity, type Shot } from "../../api/client";
+import { api, graphApi, storyboard, thumbUrl, type Entity, type Shot } from "../../api/client";
 import Lightbox from "../common/Lightbox";
 
 // A picture the "Nguồn ảnh" node can reference: project assets (entities) AND every
 // storyboard shot image — so any generated frame can feed back in as a reference.
 export interface RefImage {
-  key: string; // "e:<id>" | "s:<id>"
-  kind: "entity" | "shot";
+  key: string; // "e:<id>" | "s:<id>" | "m:<media_id>"
+  kind: "entity" | "shot" | "media";
   label: string;
   media_id: string;
   web: string;
@@ -62,13 +62,15 @@ const META: Record<string, { label: string; icon: string; color: string }> = {
   filter: { label: "Filter ảnh", icon: "🎚", color: "#14b8a6" },
   text: { label: "Chèn chữ", icon: "🔤", color: "#22c55e" },
   upscale: { label: "Upscale / nét", icon: "🔍", color: "#06b6d4" },
+  crop: { label: "Crop / tỉ lệ", icon: "🖼", color: "#84cc16" },
+  vignette: { label: "Vignette", icon: "🌑", color: "#8b5cf6" },
   blend: { label: "Ghép / Blend", icon: "🔀", color: "#ec4899" },
   video: { label: "Tạo video AI", icon: "🎬", color: "#a855f7" },
   output: { label: "Output", icon: "📤", color: "#64748b" },
 };
 
 // "refs" intentionally dropped — use one "Nguồn ảnh" (source) node per reference image.
-const PALETTE = ["source", "prompt", "image", "editImage", "filter", "text", "upscale", "blend", "video", "output"];
+const PALETTE = ["source", "prompt", "image", "editImage", "filter", "text", "upscale", "crop", "vignette", "blend", "video", "output"];
 
 const prettyModel = (m: string) =>
   m.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -88,6 +90,7 @@ const NodeOps = createContext<{
   entities: Entity[];
   images: RefImage[];
   imageModels: string[];
+  projectId: string;
 }>({
   update: () => {},
   remove: () => {},
@@ -99,6 +102,7 @@ const NodeOps = createContext<{
   entities: [],
   images: [],
   imageModels: [],
+  projectId: "",
 });
 
 const handleStyle = (color: string) => ({
@@ -267,8 +271,10 @@ function ToggleChips({
 
 // ─── Node components ────────────────────────────────────────
 function SourceNode({ id, data }: NodeProps) {
-  const { update, images } = useContext(NodeOps);
+  const { update, images, projectId } = useContext(NodeOps);
   const d = data as any;
+  const [uploading, setUploading] = useState(false);
+  const [upErr, setUpErr] = useState<string | null>(null);
   const pick = (key: string) => {
     const img = images.find((x) => x.key === key);
     if (img)
@@ -280,12 +286,34 @@ function SourceNode({ id, data }: NodeProps) {
         label: img.label,
       });
   };
+  const onUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setUploading(true);
+    setUpErr(null);
+    try {
+      const r = await api.uploadImage(projectId, file);
+      update(id, {
+        src_key: "",
+        entity_id: null,
+        media_id: r.media_id,
+        web: r.web,
+        label: r.name || "ảnh tải lên",
+      });
+    } catch (err: any) {
+      setUpErr(err.message || "Upload lỗi");
+    } finally {
+      setUploading(false);
+    }
+  };
   const entImgs = images.filter((x) => x.kind === "entity");
   const shotImgs = images.filter((x) => x.kind === "shot");
+  const mediaImgs = images.filter((x) => x.kind === "media");
   const selected = d.src_key || (d.entity_id ? `e:${d.entity_id}` : "");
   return (
     <Shell type="source" id={id} inputs={false}>
-      <Preview nodeId={id} src={d.web} label="Chọn ảnh bên dưới" />
+      <Preview nodeId={id} src={d.web} label="Chọn / tải ảnh" />
       <select className={fieldCls} value={selected} onChange={(e) => pick(e.target.value)}>
         <option value="">{d.web ? "(ảnh hiện tại)" : "— chọn ảnh —"}</option>
         {entImgs.length > 0 && (
@@ -302,7 +330,19 @@ function SourceNode({ id, data }: NodeProps) {
             ))}
           </optgroup>
         )}
+        {mediaImgs.length > 0 && (
+          <optgroup label="Ảnh khác trong dự án">
+            {mediaImgs.map((x) => (
+              <option key={x.key} value={x.key}>{x.label}</option>
+            ))}
+          </optgroup>
+        )}
       </select>
+      <label className="nodrag block cursor-pointer rounded-md border border-dashed border-neutral-700 px-2 py-1 text-center text-[10px] text-neutral-400 hover:bg-neutral-800">
+        {uploading ? "Đang tải lên…" : "⬆ Tải ảnh từ máy"}
+        <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={onUpload} />
+      </label>
+      {upErr && <div className="text-[10px] text-rose-400">{upErr}</div>}
       {d.label && <div className="truncate text-[10px] text-neutral-500">↳ {d.label}</div>}
     </Shell>
   );
@@ -569,6 +609,38 @@ function UpscaleNode({ id, data }: NodeProps) {
   );
 }
 
+function CropNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  return (
+    <Shell type="crop" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả crop" />
+      <label className="block">
+        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-neutral-500">Khung tỉ lệ</div>
+        <select className={fieldCls} value={d.aspect || "free"} onChange={(e) => update(id, { aspect: e.target.value })}>
+          {["free", "16:9", "9:16", "1:1", "4:3", "3:4"].map((a) => (
+            <option key={a} value={a}>{a === "free" ? "Giữ nguyên" : a}</option>
+          ))}
+        </select>
+      </label>
+      <Slider label="Phóng (punch-in)" value={d.zoom ?? 1} min={1} max={3} step={0.05} suffix="×" onChange={(v) => update(id, { zoom: v })} />
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
+function VignetteNode({ id, data }: NodeProps) {
+  const { update } = useContext(NodeOps);
+  const d = data as any;
+  return (
+    <Shell type="vignette" id={id}>
+      <Preview nodeId={id} src={d._result} label="Kết quả vignette" />
+      <Slider label="Độ tối viền" value={d.strength ?? 0.5} min={0} max={1} step={0.05} onChange={(v) => update(id, { strength: v })} />
+      <GenControls id={id} data={d} />
+    </Shell>
+  );
+}
+
 function BlendNode({ id, data }: NodeProps) {
   const { update } = useContext(NodeOps);
   const d = data as any;
@@ -601,6 +673,8 @@ const NODE_TYPES = {
   filter: FilterNode,
   text: TextNode,
   upscale: UpscaleNode,
+  crop: CropNode,
+  vignette: VignetteNode,
   blend: BlendNode,
   video: VideoNode,
   output: OutputNode,
@@ -684,6 +758,9 @@ function Editor({
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [imageModels, setImageModels] = useState<string[]>([]);
   const [shots, setShots] = useState<Shot[]>([]);
+  // Every image in the project (Flow), so "Nguồn ảnh" can reference any of them — not just
+  // assets/storyboard. {media_id, name}.
+  const [projMedia, setProjMedia] = useState<{ media_id: string; name: string }[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -735,15 +812,23 @@ function Editor({
   useEffect(() => {
     if (!projectId) return;
     storyboard.projectShots(projectId).then((r) => setShots(r.shots)).catch(() => {});
+    // Every image in the project (Flow) — lets "Nguồn ảnh" reference ALL images, not just
+    // assets/storyboard. Best-effort (needs the extension); failure just hides the group.
+    api.projectImages(projectId)
+      .then((r) => setProjMedia(r.media.map((m) => ({ media_id: m.media_id, name: m.name }))))
+      .catch(() => {});
   }, [projectId]);
 
-  // Unified reference list: project assets first, then every shot image with art.
+  // Unified reference list: project assets → storyboard shots → every OTHER project image.
   const images = useMemo<RefImage[]>(() => {
     const out: RefImage[] = [];
+    const covered = new Set<string>(); // media_ids already shown as asset/shot
     for (const e of entities) {
-      if (e.media_id && e.image_path)
+      if (e.media_id && e.image_path) {
         out.push({ key: `e:${e.id}`, kind: "entity", label: e.name,
                    media_id: e.media_id, web: e.image_path, entity_id: e.id });
+        covered.add(e.media_id);
+      }
     }
     // Number scenes by first appearance (projectShots is ordered by scene then shot), so a
     // shot reads "SC001-S001-mô tả" — far easier to find in the dropdown than a bare blurb.
@@ -758,9 +843,18 @@ function Editor({
       out.push({ key: `s:${s.id}`, kind: "shot",
                  label: desc ? `${code}-${desc}` : code,
                  media_id: s.image_media_id, web: s.image_path });
+      covered.add(s.image_media_id);
+    }
+    // Any remaining project image not already an asset/shot (deduped). Thumbs served locally.
+    for (const m of projMedia) {
+      if (!m.media_id || covered.has(m.media_id)) continue;
+      covered.add(m.media_id);
+      out.push({ key: `m:${m.media_id}`, kind: "media",
+                 label: (m.name || m.media_id).slice(0, 44),
+                 media_id: m.media_id, web: thumbUrl(m.media_id, projectId) });
     }
     return out;
-  }, [entities, shots, target.id]);
+  }, [entities, shots, projMedia, target.id, projectId]);
 
   // A shot has separate image (storyboard) and video (shots-tab) graphs — keep them apart.
   const goal: "image" | "video" =
@@ -877,6 +971,8 @@ function Editor({
       Object.assign(base, { brightness: 1, contrast: 1, saturation: 1, sharpness: 1, blur: 0, rotate: 0 });
     if (type === "text") Object.assign(base, { text: "", anchor: "bottom", color: "#ffffff", font_scale: 0.06, stroke: true });
     if (type === "upscale") Object.assign(base, { scale: 2, sharpen: true });
+    if (type === "crop") Object.assign(base, { aspect: "free", zoom: 1 });
+    if (type === "vignette") Object.assign(base, { strength: 0.5 });
     if (type === "blend") Object.assign(base, { mode: "alpha", alpha: 0.5 });
     setNodes((ns) => [
       ...ns,
@@ -1058,8 +1154,8 @@ function Editor({
   };
 
   const ops = useMemo(
-    () => ({ update, remove, preview, genNode, genningId, results, inputResults, entities, images, imageModels }),
-    [update, remove, preview, genNode, genningId, results, inputResults, entities, images, imageModels]
+    () => ({ update, remove, preview, genNode, genningId, results, inputResults, entities, images, imageModels, projectId }),
+    [update, remove, preview, genNode, genningId, results, inputResults, entities, images, imageModels, projectId]
   );
 
   return (
