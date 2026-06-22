@@ -1228,44 +1228,58 @@ function Editor({
     [setEdges]
   );
 
-  const addNode = (type: string) => {
-    const id = `${type}-${Date.now()}`;
-    const base: any = { _type: type };
-    if (type === "prompt") base.text = "";
-    if (type === "refs") base.entity_ids = [];
-    if (type === "image" || type === "editImage") Object.assign(base, { aspect: "16:9", model: "", count: 1 });
-    if (type === "removebg") Object.assign(base, { bg: "white" });
-    if (type === "replacebg") base.text = "";
-    if (type === "border") Object.assign(base, { width: 0.04, color: "#000000" });
-    if (type === "colorgrade") Object.assign(base, { preset: "teal_orange", intensity: 1 });
-    if (type === "collage") Object.assign(base, { cols: 0, gap: 8, bg: "#000000" });
-    if (type === "watermark") Object.assign(base, { position: "bottom-right", scale: 0.18, opacity: 0.85 });
-    if (type === "note") base.text = "";
-    if (type === "video") Object.assign(base, { aspect: "16:9", model: "omni", duration: 8, count: 1 });
-    if (type === "filter")
-      Object.assign(base, { brightness: 1, contrast: 1, saturation: 1, sharpness: 1, blur: 0, rotate: 0 });
-    if (type === "text") Object.assign(base, { text: "", anchor: "bottom", color: "#ffffff", font_scale: 0.06, stroke: true });
-    if (type === "upscale") Object.assign(base, { scale: 2, sharpen: true });
-    if (type === "crop") Object.assign(base, { aspect: "free", zoom: 1 });
-    if (type === "vignette") Object.assign(base, { strength: 0.5 });
-    if (type === "blend") Object.assign(base, { mode: "alpha", alpha: 0.5 });
-    setNodes((ns) => [
-      ...ns,
-      { id, type, position: { x: 80 + Math.random() * 160, y: 80 + Math.random() * 200 }, data: base },
-    ]);
+  // Build a fresh node of `type` at `pos` (defaults to a small random offset). Used by the
+  // palette "+ " buttons AND by dragging a palette chip onto the canvas.
+  const NODE_DEFAULTS: Record<string, any> = {
+    prompt: { text: "" },
+    refs: { entity_ids: [] },
+    image: { aspect: "16:9", model: "", count: 1 },
+    editImage: { aspect: "16:9", model: "", count: 1 },
+    removebg: { bg: "white" },
+    replacebg: { text: "" },
+    border: { width: 0.04, color: "#000000" },
+    colorgrade: { preset: "teal_orange", intensity: 1 },
+    collage: { cols: 0, gap: 8, bg: "#000000" },
+    watermark: { position: "bottom-right", scale: 0.18, opacity: 0.85 },
+    note: { text: "" },
+    video: { aspect: "16:9", model: "omni", duration: 8, count: 1 },
+    filter: { brightness: 1, contrast: 1, saturation: 1, sharpness: 1, blur: 0, rotate: 0 },
+    text: { text: "", anchor: "bottom", color: "#ffffff", font_scale: 0.06, stroke: true },
+    upscale: { scale: 2, sharpen: true },
+    crop: { aspect: "free", zoom: 1 },
+    vignette: { strength: 0.5 },
+    blend: { mode: "alpha", alpha: 0.5 },
   };
+  const addNode = useCallback(
+    (type: string, pos?: { x: number; y: number }) => {
+      const id = `${type}-${Date.now()}`;
+      const data = { _type: type, ...(NODE_DEFAULTS[type] || {}) };
+      const position = pos || { x: 80 + Math.random() * 160, y: 80 + Math.random() * 200 };
+      setNodes((ns) => [...ns, { id, type, position, data }]);
+    },
+    [setNodes]
+  );
 
-  // Drag-drop image file(s) from the desktop onto the canvas → a "Nguồn ảnh" node at the drop
-  // point, uploaded to Flow. A placeholder node appears immediately, then fills when uploaded.
+  // Drag a palette chip / an image file onto the canvas → create a node at the drop point.
   const rf = useReactFlow();
+  const NODE_DND_MIME = "application/flowkit-node";
   const onPaneDragOver = useCallback((e: React.DragEvent) => {
-    if (Array.from(e.dataTransfer?.types || []).includes("Files")) {
+    const types = Array.from(e.dataTransfer?.types || []);
+    if (types.includes("Files") || types.includes(NODE_DND_MIME)) {
       e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
+      e.dataTransfer.dropEffect = types.includes("Files") ? "copy" : "move";
     }
   }, []);
   const onPaneDrop = useCallback(
     async (e: React.DragEvent) => {
+      // 1) a node type dragged from the palette
+      const dndType = e.dataTransfer?.getData(NODE_DND_MIME);
+      if (dndType) {
+        e.preventDefault();
+        addNode(dndType, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+        return;
+      }
+      // 2) image file(s) from the desktop → uploaded "Nguồn ảnh" node(s)
       const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith("image/"));
       if (!files.length) return;
       e.preventDefault();
@@ -1287,7 +1301,7 @@ function Editor({
         }
       }
     },
-    [rf, projectId, setNodes, update]
+    [rf, projectId, setNodes, update, addNode]
   );
 
   // Auto-arrange nodes left→right by topological layer (longest-path depth), stacked within
@@ -1553,7 +1567,13 @@ function Editor({
             <button
               key={p}
               onClick={() => addNode(p)}
-              className="rounded-md border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("application/flowkit-node", p);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              title="Bấm để thêm, hoặc kéo thả xuống canvas"
+              className="cursor-grab rounded-md border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 active:cursor-grabbing"
               style={{ borderLeftColor: META[p].color, borderLeftWidth: 3 }}
             >
               + {META[p].label}
