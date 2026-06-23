@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,7 @@ from pydantic import BaseModel
 
 from agent.config import (
     AGENT_CLI_TIMEOUT,
+    AGENT_PROMPT_ARG_MAX,
     AGENT_PTY_COLS,
     AGENT_PTY_ROWS,
     AGENT_SKIP_PERMISSIONS,
@@ -52,12 +54,17 @@ def _resolve_bin(cfg: dict) -> Optional[str]:
     return shutil.which(cfg["bin"])
 
 
-def _build_command(cfg: dict, body: RunRequest) -> tuple[list[str], Optional[str]]:
-    """Dựng argv + nội dung stdin (None nếu prompt truyền qua arg).
+def _build_command(cfg: dict, body: RunRequest,
+                   cwd: str) -> tuple[list[str], Optional[str], Optional[str]]:
+    """Dựng (argv, nội-dung-stdin, đường-dẫn-temp-prompt-cần-xoá).
 
     base_args được đặt CUỐI cùng (ngay trước prompt) vì một số CLI dùng cờ
     nhận-giá-trị như `-p <prompt>` — cờ phải kề ngay prompt, không để cờ khác
     chen vào giữa.
+
+    prompt_mode "arg" mà prompt quá dài (chương dài) sẽ vượt giới hạn dòng lệnh
+    Windows → ghi prompt ra temp file trong cwd và thay arg bằng một chỉ dẫn ngắn
+    bảo agent đọc file đó (agent có quyền đọc file trong cwd).
     """
     argv = [cfg["bin"]]
 
@@ -74,9 +81,21 @@ def _build_command(cfg: dict, body: RunRequest) -> tuple[list[str], Optional[str
     argv += cfg.get("base_args", [])
 
     if cfg.get("prompt_mode") == "arg":
+        if len(body.prompt) > AGENT_PROMPT_ARG_MAX:
+            fd, path = tempfile.mkstemp(prefix="flowkit_prompt_", suffix=".txt", dir=cwd)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(body.prompt)
+            directive = (
+                "Your full task is in this UTF-8 text file (read it completely):\n"
+                f"{path}\n"
+                "Do EXACTLY what that file asks and output ONLY what it requests "
+                "(e.g. raw JSON if it asks for JSON). Do not mention this file."
+            )
+            argv.append(directive)
+            return argv, None, path
         argv.append(body.prompt)
-        return argv, None
-    return argv, body.prompt  # stdin mode
+        return argv, None, None
+    return argv, body.prompt, None  # stdin mode
 
 
 async def _run_via_pty(body: "RunRequest", argv: list[str],
@@ -153,51 +172,58 @@ async def run_agent(body: RunRequest):
     if not Path(cwd).is_dir():
         raise HTTPException(400, f"cwd không phải thư mục hợp lệ: {cwd}")
 
-    argv, stdin_text = _build_command(cfg, body)
+    argv, stdin_text, tmp_prompt = _build_command(cfg, body, cwd)
     timeout = body.timeout or AGENT_CLI_TIMEOUT
     proc_env = {**os.environ, **(body.env or {})}
 
-    logger.info("agent/run: %s argv=%s cwd=%s timeout=%ss pty=%s",
-                body.agent, argv, cwd, timeout, bool(cfg.get("pty")))
+    logger.info("agent/run: %s argv=%s cwd=%s timeout=%ss pty=%s prompt_file=%s",
+                body.agent, argv, cwd, timeout, bool(cfg.get("pty")), bool(tmp_prompt))
 
-    # Agent dạng TUI (vd agy) chỉ in ra terminal → chạy dưới PTY, bắt + strip ANSI.
-    if cfg.get("pty"):
-        return await _run_via_pty(body, argv, cwd, proc_env, timeout)
-
-    started = time.monotonic()
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            env=proc_env,
-            stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except (FileNotFoundError, OSError) as e:
-        raise HTTPException(503, f"Không khởi chạy được '{cfg['bin']}': {e}")
+        # Agent dạng TUI (vd agy) chỉ in ra terminal → chạy dưới PTY, bắt + strip ANSI.
+        if cfg.get("pty"):
+            return await _run_via_pty(body, argv, cwd, proc_env, timeout)
 
-    stdin_bytes = stdin_text.encode("utf-8") if stdin_text is not None else None
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=stdin_bytes), timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        raise HTTPException(504, f"Agent '{body.agent}' vượt quá timeout {timeout}s")
+        started = time.monotonic()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=cwd,
+                env=proc_env,
+                stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except (FileNotFoundError, OSError) as e:
+            raise HTTPException(503, f"Không khởi chạy được '{cfg['bin']}': {e}")
 
-    duration = round(time.monotonic() - started, 2)
-    out = stdout.decode("utf-8", "replace") if stdout else ""
-    err = stderr.decode("utf-8", "replace") if stderr else ""
-    logger.info("agent/run done: %s exit=%s in %ss", body.agent, proc.returncode, duration)
+        stdin_bytes = stdin_text.encode("utf-8") if stdin_text is not None else None
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=stdin_bytes), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise HTTPException(504, f"Agent '{body.agent}' vượt quá timeout {timeout}s")
 
-    return {
-        "ok": proc.returncode == 0,
-        "agent": body.agent,
-        "exit_code": proc.returncode,
-        "stdout": out,
-        "stderr": err,
-        "duration": duration,
-        "cwd": cwd,
-    }
+        duration = round(time.monotonic() - started, 2)
+        out = stdout.decode("utf-8", "replace") if stdout else ""
+        err = stderr.decode("utf-8", "replace") if stderr else ""
+        logger.info("agent/run done: %s exit=%s in %ss", body.agent, proc.returncode, duration)
+
+        return {
+            "ok": proc.returncode == 0,
+            "agent": body.agent,
+            "exit_code": proc.returncode,
+            "stdout": out,
+            "stderr": err,
+            "duration": duration,
+            "cwd": cwd,
+        }
+    finally:
+        if tmp_prompt:
+            try:
+                os.unlink(tmp_prompt)
+            except OSError:
+                pass

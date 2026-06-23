@@ -41,6 +41,11 @@ AGENT_SKIP_PERMISSIONS = os.environ.get("AGENT_SKIP_PERMISSIONS", "1") == "1"
 AGENT_PTY_COLS = int(os.environ.get("AGENT_PTY_COLS", "120"))
 AGENT_PTY_ROWS = int(os.environ.get("AGENT_PTY_ROWS", "40"))
 
+# Prompt mode "arg" nhét prompt vào dòng lệnh; Windows giới hạn độ dài command-line
+# (~32k, ConPTY/winpty còn thấp hơn) → prompt dài báo "The filename or extension is too
+# long". Khi prompt vượt ngưỡng này, ghi ra temp file + truyền chỉ dẫn ngắn để agent đọc.
+AGENT_PROMPT_ARG_MAX = int(os.environ.get("AGENT_PROMPT_ARG_MAX", "6000"))
+
 # Registry các agent hỗ trợ. Mỗi field đều override được qua env để linh hoạt
 # khi binary/cờ của CLI thay đổi.
 #   bin           — tên/đường dẫn binary (PATH-resolved)
