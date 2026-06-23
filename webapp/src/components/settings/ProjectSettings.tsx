@@ -47,6 +47,7 @@ export default function ProjectSettings({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     api.options().then(setOpts).catch(() => {});
@@ -125,6 +126,69 @@ export default function ProjectSettings({
     }
   };
 
+  // ── Export / import REUSABLE settings (not project content) so the same setup can be
+  // applied to other projects without redoing it by hand. BGM file isn't included (it's media).
+  const STR_KEYS = ["style", "script_lang", "image_text_lang", "culture_hint",
+    "prompt_header", "prompt_footer", "image_model", "aspect_ratio", "video_model"] as const;
+  const NUM_KEYS = ["shot_duration", "seed", "bgm_volume", "voice_id",
+    "tts_speed", "tts_gap", "tts_sentence_gap"] as const;
+  const BOOL_KEYS = ["storytelling", "bgm_duck"] as const;
+
+  const exportSettings = () => {
+    const payload: any = {
+      _type: "flowkit-project-settings", version: 1, ...s,
+      shot_duration: shotDuration, storytelling, seed, bgm_volume: bgmVol, bgm_duck: bgmDuck,
+      voice_id: voiceId, tts_speed: ttsSpeed, tts_gap: ttsGap, tts_sentence_gap: ttsSentenceGap,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `flowkit-settings-${(project.title || "project").replace(/[^\w-]+/g, "_")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importSettings = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const obj = JSON.parse(await file.text());
+      if (!obj || typeof obj !== "object") throw new Error("File không hợp lệ");
+      const fields: any = {};
+      for (const k of STR_KEYS) if (typeof obj[k] === "string") fields[k] = obj[k];
+      for (const k of NUM_KEYS) if (typeof obj[k] === "number") fields[k] = obj[k];
+      for (const k of BOOL_KEYS) if (typeof obj[k] === "boolean") fields[k] = obj[k];
+      if (!Object.keys(fields).length) throw new Error("Không có thiết lập hợp lệ trong file");
+      const u = await api.updateProject(project.id, fields);
+      // reflect the applied values back into the form
+      setS((p) => ({
+        style: u.style ?? p.style, script_lang: u.script_lang ?? p.script_lang,
+        image_text_lang: u.image_text_lang ?? p.image_text_lang, culture_hint: u.culture_hint ?? p.culture_hint,
+        prompt_header: u.prompt_header ?? p.prompt_header, prompt_footer: u.prompt_footer ?? p.prompt_footer,
+        image_model: u.image_model ?? p.image_model, aspect_ratio: u.aspect_ratio ?? p.aspect_ratio,
+        video_model: u.video_model ?? p.video_model,
+      }));
+      if (u.shot_duration != null) setShotDuration(u.shot_duration);
+      if (u.storytelling != null) setStorytelling(!!u.storytelling);
+      if (u.seed != null) setSeed(u.seed);
+      if (u.bgm_volume != null) setBgmVol(u.bgm_volume);
+      if (u.bgm_duck != null) setBgmDuck(!!u.bgm_duck);
+      if (u.voice_id != null) setVoiceId(u.voice_id);
+      if (u.tts_speed != null) setTtsSpeed(u.tts_speed);
+      if (u.tts_gap != null) setTtsGap(u.tts_gap);
+      if (u.tts_sentence_gap != null) setTtsSentenceGap(u.tts_sentence_gap);
+      onSaved(u);
+      setMsg(`Đã nhập & áp dụng ${Object.keys(fields).length} thiết lập.`);
+    } catch (e: any) {
+      setErr("Nhập thiết lập lỗi: " + (e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const bgmName = bgmPath ? bgmPath.replace(/\\/g, "/").split("/").pop() : null;
 
   return (
@@ -140,6 +204,7 @@ export default function ProjectSettings({
 
         <div className="flex-1 space-y-5 overflow-auto p-5">
           {err && <div className="rounded-lg bg-rose-950/40 px-3 py-2 text-sm text-rose-300">{err}</div>}
+          {msg && <div className="rounded-lg bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300">{msg}</div>}
 
           <Field label="Style (luôn được đưa lên đầu mỗi prompt)">
             <input value={s.style} onChange={(e) => set("style", e.target.value)}
@@ -341,6 +406,23 @@ export default function ProjectSettings({
         </div>
 
         <div className="space-y-2 border-t border-neutral-800 p-4">
+          <div className="flex gap-2">
+            <button
+              onClick={exportSettings}
+              title="Tải các THIẾT LẬP của dự án (style, prompt header/footer, model, TTS, BGM volume…) thành .json để tái dùng cho dự án khác"
+              className="flex-1 rounded-lg border border-neutral-700 py-2 text-center text-sm text-neutral-300 hover:bg-neutral-800"
+            >
+              ⤓ Xuất thiết lập
+            </button>
+            <label
+              title="Nạp thiết lập từ file .json và áp dụng ngay cho dự án này (không đụng tới nội dung/kịch bản/ảnh)"
+              className="flex-1 cursor-pointer rounded-lg border border-neutral-700 py-2 text-center text-sm text-neutral-300 hover:bg-neutral-800"
+            >
+              ⤒ Nhập thiết lập
+              <input type="file" accept="application/json,.json" className="hidden" disabled={busy}
+                onChange={(e) => { importSettings(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+          </div>
           <a
             href={projectExportUrl(project.id)}
             download
