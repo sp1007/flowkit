@@ -1138,6 +1138,33 @@ def _brace_names(text: str) -> set[str]:
     return {m.strip() for m in _BRACE_RE.findall(text or "") if m.strip()}
 
 
+_ALIAS_RE = re.compile(r"^(.*?)\s*\((.*)\)\s*$")
+
+
+def _alias_keys(name: str) -> list[str]:
+    """Normalized alias lookup keys for a name with a parenthetical, so {short} and {full}
+    both resolve to the entity (e.g. 'Hùng (Phạm Trọng Hùng)' → 'hùng', 'phạm trọng hùng')."""
+    m = _ALIAS_RE.match((name or "").strip())
+    if not m:
+        return []
+    out = []
+    if m.group(1).strip():
+        out.append(_norm(m.group(1)))
+    if m.group(2).strip():
+        out.append(_norm(m.group(2)))
+    return out
+
+
+def _index_by_name(rows: list[dict]) -> dict:
+    """Index entities by normalized name AND aliases (parenthetical short/full names). The
+    verbatim full name wins; aliases never shadow a real entity name."""
+    idx = {_norm(r["name"]): r for r in rows}
+    for r in rows:
+        for k in _alias_keys(r["name"]):
+            idx.setdefault(k, r)
+    return idx
+
+
 # Time-of-day tokens that may trail a scene heading (VN + EN). The LOCATION is the heading
 # minus the INT./EXT. prefix minus these trailing time segments — NOT just the first segment
 # (a location can itself contain " - ", e.g. 'KHU 4 - LỐI ĐI KỸ THUẬT - NGÀY').
@@ -1206,7 +1233,7 @@ async def autofill_storyboard(sid: str, body: AutofillRequest):
     project = await _project_or_404(scene["project_id"])
     erows = await db.query_all(
         "SELECT id, name, type, description FROM entity WHERE project_id=?", (scene["project_id"],))
-    by_name = {_norm(r["name"]): r for r in erows}
+    by_name = _index_by_name(erows)
     # The scene's location is fixed by its heading — every shot uses ONLY this place.
     scene_loc = _match_location_entity(scene["heading"], [r for r in erows if r["type"] == "location"])
     scene_loc_id = scene_loc["id"] if scene_loc else None
@@ -1504,7 +1531,7 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     project = await _project_or_404(scene["project_id"])
     erows = await db.query_all(
         "SELECT id, name, type, description FROM entity WHERE project_id=?", (scene["project_id"],))
-    by_name = {_norm(r["name"]): r for r in erows}
+    by_name = _index_by_name(erows)
     # The scene's location is fixed by its heading — every beat/shot uses ONLY this place.
     scene_loc = _match_location_entity(scene["heading"], [r for r in erows if r["type"] == "location"])
     scene_loc_id = scene_loc["id"] if scene_loc else None
@@ -1647,7 +1674,7 @@ async def _revary_scene(sid: str) -> int:
         return 0
     erows = await db.query_all(
         "SELECT id, name, type, description FROM entity WHERE project_id=?", (scene["project_id"],))
-    by_name = {_norm(r["name"]): r for r in erows}
+    by_name = _index_by_name(erows)
     scene_loc = _match_location_entity(scene["heading"], [r for r in erows if r["type"] == "location"])
     scene_loc_id = scene_loc["id"] if scene_loc else None
     # Retry the AI step until we get a usable list (covers agent errors, bad JSON AND a

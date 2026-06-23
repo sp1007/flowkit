@@ -741,6 +741,22 @@ def _is_ws_error(result: dict) -> bool:
 
 
 _REF_TOKEN_RE = re.compile(r"\{([^{}]+)\}")
+_ALIAS_RE = re.compile(r"^(.*?)\s*\((.*)\)\s*$")
+
+
+def _handle_aliases(handle: str) -> list[str]:
+    """Aliases a `{token}` may use for an entity whose name carries a parenthetical, e.g.
+    "Hùng (Phạm Trọng Hùng)" → ["Hùng (Phạm Trọng Hùng)", "Hùng", "Phạm Trọng Hùng"]. Lets
+    a prompt bind with the short name OR the full name, not only the verbatim entity name."""
+    h = (handle or "").strip()
+    out = [h]
+    m = _ALIAS_RE.match(h)
+    if m:
+        if m.group(1).strip():
+            out.append(m.group(1).strip())
+        if m.group(2).strip():
+            out.append(m.group(2).strip())
+    return out
 
 
 def _build_structured_parts(prompt: str, references: list[dict]) -> list[dict]:
@@ -752,8 +768,15 @@ def _build_structured_parts(prompt: str, references: list[dict]) -> list[dict]:
     model doesn't mix up references. Curly braces are used (not square brackets) to avoid
     clashing with control tokens like timestamps `[00:05]`. Unknown `{tokens}` are kept as
     literal text (braces stripped). Falls back to a single text part when no token matches.
+
+    A reference's handle also binds via its aliases (short/full name around a parenthetical),
+    so an extracted name like "Hùng (Phạm Trọng Hùng)" binds from {Hùng} too.
     """
-    handle_to_id = {r["handle"]: r["media_id"] for r in (references or [])}
+    # exact handles first (priority), then aliases that don't shadow a real handle
+    handle_to_id = {r["handle"].strip(): r["media_id"] for r in (references or [])}
+    for r in references or []:
+        for alias in _handle_aliases(r["handle"])[1:]:
+            handle_to_id.setdefault(alias, r["media_id"])
     parts: list[dict] = []
     pos = 0
 
