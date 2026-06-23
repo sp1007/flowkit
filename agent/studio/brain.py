@@ -396,7 +396,11 @@ def storyboard_autofill_prompt(scene_heading: str, scene_body: str,
     )
 
 
-_SENT_RE = re.compile(r"[^.!?…\n]+[.!?…]+[\"'’”\)]*|\S[^.!?…\n]*(?:\n|$)", re.S)
+# A terminator (.!?…) ends a sentence ONLY when followed by whitespace or end-of-string
+# (optionally after closing quotes/brackets). A '.' glued to the next char — a filename
+# "ACC_REPORT...2047.zip", a decimal, a version, a glued abbreviation — is NOT a boundary,
+# so the sentence is never cut mid-token. Newlines always break.
+_SENT_RE = re.compile(r".*?(?:[.!?…]+[\"'’”\)\]]*(?=\s|$)|\n|$)", re.S)
 
 
 def _sentences(text: str) -> list[str]:

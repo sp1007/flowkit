@@ -1330,7 +1330,9 @@ def _caption_windows(beat_text: str, key_phrases: list[str],
     return [c for c in caps if c["end"] > c["start"]]
 
 
-_SENT_RE = re.compile(r"[^.!?…\n]+[.!?…]?(?:\n+)?")
+# A terminator ends a sentence only when followed by whitespace/end (not when glued to the
+# next char — filename "x.zip", decimal, version), so subtitles never split mid-token.
+_SENT_RE = re.compile(r".*?(?:[.!?…]+[\"'’”\)\]]*(?=\s|$)|\n|$)", re.S)
 
 
 def _subtitle_windows(beat_text: str, b_start: float, read_dur: float) -> list[dict]:
@@ -1684,6 +1686,69 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
         "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,)),
         "scene_duration": scene_dur, "narration_path": narr_web,
         "measured": narr_web is not None}
+
+
+@router.post("/scenes/{sid}/rebuild-audio")
+async def rebuild_scene_audio(sid: str):
+    """Re-synthesize ONLY the narration audio for a scene from its EXISTING shots' narrator_text,
+    then re-time the shots + captions to the new audio. Images, prompts, refs and node graphs are
+    left untouched — so you can apply changed TTS settings (speed / gap / edge-pad) or a fixed
+    normalizer to a scene you already generated images for, WITHOUT the long image re-gen.
+
+    Errors (502) if TTS produced nothing, leaving the existing audio/timing intact (so a down
+    OmniVoice never wipes a good take)."""
+    scene = await _scene_or_404(sid)
+    project = await _project_or_404(scene["project_id"])
+    shots = await db.query_all("SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,))
+    if not shots:
+        raise HTTPException(400, "Scene chưa có shot nào để dựng lại audio")
+    say = [(s.get("narrator_text") or "").strip() for s in shots]
+    if not any(say):
+        raise HTTPException(400, "Các shot chưa có lời đọc (narrator_text) để tạo audio")
+
+    voice_id = project.get("voice_id") or 0
+    speed = float(project.get("tts_speed") or 1.0)
+    gap = min(max(float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
+    sentence_gap = min(max(
+        float(project.get("tts_sentence_gap") if project.get("tts_sentence_gap") is not None else 0.3),
+        0.0), 1.0)
+    edge_pad = min(max(
+        float(project.get("tts_edge_pad") if project.get("tts_edge_pad") is not None else 0.5),
+        0.0), 3.0)
+
+    try:
+        narr_web, reads, lead = await _tts_beats(
+            say, voice_id, project["id"], sid, speed, gap, sentence_gap, edge_pad)
+    except HTTPException as e:
+        raise HTTPException(502, f"Không tạo được audio ({e.detail}). Kiểm tra OmniVoice URL "
+                                 f"trong ⚙ Settings rồi thử lại — audio cũ được giữ nguyên.")
+    if len(reads) != len(shots):                      # one read per beat → must line up 1:1
+        raise HTTPException(500, "Số đoạn audio không khớp số shot")
+
+    # Re-time: leading pad shifts every shot's start; both pads count toward scene length.
+    n = len(shots)
+    durs = [round(reads[i] + (gap if i < n - 1 else 0.0), 3) for i in range(n)]
+    scene_dur = round(sum(durs) + 2 * lead, 3)
+
+    await db.update("scene", sid, {
+        "narration_path": narr_web, "narration_duration": scene_dur})
+    ts = db.now()
+    t = lead
+    for i, s in enumerate(shots):
+        b_dur = durs[i]
+        # captions re-tiled over the new read timing (start shifted by the leading pad)
+        caps = _subtitle_windows(say[i], t, reads[i])
+        await db.update("shot", s["id"], {
+            "narration_duration": b_dur,
+            "start_time": round(t, 3),
+            "captions": json.dumps(caps, ensure_ascii=False),
+            "duration": max(1, int(round(b_dur))),
+            "updated_at": ts})
+        t += b_dur
+
+    return {"shots": await db.query_all(
+        "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,)),
+        "scene_duration": scene_dur, "narration_path": narr_web, "measured": True}
 
 
 async def _revary_scene(sid: str) -> int:

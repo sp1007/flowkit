@@ -217,6 +217,13 @@ def normalize(text: str) -> str:
     return t
 
 
+# A terminator (.!?…) ends a sentence ONLY when followed by whitespace or end-of-string
+# (optionally after closing quotes/brackets). A '.' glued to the next char — a filename
+# "...2047.zip", a decimal, a version, a glued abbreviation — is NOT a boundary, so the
+# sentence is never cut mid-token (e.g. "...2047." + "zip ..."). Newlines always break.
+_SENT_RE = re.compile(r".*?(?:[.!?…]+[\"'’”\)\]]*(?=\s|$)|\n|$)", re.S)
+
+
 def sentences(text: str) -> list[str]:
     """Split text into individual sentences (keeping the end punctuation). Used to TTS one
     sentence at a time so the engine pauses at every '.'/'!'/'?'/'…' instead of running them
@@ -224,8 +231,7 @@ def sentences(text: str) -> list[str]:
     text = (text or "").strip()
     if not text:
         return []
-    sents = re.findall(r"[^.!?…\n]+[.!?…]?(?:\n+)?", text)
-    return [s.strip() for s in sents if s.strip()]
+    return [s.strip() for s in _SENT_RE.findall(text) if s.strip()]
 
 
 def split_segments(text: str, max_chars: int = 280) -> list[str]:
@@ -234,8 +240,7 @@ def split_segments(text: str, max_chars: int = 280) -> list[str]:
     if not text:
         return []
     # break after sentence-ending punctuation, keep the punctuation
-    sentences = re.findall(r"[^.!?…\n]+[.!?…]?(?:\n+)?", text)
-    sentences = [s.strip() for s in sentences if s.strip()]
+    sentences = [s.strip() for s in _SENT_RE.findall(text) if s.strip()]
     segs, cur = [], ""
     for s in sentences:
         if cur and len(cur) + 1 + len(s) > max_chars:

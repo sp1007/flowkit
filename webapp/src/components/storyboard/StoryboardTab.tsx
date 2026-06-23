@@ -76,6 +76,8 @@ export default function StoryboardTab({
   const [rebuilding, setRebuilding] = useState<Set<string>>(new Set());
   // Scenes currently having their camera angles re-varied (per-scene 🎬).
   const [revarying, setRevarying] = useState<Set<string>>(new Set());
+  // Scenes whose audio is being re-synthesized (per-scene 🔊) — keeps images, re-times shots.
+  const [rebuildingAudio, setRebuildingAudio] = useState<Set<string>>(new Set());
   // Narration preview playback (one scene at a time).
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -386,6 +388,34 @@ export default function StoryboardTab({
     }
   };
 
+  // Re-synthesize ONLY this scene's audio from its existing shots' narration, then re-time the
+  // shots + captions — keeps the (slow-to-make) images. Synchronous; no image re-gen.
+  const rebuildAudio = async (sid: string) => {
+    setErr(null);
+    setRebuildingAudio((s) => new Set(s).add(sid));
+    try {
+      const r = await storyboard.rebuildSceneAudio(sid);
+      setShotsByScene((m) => ({ ...m, [sid]: r.shots }));
+      setScenes((list) =>
+        list.map((s) =>
+          s.id === sid
+            ? { ...s, narration_path: r.narration_path, narration_duration: r.scene_duration }
+            : s
+        )
+      );
+      setNotice(`Đã tạo lại audio (${Math.round(r.scene_duration)}s) — đã căn lại thời gian & caption`);
+      setTimeout(() => setNotice(null), 3500);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setRebuildingAudio((s) => {
+        const n = new Set(s);
+        n.delete(sid);
+        return n;
+      });
+    }
+  };
+
   const autofillAll = async () => {
     setBusy("autofill-all");
     setErr(null);
@@ -647,6 +677,16 @@ export default function StoryboardTab({
                       className="rounded-md border border-violet-700/60 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
                     >
                       {rebuilding.has(sc.id) ? "Đang dựng…" : "🎙 Lời đọc"}
+                    </button>
+                  )}
+                  {!!project.storytelling && !!shots.length && (
+                    <button
+                      disabled={!!busy || !!beatsJob || rebuildingAudio.has(sc.id)}
+                      onClick={() => rebuildAudio(sc.id)}
+                      title="Tạo LẠI audio cho scene này từ lời đọc hiện có của các shot (GIỮ ảnh đã tạo), rồi căn lại thời gian & caption. Dùng khi đổi tốc độ/khoảng nghỉ/đệm 2 đầu mà không muốn vẽ lại ảnh."
+                      className="rounded-md border border-sky-700/60 px-2.5 py-1 text-xs text-sky-300 hover:bg-sky-950/40 disabled:opacity-40"
+                    >
+                      {rebuildingAudio.has(sc.id) ? "Đang tạo audio…" : "🔊 Tạo lại audio"}
                     </button>
                   )}
                   <button
