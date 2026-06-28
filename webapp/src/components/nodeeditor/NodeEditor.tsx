@@ -1246,11 +1246,40 @@ function Editor({
     target.goal || (target.kind === "shot" ? "video" : "image");
 
   useEffect(() => {
+    // Cancel a stale in-flight load: the effect re-runs when `entities` arrives, and the
+    // graphApi.get of an EARLIER run (fired before entities loaded → a default graph with no
+    // source nodes) must NOT overwrite the later, complete one. Without this the empty-entities
+    // graph can win the race (esp. under StrictMode's double-invoke) and every "Nguồn ảnh"
+    // node disappears even though the shot has reference entities.
+    let cancelled = false;
     // Saved graphs are serialized WITHOUT the transient _result preview, so re-seed the
     // shot/entity's current media onto the Output node and the gen node(s) feeding it —
     // otherwise reopening a graph for an already-generated image shows blank previews.
     const curSrc = goal === "video" ? target.videoSrc : target.imageSrc;
     const curExt = goal === "video" ? "mp4" : "png";
+    const entById = new Map(entities.map((e) => [e.id, e]));
+
+    // If a loaded/default graph has NO source node but the shot DOES reference entities (and
+    // those assets are loaded), seed one "Nguồn ảnh" per reference wired into the gen node — so
+    // a graph built before assets loaded, or a legacy graph saved without sources, still shows
+    // the references the generation actually binds. Only when there are zero sources, so a
+    // curated graph (user-arranged/removed sources) is left untouched.
+    const ensureRefSources = (nodes: Node[], edges: Edge[]) => {
+      const refIds = (target.refEntityIds ?? []).filter((i) => entById.get(i)?.media_id);
+      if (!refIds.length || nodes.some((n) => n.type === "source")) return;
+      const genTypes = goal === "video" ? ["video"] : ["image", "editImage"];
+      const gen = nodes.find((n) => genTypes.includes(n.type!));
+      if (!gen) return;
+      refIds.forEach((eid, k) => {
+        const e = entById.get(eid)!;
+        const sid = `src-${eid}`;
+        nodes.push({
+          id: sid, type: "source", position: { x: 0, y: 200 + k * 150 },
+          data: { _type: "source", entity_id: e.id, media_id: e.media_id, web: e.image_path, label: e.name },
+        });
+        edges.push({ id: `es-${sid}`, source: sid, target: gen.id });
+      });
+    };
     const apply = (g: { nodes: any[]; edges: any[] }) => {
       const nodes: Node[] = g.nodes.map((n: any) => ({
         id: n.id,
@@ -1265,7 +1294,6 @@ function Editor({
       }));
       // Refresh entity-bound source nodes to the entity's CURRENT image, so regenerating a
       // location/character updates its reference node instead of keeping the stale snapshot.
-      const entById = new Map(entities.map((e) => [e.id, e]));
       for (const n of nodes) {
         const d = n.data as any;
         if (n.type === "source" && d.entity_id) {
@@ -1309,6 +1337,8 @@ function Editor({
           }
         }
       }
+      ensureRefSources(nodes, edges);
+      if (cancelled) return;       // a newer load supersedes this one — don't clobber it
       setNodes(nodes);
       setEdges(edges);
     };
@@ -1316,7 +1346,8 @@ function Editor({
       .get(target.kind, target.id, goal)
       .then((r) => apply(r.graph && r.graph.nodes?.length ? r.graph : defaultGraph(target, entities)))
       .catch(() => apply(defaultGraph(target, entities)));
-  }, [target.id, entities]);
+    return () => { cancelled = true; };
+  }, [target.id, entities, goal]);
 
   const onConnect = useCallback(
     (c: Connection) => setEdges((es) => addEdge({ ...c, id: `e${Date.now()}` }, es)),
