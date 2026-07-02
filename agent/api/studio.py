@@ -35,10 +35,17 @@ VIDEO_GEN_RETRIES = 2
 # Storyboard batch image gen: fire this many frames at once sharing ONE Flow batch id (like
 # the web UI's 4-image batch), then wait the cooldown before the next group. Cuts wall-clock
 # time on big storyboards (400+ frames) ~batch-fold. Env-overridable.
-IMAGE_BATCH_SIZE = int(os.environ.get("FLOWKIT_IMAGE_BATCH_SIZE", "4"))
+IMAGE_BATCH_SIZE = int(os.environ.get("FLOWKIT_IMAGE_BATCH_SIZE", "3"))
 IMAGE_BATCH_COOLDOWN = (
     float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN", "10")),
     float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN_MAX", "13")),
+)
+# Spread a batch's submits by up to index*random(stagger) seconds so the group doesn't hit
+# Flow at the exact same instant (dodges the 'unusual activity' heuristic) while staying mostly
+# concurrent. Set FLOWKIT_IMAGE_BATCH_STAGGER=0 to fire simultaneously, or SIZE=1 for sequential.
+IMAGE_BATCH_STAGGER = (
+    float(os.environ.get("FLOWKIT_IMAGE_BATCH_STAGGER", "0.3")),
+    float(os.environ.get("FLOWKIT_IMAGE_BATCH_STAGGER_MAX", "0.8")),
 )
 # Google anti-abuse block ("unusual activity"/429): retrying fast EXTENDS the block, so on a
 # detected block we wait this long before retrying (vs a few seconds for a normal transient),
@@ -2242,6 +2249,7 @@ def _start_image_job(pid: str, shots: list[dict], force: bool, type_: str) -> di
         project_id=pid, type_=type_, items=todo, worker=_worker,
         label=f"Sinh ảnh storyboard ({len(todo)})",
         throttle=IMAGE_BATCH_COOLDOWN, batch_size=IMAGE_BATCH_SIZE,
+        stagger=IMAGE_BATCH_STAGGER,
         item_label=lambda s: s.get("title") or s["id"])
     return {"job_id": job.id, "total": len(todo)}
 

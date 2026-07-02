@@ -125,16 +125,21 @@ class JobManager:
         item_label: Optional[Callable[[object], str]] = None,
         finalize: Optional[Callable[[], Awaitable[None]]] = None,
         batch_size: int = 1,
+        stagger: tuple[float, float] = (0.0, 0.0),
     ) -> Job:
         """Run `worker` over `items`. batch_size=1 → one at a time with `throttle` between
         items. batch_size>1 → process items in groups of that many CONCURRENTLY, each group
         sharing a fresh batch id; `throttle` is then the COOLDOWN between groups. In batch mode
-        the worker is called as worker(item, batch_id)."""
+        the worker is called as worker(item, batch_id).
+
+        `stagger` (batch mode): spread each group's submits by up to index*random(stagger)
+        seconds so they don't hit Flow at the exact same instant — enough to dodge the
+        anti-abuse 'unusual activity' heuristic while keeping most of the concurrency."""
         job = Job(db.new_id(), project_id, type_, len(items), label)
         self._jobs[job.id] = job
         runner = self._run_batched if batch_size > 1 else self._run
         job.task = asyncio.create_task(
-            runner(job, items, worker, throttle, item_label, finalize, batch_size))
+            runner(job, items, worker, throttle, item_label, finalize, batch_size, stagger))
         return job
 
     async def _cooldown(self, job, throttle) -> None:
@@ -145,7 +150,8 @@ class JobManager:
             pass
 
     async def _run_batched(self, job, items, worker, throttle, item_label,
-                           finalize=None, batch_size: int = 4) -> None:
+                           finalize=None, batch_size: int = 4,
+                           stagger: tuple[float, float] = (0.0, 0.0)) -> None:
         """Fire items in concurrent groups of `batch_size`, each group sharing one Flow batch
         id, with a cooldown between groups — like the web UI's 4-image batch. Cuts wall-clock
         time for large storyboards (400+ frames) roughly by the batch size."""
@@ -163,10 +169,13 @@ class JobManager:
                            + ", ".join(labels)[:80])
             await self._broadcast(job)
 
-            async def _one(it):
+            async def _one(idx, it):
+                # spread the group's submits so they don't hit Flow at the same instant
+                if stagger[1] > 0 and idx:
+                    await asyncio.sleep(idx * random.uniform(*stagger))
                 return await worker(it, batch_id)     # batch worker takes (item, batch_id)
 
-            results = await asyncio.gather(*[_one(it) for it in group],
+            results = await asyncio.gather(*[_one(k, it) for k, it in enumerate(group)],
                                            return_exceptions=True)
             for it, lbl, res in zip(group, labels, results):
                 if isinstance(res, Exception):
@@ -197,7 +206,8 @@ class JobManager:
         asyncio.create_task(self._reap(job.id))
 
     async def _run(self, job, items, worker, throttle, item_label,
-                   finalize=None, batch_size: int = 1) -> None:
+                   finalize=None, batch_size: int = 1,
+                   stagger: tuple[float, float] = (0.0, 0.0)) -> None:
         await self._broadcast(job)
         await self._persist(job)
         for i, item in enumerate(items):
