@@ -124,14 +124,80 @@ class JobManager:
         throttle: tuple[float, float] = (2.0, 6.0),
         item_label: Optional[Callable[[object], str]] = None,
         finalize: Optional[Callable[[], Awaitable[None]]] = None,
+        batch_size: int = 1,
     ) -> Job:
+        """Run `worker` over `items`. batch_size=1 → one at a time with `throttle` between
+        items. batch_size>1 → process items in groups of that many CONCURRENTLY, each group
+        sharing a fresh batch id; `throttle` is then the COOLDOWN between groups. In batch mode
+        the worker is called as worker(item, batch_id)."""
         job = Job(db.new_id(), project_id, type_, len(items), label)
         self._jobs[job.id] = job
+        runner = self._run_batched if batch_size > 1 else self._run
         job.task = asyncio.create_task(
-            self._run(job, items, worker, throttle, item_label, finalize))
+            runner(job, items, worker, throttle, item_label, finalize, batch_size))
         return job
 
-    async def _run(self, job, items, worker, throttle, item_label, finalize=None) -> None:
+    async def _cooldown(self, job, throttle) -> None:
+        """Interruptible wait (wakes early if cancelled)."""
+        try:
+            await asyncio.wait_for(job.cancel.wait(), timeout=random.uniform(*throttle))
+        except asyncio.TimeoutError:
+            pass
+
+    async def _run_batched(self, job, items, worker, throttle, item_label,
+                           finalize=None, batch_size: int = 4) -> None:
+        """Fire items in concurrent groups of `batch_size`, each group sharing one Flow batch
+        id, with a cooldown between groups — like the web UI's 4-image batch. Cuts wall-clock
+        time for large storyboards (400+ frames) roughly by the batch size."""
+        import uuid
+        await self._broadcast(job)
+        await self._persist(job)
+        groups = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+        for gi, group in enumerate(groups):
+            if job.cancel.is_set():
+                job.status = "cancelled"
+                break
+            batch_id = str(uuid.uuid4())
+            labels = [item_label(it) if item_label else str(k) for k, it in enumerate(group)]
+            job.current = (f"Lô {gi + 1}/{len(groups)} · {len(group)} ảnh: "
+                           + ", ".join(labels)[:80])
+            await self._broadcast(job)
+
+            async def _one(it):
+                return await worker(it, batch_id)     # batch worker takes (item, batch_id)
+
+            results = await asyncio.gather(*[_one(it) for it in group],
+                                           return_exceptions=True)
+            for it, lbl, res in zip(group, labels, results):
+                if isinstance(res, Exception):
+                    logger.exception("job %s batch item failed: %s", job.id, lbl,
+                                     exc_info=res)
+                    job.errors.append({"item": lbl, "error": str(res)[:200]})
+                else:
+                    job.done += 1
+            await self._broadcast(job)
+            await self._persist(job)
+            if gi < len(groups) - 1 and not job.cancel.is_set():
+                await self._cooldown(job, throttle)   # 10s cooldown between batches
+        if finalize is not None and job.status != "cancelled":
+            job.current = "Hoàn tất…"
+            await self._broadcast(job)
+            try:
+                await finalize()
+            except Exception as ex:
+                logger.exception("job %s finalize failed", job.id)
+                job.errors.append({"item": "finalize", "error": str(ex)[:200]})
+        if job.status != "cancelled":
+            job.status = "error" if job.errors and not job.done else "done"
+        job.current = ""
+        job.message = f"{job.done}/{job.total} xong" + (
+            f", {len(job.errors)} lỗi" if job.errors else "")
+        await self._broadcast(job)
+        await self._persist(job)
+        asyncio.create_task(self._reap(job.id))
+
+    async def _run(self, job, items, worker, throttle, item_label,
+                   finalize=None, batch_size: int = 1) -> None:
         await self._broadcast(job)
         await self._persist(job)
         for i, item in enumerate(items):

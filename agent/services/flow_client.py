@@ -288,7 +288,9 @@ class FlowClient:
                                character_media_ids: list[str] = None,
                                references: list[dict] = None,
                                image_model: str = None,
-                               seed: int = None) -> dict:
+                               seed: int = None,
+                               batch_id: str = None,
+                               serialize: bool = True) -> dict:
         """Generate image(s).
 
         Two ways to attach character/entity references:
@@ -303,6 +305,13 @@ class FlowClient:
 
         `image_model` overrides the image model key (e.g. "GEM_PIX_2", "NARWHAL");
         defaults to NANO_BANANA_PRO.
+
+        `batch_id`: share ONE Flow batch across several calls (pass the same UUID to a group
+        of ≤4 gens fired together) — Flow groups them like the web UI's 4-image batch. When
+        None, a per-call batch id is used iff there are references (existing behaviour).
+        `serialize=False` sends WITHOUT the single-flight lock so a batch's calls actually
+        overlap (the whole point of batching); the extension handles each request id + captcha
+        independently, so concurrent image gens are safe.
 
         Response structure:
             data.media[].name = mediaId (used for video gen)
@@ -337,13 +346,15 @@ class FlowClient:
             ]
             character_media_ids = ref_ids  # so batch logic below triggers
 
-        batch_id = f"{uuid.uuid4()}" if character_media_ids else None
+        # An explicit batch_id (shared across a fired-together group) wins; else fall back to a
+        # per-call id when there are references (the pre-batch behaviour).
+        effective_batch = batch_id or (f"{uuid.uuid4()}" if character_media_ids else None)
         body = {
             "clientContext": ctx,
             "requests": [request_item],
         }
-        if batch_id:
-            body["mediaGenerationContext"] = {"batchId": batch_id}
+        if effective_batch:
+            body["mediaGenerationContext"] = {"batchId": effective_batch}
             body["useNewMedia"] = True
 
         url = self._build_url("generate_images", project_id=project_id)
@@ -353,7 +364,7 @@ class FlowClient:
             "headers": random_headers(),
             "body": body,
             "captchaAction": "IMAGE_GENERATION",
-        })
+        }, serialize=serialize)
 
     async def edit_image(self, prompt: str, source_media_id: str,
                           project_id: str,

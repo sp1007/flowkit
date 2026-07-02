@@ -32,6 +32,14 @@ router = APIRouter(prefix="/studio", tags=["studio"])
 IMAGE_GEN_RETRIES = 3
 # Video tốn thời gian (15–30s/lần) nên thử lại ít hơn.
 VIDEO_GEN_RETRIES = 2
+# Storyboard batch image gen: fire this many frames at once sharing ONE Flow batch id (like
+# the web UI's 4-image batch), then wait the cooldown before the next group. Cuts wall-clock
+# time on big storyboards (400+ frames) ~batch-fold. Env-overridable.
+IMAGE_BATCH_SIZE = int(os.environ.get("FLOWKIT_IMAGE_BATCH_SIZE", "4"))
+IMAGE_BATCH_COOLDOWN = (
+    float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN", "10")),
+    float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN_MAX", "13")),
+)
 
 
 # ─── Models ──────────────────────────────────────────────────
@@ -1089,7 +1097,10 @@ async def _store_media_on_shot(shot: dict, project: dict, info: dict,
     return await _shot_or_404(shot["id"])
 
 
-async def _generate_frame_image(shot: dict) -> dict:
+async def _generate_frame_image(shot: dict, batch_id: str = None) -> dict:
+    """Generate one storyboard frame. When `batch_id` is set the call joins that shared Flow
+    batch and is sent WITHOUT the single-flight lock (serialize=False) so a group of ≤4 frames
+    fired together actually overlaps — used by the batched generate-all job."""
     scene = await _scene_or_404(shot["scene_id"])
     project = await _project_or_404(scene["project_id"])
     client = _require_extension()
@@ -1103,7 +1114,7 @@ async def _generate_frame_image(shot: dict) -> dict:
         gen_call=lambda: client.generate_images(
             prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
             user_paygate_tier=tier, references=refs or None, image_model=model,
-            seed=project.get("seed")),
+            seed=project.get("seed"), batch_id=batch_id, serialize=batch_id is None),
         store_call=lambda info: _store_media_on_shot(
             shot, project, info, "image", f"s{scene['idx']+1:02d}_{shot['idx']+1:02d}_img"),
         label_for_err=f"frame {shot.get('title') or shot['id'][:6]}")
@@ -2187,15 +2198,18 @@ async def generate_project_images(pid: str, force: bool = False):
 
 
 def _start_image_job(pid: str, shots: list[dict], force: bool, type_: str) -> dict:
-    """Enqueue a background job that generates storyboard frame images (§9)."""
+    """Enqueue a background job that generates storyboard frame images (§9). Frames are
+    generated in concurrent batches (IMAGE_BATCH_SIZE sharing one Flow batch id) with a cooldown
+    between batches, so a 400-frame storyboard finishes ~batch-fold faster than one-at-a-time."""
     todo = [s for s in shots if force or not s.get("image_path")]
 
-    async def _worker(s):
-        await _generate_frame_image(s)
+    async def _worker(s, batch_id):
+        await _generate_frame_image(s, batch_id=batch_id)
 
     job = get_job_manager().start(
         project_id=pid, type_=type_, items=todo, worker=_worker,
-        label=f"Sinh ảnh storyboard ({len(todo)})", throttle=(2, 6),
+        label=f"Sinh ảnh storyboard ({len(todo)})",
+        throttle=IMAGE_BATCH_COOLDOWN, batch_size=IMAGE_BATCH_SIZE,
         item_label=lambda s: s.get("title") or s["id"])
     return {"job_id": job.id, "total": len(todo)}
 
