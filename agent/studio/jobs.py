@@ -170,12 +170,16 @@ class JobManager:
             await self._broadcast(job)
 
             async def _one(idx, it, lbl):
+                if job.cancel.is_set():
+                    return
                 # spread the group's submits so they don't hit Flow at the same instant
                 if stagger[1] > 0 and idx:
                     await asyncio.sleep(idx * random.uniform(*stagger))
                 try:
                     await worker(it, batch_id)        # batch worker takes (item, batch_id)
                     job.done += 1
+                except asyncio.CancelledError:
+                    raise                             # cancel → stop this frame at once
                 except Exception as ex:               # noqa: BLE001
                     logger.exception("job %s batch item failed: %s", job.id, lbl)
                     job.errors.append({"item": lbl, "error": str(ex)[:200]})
@@ -185,8 +189,20 @@ class JobManager:
                 await self._broadcast(job)
                 await self._persist(job)
 
-            await asyncio.gather(*[_one(k, it, lbl)
-                                   for k, (it, lbl) in enumerate(zip(group, labels))])
+            # Run the group concurrently, but abort PROMPTLY on cancel: cancel the still-running
+            # frames (which interrupts their long retry/backoff sleeps) instead of waiting the
+            # whole group out — otherwise "Dừng" appears to do nothing mid-batch.
+            tasks = [asyncio.create_task(_one(k, it, lbl))
+                     for k, (it, lbl) in enumerate(zip(group, labels))]
+            while tasks:
+                _, pending = await asyncio.wait(tasks, timeout=0.4,
+                                                return_when=asyncio.FIRST_COMPLETED)
+                tasks = list(pending)
+                if job.cancel.is_set() and tasks:
+                    for t in tasks:
+                        t.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    break
             if gi < len(groups) - 1 and not job.cancel.is_set():
                 await self._cooldown(job, throttle)   # 10s cooldown between batches
         if finalize is not None and job.status != "cancelled":
