@@ -40,6 +40,31 @@ IMAGE_BATCH_COOLDOWN = (
     float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN", "10")),
     float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN_MAX", "13")),
 )
+# Google anti-abuse block ("unusual activity"/429): retrying fast EXTENDS the block, so on a
+# detected block we wait this long before retrying (vs a few seconds for a normal transient),
+# and grant a few EXTRA attempts so one block doesn't burn the normal retry budget.
+ABUSE_BLOCK_BACKOFF = (
+    float(os.environ.get("FLOWKIT_ABUSE_BACKOFF", "30")),
+    float(os.environ.get("FLOWKIT_ABUSE_BACKOFF_MAX", "60")),
+)
+ABUSE_EXTRA_RETRIES = int(os.environ.get("FLOWKIT_ABUSE_EXTRA_RETRIES", "3"))
+_ABUSE_RE = re.compile(
+    r"unusual activity|bất thường|rate.?limit|too many request|resource_exhausted|quota|"
+    r"try again later|temporarily",
+    re.I)
+
+
+def _is_abuse_block(res: dict) -> bool:
+    """True if a Flow response is a Google anti-abuse / rate-limit block ('unusual activity',
+    HTTP 429/403). Such a block must be backed off LONG — an immediate retry extends it."""
+    if not isinstance(res, dict):
+        return False
+    if res.get("status") in (429, 403):
+        return True
+    try:
+        return bool(_ABUSE_RE.search(json.dumps(res, ensure_ascii=False)))
+    except (TypeError, ValueError):
+        return False
 
 
 # ─── Models ──────────────────────────────────────────────────
@@ -609,8 +634,12 @@ async def _generate_image_verified(gen_call, store_call, label_for_err: str) -> 
     Raises HTTPException(502) only after all retries fail.
     """
     last = ""
-    for attempt in range(IMAGE_GEN_RETRIES):
+    attempt = 0
+    max_attempts = IMAGE_GEN_RETRIES
+    while attempt < max_attempts:
+        attempt += 1
         res = await gen_call()
+        blocked = _is_abuse_block(res)
         if res.get("error"):
             last = str(res["error"])
         else:
@@ -623,11 +652,14 @@ async def _generate_image_verified(gen_call, store_call, label_for_err: str) -> 
                 last = "ảnh chưa tải được"
             else:
                 last = _image_block_reason(payload) or "Flow không trả media (có thể bị chặn)"
-        logger.warning("%s: tạo ảnh hỏng (lần %d/%d): %s",
-                       label_for_err, attempt + 1, IMAGE_GEN_RETRIES, last)
-        if attempt < IMAGE_GEN_RETRIES - 1:
-            await asyncio.sleep(random.uniform(2, 5))
-    raise HTTPException(502, f"Tạo ảnh thất bại sau {IMAGE_GEN_RETRIES} lần ({label_for_err}): {last}")
+        # A block backs off long + earns a few extra tries (retrying fast extends the block).
+        if blocked and max_attempts < IMAGE_GEN_RETRIES + ABUSE_EXTRA_RETRIES:
+            max_attempts += 1
+        logger.warning("%s: tạo ảnh hỏng (lần %d/%d%s): %s", label_for_err, attempt, max_attempts,
+                       " · BLOCK, chờ lâu" if blocked else "", last)
+        if attempt < max_attempts:
+            await asyncio.sleep(random.uniform(*(ABUSE_BLOCK_BACKOFF if blocked else (2, 5))))
+    raise HTTPException(502, f"Tạo ảnh thất bại sau {attempt} lần ({label_for_err}): {last}")
 
 
 async def _gen_candidates(gen_call, project: dict, n: int) -> list[dict]:
@@ -2251,11 +2283,15 @@ async def _render_i2v_clip(client, project: dict, shot_id: str,
     block/transient. Returns {media_id, primary_media_id, workflow_id, web, local}."""
     tier = await _current_tier()
     last = ""
-    for attempt in range(VIDEO_GEN_RETRIES):
+    attempt = 0
+    max_attempts = VIDEO_GEN_RETRIES
+    while attempt < max_attempts:
+        attempt += 1
         res = await client.generate_video(
             start_image_media_id=start_media_id, prompt=prompt,
             project_id=project["flow_project_id"], scene_id=shot_id,
             aspect_ratio=project["aspect_ratio"], user_paygate_tier=tier)
+        blocked = _is_abuse_block(res)
         if res.get("error"):
             last = str(res["error"])
         else:
@@ -2279,11 +2315,14 @@ async def _render_i2v_clip(client, project: dict, shot_id: str,
                     if web:
                         return {**info, "web": web, "local": assembler._local(web)}
                     last = "tải video về lỗi"
-        logger.warning("clip %s hỏng (lần %d/%d): %s",
-                       shot_id[:6], attempt + 1, VIDEO_GEN_RETRIES, last)
-        if attempt < VIDEO_GEN_RETRIES - 1:
-            await asyncio.sleep(random.uniform(5, 10))
-    raise HTTPException(502, f"Tạo clip thất bại sau {VIDEO_GEN_RETRIES} lần: {last}")
+        # A block gets a long backoff + a few extra tries (so it doesn't burn the normal budget).
+        if blocked and max_attempts < VIDEO_GEN_RETRIES + ABUSE_EXTRA_RETRIES:
+            max_attempts += 1
+        logger.warning("clip %s hỏng (lần %d/%d%s): %s", shot_id[:6], attempt, max_attempts,
+                       " · BLOCK, chờ lâu" if blocked else "", last)
+        if attempt < max_attempts:
+            await asyncio.sleep(random.uniform(*(ABUSE_BLOCK_BACKOFF if blocked else (5, 10))))
+    raise HTTPException(502, f"Tạo clip thất bại sau {attempt} lần: {last}")
 
 
 async def _chained_video(shot: dict, scene: dict, project: dict, client, n: int) -> dict:
