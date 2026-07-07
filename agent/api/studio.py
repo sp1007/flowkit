@@ -37,6 +37,18 @@ _SUBSHOT_ANGLES = [
     "wide establishing shot", "medium shot", "over-the-shoulder shot", "close-up",
     "reaction close-up", "low-angle medium shot", "high-angle wide shot", "insert detail shot",
 ]
+# A whole chapter sometimes parses to ONE scene; split it into ~this-many-second sub-scenes so
+# each gets its own coherent shot plan (env FLOWKIT_TARGET_SCENE_SECS).
+TARGET_SCENE_SECS = float(os.environ.get("FLOWKIT_TARGET_SCENE_SECS", "90"))
+_PART_SUFFIX_RE = re.compile(r"\s*·\s*phần\s*\d+/\d+\s*$")
+
+
+def _part_heading(heading: str, i: int, n: int) -> str:
+    """Sub-scene heading = the parent's (location intact at the front) + a '· phần i/n' suffix.
+    The location text stays at the START so heading→location matching is unchanged; the suffix
+    only distinguishes the parts in the UI. Strips any prior suffix so re-splitting won't stack."""
+    base = _PART_SUFFIX_RE.sub("", heading or "").rstrip()
+    return f"{base} · phần {i}/{n}"
 # Google đôi khi chặn ảnh theo policy (không trả media) hoặc trả filtered → thử lại.
 IMAGE_GEN_RETRIES = 3
 # Video tốn thời gian (15–30s/lần) nên thử lại ít hơn.
@@ -1625,8 +1637,15 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     erows = await db.query_all(
         "SELECT id, name, type, description FROM entity WHERE project_id=?", (scene["project_id"],))
     by_name = _index_by_name(erows)
-    # The scene's location is fixed by its heading — every beat/shot uses ONLY this place.
-    scene_loc = _match_location_entity(scene["heading"], [r for r in erows if r["type"] == "location"])
+    # The scene's location is fixed. Prefer a location_entity_id already stored on the scene
+    # (e.g. inherited by a split sub-scene, or set by a previous build) so the place is STABLE
+    # and never re-guessed onto the wrong location; else match it from the heading.
+    scene_loc = None
+    if scene.get("location_entity_id"):
+        scene_loc = next((r for r in erows if r["id"] == scene["location_entity_id"]
+                          and r["type"] == "location"), None)
+    if not scene_loc:
+        scene_loc = _match_location_entity(scene["heading"], [r for r in erows if r["type"] == "location"])
     scene_loc_id = scene_loc["id"] if scene_loc else None
 
     # 1) the scene's narration = its VERBATIM slice of the user's ORIGINAL input
@@ -2065,6 +2084,59 @@ async def reorder_scenes(pid: str, body: ReorderRequest):
     await db.execute("UPDATE scene SET source_segment=NULL WHERE project_id=?", (pid,))
     return {"scenes": await db.query_all(
         "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))}
+
+
+@router.post("/scenes/{sid}/split")
+async def split_scene(sid: str, target_secs: float = TARGET_SCENE_SECS):
+    """Split ONE over-long scene into several shorter sub-scenes (~target_secs each) BY TIME, so
+    a whole-chapter-in-one-scene becomes manageable and each part gets its own coherent shot plan.
+
+    Sub-scenes INHERIT the parent's EXACT location — same heading location text AND
+    location_entity_id — so a split never re-guesses the place and can't land on the wrong
+    location. The scene's existing shots are cleared (rebuild via 'Dựng theo lời đọc')."""
+    scene = await _scene_or_404(sid)
+    pid = scene["project_id"]
+    voiceover = (scene.get("source_segment") or "").strip()
+    if not voiceover:
+        await _ensure_source_segments(pid)
+        scene = await _scene_or_404(sid)
+        voiceover = (scene.get("source_segment") or scene.get("action") or "").strip()
+    if not voiceover:
+        raise HTTPException(400, "Scene chưa có nội dung để tách.")
+
+    est = _estimate_narration_secs(voiceover)
+    n = max(1, round(est / max(20.0, target_secs)))
+    if n < 2:
+        raise HTTPException(
+            400, f"Scene chỉ ~{int(est)}s — chưa cần tách (ngưỡng ~{int(target_secs)}s/scene).")
+    chunks = [c.strip() for c in brain.partition_text(voiceover, n) if c.strip()]
+    if len(chunks) < 2:
+        raise HTTPException(400, "Không tách được (quá ít câu trong scene).")
+    n = len(chunks)
+
+    base_idx = scene["idx"]
+    ts = db.now()
+    # make room for n-1 new scenes right after this one
+    await db.execute("UPDATE scene SET idx = idx + ? WHERE project_id=? AND idx > ?",
+                     (n - 1, pid, base_idx))
+    # the parent keeps its location + heading (part 1/n), takes the first slice; its shots are
+    # now stale (the narration it covered is spread across the parts)
+    await db.execute("DELETE FROM shot WHERE scene_id=?", (sid,))
+    await db.update("scene", sid, {
+        "heading": _part_heading(scene["heading"], 1, n),
+        "source_segment": chunks[0], "action": chunks[0],
+        "narration_text": None, "narration_path": None, "narration_duration": None,
+        "updated_at": ts})
+    for i in range(1, n):
+        await db.insert("scene", {
+            "id": db.new_id(), "project_id": pid, "idx": base_idx + i,
+            "heading": _part_heading(scene["heading"], i + 1, n),
+            "slug": scene.get("slug"), "action": chunks[i], "dialog": None,
+            "location_entity_id": scene.get("location_entity_id"),   # SAME place as the parent
+            "source_segment": chunks[i], "source_start": None, "source_end": None,
+            "created_at": ts})
+    return {"scenes": await db.query_all(
+        "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,)), "split_into": n}
 
 
 # ─── Project backup: export / import as .zip (§13#5) ──────────

@@ -374,6 +374,10 @@ export const storyboard = {
   // its location — fixes narration landing in the wrong scene. Then rebuild "Dựng theo lời đọc".
   alignSource: (pid: string) =>
     req<{ scenes: Scene[] }>(`/projects/${pid}/align-source`, { method: "POST" }),
+  // Split ONE over-long scene into ~90s sub-scenes (same location) so each gets a coherent shot
+  // plan. Clears the scene's shots (rebuild after). Sub-scenes inherit the parent's location.
+  splitScene: (sid: string) =>
+    req<{ scenes: Scene[]; split_into: number }>(`/scenes/${sid}/split`, { method: "POST" }),
   // Re-TTS ONLY a scene's narration from its existing shots' narrator_text and re-time the
   // shots + captions — keeps images/prompts/refs. Use to apply new TTS settings (gap/edge-pad)
   // without re-generating images. 502 if TTS is down (old audio kept).

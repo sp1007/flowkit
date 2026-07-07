@@ -474,6 +474,33 @@ export default function StoryboardTab({
     }
   };
 
+  // Split ONE over-long scene into ~90s sub-scenes (same location) so each gets its own
+  // coherent shot plan. Clears the scene's shots — rebuild after with "Dựng theo lời đọc".
+  const splitScene = async (sc: Scene) => {
+    const ok = await confirm({
+      title: "Tách scene dài này?",
+      message:
+        "Chia scene thành nhiều scene ngắn (~90s) THEO THỜI LƯỢNG, GIỮ NGUYÊN địa điểm. " +
+        "Các shot hiện tại của scene sẽ bị xoá — sau đó bấm 'Dựng theo lời đọc' để dựng lại. " +
+        "Dùng khi cả chương bị gộp thành 1 scene / shot quá dài.",
+      confirmText: "Tách scene",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy("split:" + sc.id);
+    setErr(null);
+    try {
+      const r = await storyboard.splitScene(sc.id);
+      await reloadAll();
+      setNotice(`Đã tách thành ${r.split_into} scene (cùng địa điểm) — hãy 'Dựng theo lời đọc' lại.`);
+      setTimeout(() => setNotice(null), 4000);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // Rebuild the shot list for EVERY scene from the script (force) — deletes existing
   // shots (incl. manual edits) and re-splits via AI. Confirm because it's destructive.
   const rebuildAll = async () => {
@@ -662,6 +689,14 @@ export default function StoryboardTab({
                   </button>
                 </div>
                 <div className="ml-auto flex gap-2">
+                  <button
+                    disabled={!!busy}
+                    onClick={() => splitScene(sc)}
+                    title="Tách scene dài này thành nhiều scene ~90s (GIỮ địa điểm) — khi cả chương bị gộp 1 scene / shot quá dài. Xoá shot hiện tại, dựng lại sau."
+                    className="rounded-md border border-amber-700/60 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-950/40 disabled:opacity-40"
+                  >
+                    {busy === "split:" + sc.id ? "Đang tách…" : "✂ Tách scene"}
+                  </button>
                   <button
                     disabled={!!busy}
                     onClick={() => autofill(sc.id)}
