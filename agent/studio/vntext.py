@@ -181,6 +181,46 @@ def has_words(text: str) -> bool:
     return bool(re.search(r"\w", strip_decoration(text), re.UNICODE))
 
 
+_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)      # a run of letters (no digits/underscore)
+
+
+def _fix_allcaps(text: str) -> str:
+    """Lowercase ALL-CAPS prose that the TTS mangles (garbled, sometimes silent): a caps PHRASE
+    (2+ caps words in a row — a heading like 'PHÒNG KHÁCH CĂN HỘ CỦA HÙNG') or a lone caps word
+    with a Vietnamese diacritic ('HÙNG', 'KHÔNG'). A LONE ASCII caps token (an acronym: VDK,
+    ADMIN, TP) is kept, and code identifiers (ADMIN_OVERRIDE, DN31) are left untouched because
+    their pieces are separated by '_'/digits, not a space, so they never form a caps phrase."""
+    words = list(_WORD_RE.finditer(text))
+    to_lower: set[int] = set()
+    i = 0
+    while i < len(words):
+        if not (len(words[i].group()) >= 2 and words[i].group().isupper()):
+            i += 1
+            continue
+        run = [i]                                    # extend across words joined ONLY by spaces
+        while i + 1 < len(words):
+            gap = text[words[i].end():words[i + 1].start()]
+            nxt = words[i + 1].group()
+            if gap.strip() == "" and len(nxt) >= 2 and nxt.isupper():
+                run.append(i + 1)
+                i += 1
+            else:
+                break
+        has_dia = any(any(ord(c) > 127 for c in words[r].group()) for r in run)
+        if len(run) >= 2 or has_dia:                 # a phrase, or a Vietnamese caps word
+            to_lower.update(run)
+        i += 1
+    if not to_lower:
+        return text
+    out, last = [], 0
+    for idx, w in enumerate(words):
+        out.append(text[last:w.start()])
+        out.append(w.group().lower() if idx in to_lower else w.group())
+        last = w.end()
+    out.append(text[last:])
+    return "".join(out)
+
+
 def normalize(text: str) -> str:
     if not text:
         return ""
@@ -193,6 +233,10 @@ def normalize(text: str) -> str:
     t = _DECOR.sub(" ", t)
     t = _strip_unicode_symbols(t)
     t = _DASHES.sub(", ", t)
+
+    # lowercase ALL-CAPS prose (headings / emphasised Vietnamese) the TTS otherwise garbles —
+    # BEFORE abbreviations/acronym rules so real acronyms (TP, VDK) and code ids are preserved.
+    t = _fix_allcaps(t)
 
     # abbreviations (longest first so TP.HCM beats TP.)
     for pat, rep in sorted(_ABBREV, key=lambda x: -len(x[0])):
