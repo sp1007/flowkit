@@ -28,6 +28,9 @@ from agent.studio.jobs import get_job_manager
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/studio", tags=["studio"])
 
+# Storytelling: an on-screen image changes at most every ~this many seconds of narration, so
+# a beat longer than this is split into ≤this-second sub-shots (image change ≈ every 8s).
+MAX_SHOT_SECS = float(os.environ.get("FLOWKIT_MAX_SHOT_SECS", "8"))
 # Google đôi khi chặn ảnh theo policy (không trả media) hoặc trả filtered → thử lại.
 IMAGE_GEN_RETRIES = 3
 # Video tốn thời gian (15–30s/lần) nên thử lại ít hơn.
@@ -35,7 +38,7 @@ VIDEO_GEN_RETRIES = 2
 # Storyboard batch image gen: fire this many frames at once sharing ONE Flow batch id (like
 # the web UI's 4-image batch), then wait the cooldown before the next group. Cuts wall-clock
 # time on big storyboards (400+ frames) ~batch-fold. Env-overridable.
-IMAGE_BATCH_SIZE = int(os.environ.get("FLOWKIT_IMAGE_BATCH_SIZE", "3"))
+IMAGE_BATCH_SIZE = int(os.environ.get("FLOWKIT_IMAGE_BATCH_SIZE", "4"))
 IMAGE_BATCH_COOLDOWN = (
     float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN", "10")),
     float(os.environ.get("FLOWKIT_IMAGE_BATCH_COOLDOWN_MAX", "13")),
@@ -1682,6 +1685,22 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
         # and the burned caption never show a '◆' the narration won't read (audio already drops
         # it via normalize; this keeps the TEXT in sync).
         b["_say"] = vntext.strip_decoration(say[i] if i < len(say) else (b.get("text") or "")).strip()
+
+    # Enforce ≤~8s per shot regardless of how few beats the AI returned (LLMs cap their output,
+    # so a long scene came back as a handful of 40–60s beats). Split any over-long beat's spoken
+    # slice into ≤8s sub-shots at sentence/clause boundaries — each sub-shot keeps the parent
+    # beat's visual context (its coherent moment), the narration just advances through it.
+    expanded: list[dict] = []
+    for b in beats:
+        subs = brain.chunk_by_duration(b.get("_say") or "", MAX_SHOT_SECS)
+        if len(subs) <= 1:
+            expanded.append(b)
+            continue
+        for sub in subs:
+            nb = dict(b)
+            nb["_say"] = sub
+            expanded.append(nb)
+    beats = expanded
 
     # 3) TTS one continuous read PER BEAT (with a breathing GAP between beats) → the scene WAV
     #    + each beat's exact READ duration. The beat occupies read+gap on the timeline; the

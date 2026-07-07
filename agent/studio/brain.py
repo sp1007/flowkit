@@ -445,6 +445,56 @@ def partition_text(text: str, n: int) -> list[str]:
     return parts
 
 
+_CLAUSE_RE = re.compile(r"(?<=[,;:—–])\s+")     # split points inside an over-long sentence
+
+
+def _split_long_sentence(sent: str, max_words: int) -> list[str]:
+    """Split ONE over-long sentence into ≤max_words pieces at clause boundaries (, ; : — –),
+    hard word-splitting any clause that is still too long. Verbatim (only whitespace
+    normalized), so the pieces concatenate back to the sentence."""
+    out: list[str] = []
+    for cl in _CLAUSE_RE.split(sent):
+        words = cl.split()
+        if len(words) <= max_words:
+            out.append(cl)
+        else:                                   # a single clause too long → hard word-split
+            for k in range(0, len(words), max_words):
+                out.append(" ".join(words[k:k + max_words]))
+    return out or [sent]
+
+
+def chunk_by_duration(text: str, max_secs: float = 8.0, wps: float = 2.5) -> list[str]:
+    """Split `text` into contiguous, VERBATIM chunks each ≈≤ max_secs of narration, so a shot
+    is at most ~max_secs. Sentences are the base unit; a sentence longer than the budget is
+    further split at CLAUSE boundaries (, ; : —) then by word count. Short sentences/clauses are
+    then PACKED together up to the budget (so we get ~max_secs chunks, not lots of tiny ones).
+    Concatenating the chunks back gives the whole text (whitespace normalized) — never rewrites
+    or drops content. This is what lets shots hit ≤8s even when the source has long sentences."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    max_words = max(3, round(max_secs * wps))
+    pieces: list[str] = []
+    for s in _sentences(text):
+        if len(s.split()) <= max_words:
+            pieces.append(s)
+        else:
+            pieces.extend(_split_long_sentence(s, max_words))
+    out: list[str] = []
+    cur: list[str] = []
+    cur_w = 0
+    for p in pieces:
+        w = len(p.split())
+        if cur and cur_w + w > max_words:       # would overflow → close the current chunk
+            out.append(" ".join(cur))
+            cur, cur_w = [], 0
+        cur.append(p)
+        cur_w += w
+    if cur:
+        out.append(" ".join(cur))
+    return out or [text]
+
+
 async def align_source_to_scenes(source: str, scenes: list[dict]) -> list[str]:
     """Assign the original SOURCE prose to scenes BY CONTENT (not by equal length). Each scene
     gets a contiguous, verbatim block of source sentences that matches its location heading /
