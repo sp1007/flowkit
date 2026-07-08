@@ -196,8 +196,7 @@ async def build(project_id: str) -> dict:
     dv_dir.mkdir(parents=True, exist_ok=True)
 
     items, titles, srt, start_f, total, tnum = [], [], [], 0, 0, 0
-    audio_segs = []   # single-clip scenes: (scene narration WAV, timeline start frame)
-    audio_runs = []   # per-beat scenes: (scene narration WAV, scene start frame, [(start_f, dur_f)])
+    audio_runs = []   # one clip per scene: (narration WAV, scene start_f, scene end_f, lead_f, measured)
     skipped = []      # shots with media in the DB but no usable file (even after re-download)
     i = 0
     for sc in scenes:
@@ -269,14 +268,15 @@ async def build(project_id: str) -> dict:
             i += 1
         scene_end_f = start_f
 
-        # Narration audio. When the images use the beats' MEASURED durations, slice the scene
-        # WAV into one audio clip per beat (Cách A) so each spoken segment sits under its own
-        # image (editable, dissolve-friendly). Otherwise keep one continuous scene clip.
+        # Narration audio → ONE continuous clip per scene (not one per beat). Per-beat slicing
+        # made every beat a separate clipitem sharing one <file> by empty reference; Resolve
+        # mis-imports that (dropping the first word(s) of each beat). A single clip reads the
+        # scene WAV from just after its leading edge-pad (so it aligns with the images) to the
+        # end of the last beat — its only boundary is the scene start, cushioned by that pad.
         if sc.get("narration_path"):
-            if have_measured:
-                audio_runs.append((sc["narration_path"], scene_start_f, beat_spans))
-            else:
-                audio_segs.append((sc["narration_path"], scene_start_f))
+            lead_f = beat_spans[0][2] if (have_measured and beat_spans) else 0
+            audio_runs.append(
+                (sc["narration_path"], scene_start_f, scene_end_f, lead_f, have_measured))
 
         # Captions are timed against the SCENE NARRATION (scene-local seconds), which plays
         # continuously from scene_start_f — NOT against the scaled image-clip starts. Place
@@ -298,38 +298,30 @@ async def build(project_id: str) -> dict:
     if not items:
         raise RuntimeError("Chưa có shot nào có ảnh hoặc video để export")
 
-    # narration audio track
+    # narration audio track — ONE fully-defined clip per scene (see the scene loop above for why
+    # per-beat slicing was dropped).
     audio_items = []
     aid = 0
-    # single-clip scenes: one continuous WAV at the scene start
-    for narr_web, sf in audio_segs:
-        ap = assembler._local(narr_web)
-        if not ap.exists():
-            continue
-        adur_f = max(1, round(await assembler.probe_duration(ap) * FPS))
-        staged_ap = _stage(ap, f"narr{_alpha(aid)}", dv_dir)
-        audio_items.append(_audio_item(aid, "narration", staged_ap, sf, adur_f))
-        aid += 1
-    # per-beat scenes (Cách A): slice the scene WAV into one clip per beat via in/out points
-    for narr_web, scene_sf, spans in audio_runs:
+    for narr_web, scene_sf, scene_ef, lead_f, measured in audio_runs:
         ap = assembler._local(narr_web)
         if not ap.exists():
             continue
         file_dur_f = max(1, round(await assembler.probe_duration(ap) * FPS))
         staged_ap = _stage(ap, f"narr{_alpha(aid)}", dv_dir)
-        fid = f"afile{aid}"
-        for k, (cs_f, cdur_f, src_off_f) in enumerate(spans):
-            # Read each beat from its true WAV offset (incl. the leading edge-pad silence).
-            # Deriving it from the cumulative image position (cs_f - scene_sf) instead skips the
-            # pad, shifting every slice ~edge_pad early — which cut the last word of the scene and
-            # ran the audio ahead of the images. Fall back to the old cumulative offset if a shot
-            # has no start_time (older data with edge_pad=0 → identical result).
-            src_in = max(0, src_off_f if src_off_f > 0 else cs_f - scene_sf)
-            cdur = min(cdur_f, max(1, file_dur_f - src_in))   # clamp inside the WAV
-            audio_items.append(_audio_item(
-                aid, "narration", staged_ap, cs_f, cdur, src_in_f=src_in,
-                file_dur_f=file_dur_f, file_id=fid, define_file=(k == 0)))
-            aid += 1
+        if measured:
+            # Storytelling: images span scene_dur MINUS the two edge pads, so read the WAV from
+            # just after the leading pad (lead_f) for exactly the image span — speech stays under
+            # its image and no trailing-pad silence bleeds into the next scene.
+            src_in = max(0, lead_f)
+            cdur = min(max(1, scene_ef - scene_sf), max(1, file_dur_f - src_in))
+        else:
+            # Non-measured (e.g. real video shots): play the whole WAV from the scene start.
+            src_in = 0
+            cdur = file_dur_f
+        audio_items.append(_audio_item(
+            aid, "narration", staged_ap, scene_sf, cdur, src_in_f=src_in,
+            file_dur_f=file_dur_f))
+        aid += 1
 
     # background-music track: the project's music tiled across the whole timeline (Resolve
     # has no loop in XML, so repeat the clip) on its OWN audio track, under the narration.
