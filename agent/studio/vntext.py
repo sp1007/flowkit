@@ -188,8 +188,8 @@ def _fix_allcaps(text: str) -> str:
     """Lowercase ALL-CAPS prose that the TTS mangles (garbled, sometimes silent): a caps PHRASE
     (2+ caps words in a row — a heading like 'PHÒNG KHÁCH CĂN HỘ CỦA HÙNG') or a lone caps word
     with a Vietnamese diacritic ('HÙNG', 'KHÔNG'). A LONE ASCII caps token (an acronym: VDK,
-    ADMIN, TP) is kept, and code identifiers (ADMIN_OVERRIDE, DN31) are left untouched because
-    their pieces are separated by '_'/digits, not a space, so they never form a caps phrase."""
+    ADMIN, TP) is kept. Snake_case code identifiers (ADMIN_OVERRIDE) are already lowercased to
+    words by _fix_code_ids upstream; a caps+digit token (DN31) is left as-is here (no space)."""
     words = list(_WORD_RE.finditer(text))
     to_lower: set[int] = set()
     i = 0
@@ -221,6 +221,21 @@ def _fix_allcaps(text: str) -> str:
     return "".join(out)
 
 
+# snake_case / SCREAMING_SNAKE code identifiers (ADMIN_OVERRIDE, FILE_ACCESS, DEV_MODE_2):
+# an ALL-CAPS part is read by the TTS as shouted letters and comes out garbled ("loạn âm").
+# Lowercase the WHOLE identifier so each part is spoken as an ordinary word; the '_' then
+# becomes a space in normalize(). Only touched when the identifier actually contains a capital,
+# so a lowercase file_name is left alone. Runs BEFORE _fix_allcaps and the '_ → gạch dưới' rule
+# so those never see the caps.
+_CODE_ID = re.compile(r"\b[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+\b")
+
+
+def _fix_code_ids(text: str) -> str:
+    return _CODE_ID.sub(
+        lambda m: m.group(0).lower() if any(c.isupper() for c in m.group(0)) else m.group(0),
+        text)
+
+
 def normalize(text: str) -> str:
     if not text:
         return ""
@@ -233,6 +248,10 @@ def normalize(text: str) -> str:
     t = _DECOR.sub(" ", t)
     t = _strip_unicode_symbols(t)
     t = _DASHES.sub(", ", t)
+
+    # snake_case code identifiers (ADMIN_OVERRIDE) → lowercased words BEFORE _fix_allcaps so their
+    # ALL-CAPS parts are never read as shouted, garbled letters.
+    t = _fix_code_ids(t)
 
     # lowercase ALL-CAPS prose (headings / emphasised Vietnamese) the TTS otherwise garbles —
     # BEFORE abbreviations/acronym rules so real acronyms (TP, VDK) and code ids are preserved.
