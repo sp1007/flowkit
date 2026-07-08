@@ -4,3 +4,10 @@ websockets>=12.0
 pydantic>=2.5.0
 httpx>=0.25.0
 pywinpty>=2.0.0; sys_platform == "win32"  # PTY cho agent TUI (Antigravity) trên Windows
+
+# Storytelling narration v2: force-align the verbatim script to the continuous TTS take so
+# image cuts + subtitles land on the real speech. Optional at runtime — set FLOWKIT_ALIGN=0 to
+# skip and fall back to word-count timing (agent/studio/align.py degrades gracefully if missing).
+whisperx>=3.1.1        # forced alignment (bundles the wav2vec2 'vi' model wiring)
+faster-whisper>=1.0.0  # ASR/align backend used by whisperx
+# torch is pulled in by the two above; pin/install a CUDA build separately for GPU alignment.

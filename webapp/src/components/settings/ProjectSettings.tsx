@@ -386,12 +386,13 @@ export default function ProjectSettings({
               </span>
             </div>
             <p className="mt-1 text-xs text-neutral-600">
-              Khoảng lặng nghỉ lấy hơi giữa các đoạn/shot. Đặt ≈1.0s (24 frame) nếu dùng
-              cross-dissolve để hiệu ứng nằm trọn trong khoảng lặng. Cần "Dựng theo lời đọc" lại.
+              Scene được đọc LIỀN MẠCH theo từng đoạn (tách ở dòng trống); đây là khoảng lặng
+              chèn GIỮA CÁC ĐOẠN. Đặt ≈1.0s nếu dùng cross-dissolve để hiệu ứng nằm trọn trong
+              khoảng lặng. Cần "Dựng theo lời đọc" (hoặc "Dựng lại audio") lại.
             </p>
             <div className="mt-2 flex items-center gap-3">
-              <span className="text-xs text-neutral-500">Nghỉ giữa câu</span>
-              <input type="range" min={0} max={1} step={0.05} value={ttsSentenceGap}
+              <span className="text-xs text-neutral-500">Nghỉ cuối câu</span>
+              <input type="range" min={0} max={1.5} step={0.05} value={ttsSentenceGap}
                 onChange={(e) => setTtsSentenceGap(parseFloat(e.target.value))}
                 className="flex-1 accent-indigo-500" />
               <span className="w-10 text-right text-xs tabular-nums text-neutral-400">
@@ -399,8 +400,9 @@ export default function ProjectSettings({
               </span>
             </div>
             <p className="mt-1 text-xs text-neutral-600">
-              Mỗi câu được đọc riêng và chèn khoảng lặng này ở mỗi dấu chấm/câu, để giọng đọc
-              ngừng nghỉ tự nhiên thay vì đọc liền tù tì. Cần "Dựng theo lời đọc" lại.
+              Khoảng lặng chèn thêm sau mỗi câu (dấu . ! ? … ; : —) để OmniVoice không đọc dồn
+              quá nhanh. Dùng WhisperX canh mốc nên chỉ chèn ĐÚNG cuối câu, không cắt giữa câu.
+              Cần "Dựng theo lời đọc" (hoặc "Dựng lại audio") lại.
             </p>
             <div className="mt-2 flex items-center gap-3">
               <span className="text-xs text-neutral-500">Đệm 2 đầu</span>
