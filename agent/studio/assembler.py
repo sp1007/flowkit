@@ -319,6 +319,21 @@ async def _scene_clip(parts: list[dict], scene: dict, out: Path, w: int, h: int,
         else:
             durs = base
 
+    # The scene WAV is `edge_pad` silence + gapped beats + `edge_pad` silence, so it is longer
+    # than the sum of the per-shot beat windows (which exclude those two edge pads). If the image
+    # track is shorter than the narration, `-shortest` below would CHOP the tail off the audio —
+    # cutting the last spoken word(s) of the scene ("mất từ" at every scene boundary) — and every
+    # image would also run ahead of its narration by the leading pad. Absorb the deficit into the
+    # image windows: the leading pad onto the FIRST image (so it covers the lead silence and
+    # re-aligns every following image with the audio + captions), the rest onto the LAST image.
+    if narr and scene_dur > 0 and durs:
+        deficit = round(scene_dur - sum(durs), 3)
+        if deficit > 0.05:                             # ~2·edge_pad; ignore rounding noise
+            head = round(deficit / 2, 3)
+            durs = list(durs)
+            durs[0] += head
+            durs[-1] += deficit - head
+
     # one silent sub-clip per shot image, then concat → scene video
     tmp = []
     for k, p in enumerate(parts):
