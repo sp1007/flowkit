@@ -22,7 +22,7 @@ from agent.config import (
     IMAGE_MODELS, VIDEO_MODELS, UPSCALE_MODELS, OMNI_FLASH_MODELS,
 )
 from agent.services.flow_client import get_flow_client
-from agent.studio import db, media_store, brain, assembler, davinci_xml, vntext, graph as graph_mod
+from agent.studio import db, media_store, brain, assembler, davinci_xml, vntext, align, graph as graph_mod
 from agent.studio.jobs import get_job_manager
 
 logger = logging.getLogger(__name__)
@@ -1594,6 +1594,156 @@ async def _tts_beats(texts: list[str], voice_id: int, pid: str, scene_id: str,
     return f"/media/{rel}", reads, lead
 
 
+# ─── Continuous narration (storytelling v2): read whole paragraphs, align back ──────────
+# Old builds read each beat SENTENCE-BY-SENTENCE and stitched them with big gaps, which chopped
+# the audio mid-sentence and sounded fragmented. Now we read the scene as CONTINUOUS paragraphs
+# (one OmniVoice call each, natural prosody), then use WhisperX (agent.studio.align) to recover
+# each shot's real time span. Image cuts / subtitles fall on the aligned times; a small pause is
+# spliced only AFTER a shot that ends a sentence (never mid-sentence).
+
+_PARA_MAX_CHARS = int(os.environ.get("FLOWKIT_TTS_PARA_MAX_CHARS", "800"))
+_TERM_PUNCT = ".!?…;:—–"
+
+
+def _paragraphs(text: str) -> list[str]:
+    """Split verbatim narration into continuous-read paragraphs: on blank lines first, then cap
+    any paragraph over the engine budget by packing WHOLE sentences (never mid-sentence)."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    raw = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()] or [text]
+    out: list[str] = []
+    for p in raw:
+        p = " ".join(p.split())
+        if len(p) <= _PARA_MAX_CHARS:
+            out.append(p)
+            continue
+        cur, cur_len = [], 0
+        for s in vntext.sentences(p):
+            if cur and cur_len + len(s) + 1 > _PARA_MAX_CHARS:
+                out.append(" ".join(cur))
+                cur, cur_len = [], 0
+            cur.append(s)
+            cur_len += len(s) + 1
+        if cur:
+            out.append(" ".join(cur))
+    return out or [" ".join(text.split())]
+
+
+def _concat_wav_to_bytes(chunks: list[bytes]) -> bytes:
+    """Join same-format WAV byte blobs → one WAV byte blob (in-memory _concat_wav_bytes)."""
+    import io
+    import wave
+    params, frames = None, []
+    for b in chunks:
+        with wave.open(io.BytesIO(b), "rb") as w:
+            if params is None:
+                params = w.getparams()
+            frames.append(w.readframes(w.getnframes()))
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as out:
+        out.setparams(params)
+        for f in frames:
+            out.writeframes(f)
+    return buf.getvalue()
+
+
+async def _tts_continuous(text: str, voice_id: int, speed: float, para_gap: float) -> bytes:
+    """Read `text` as continuous paragraphs (ONE OmniVoice call per paragraph) and concat with
+    `para_gap` silence between paragraphs. No per-sentence stitching → the read stays natural."""
+    audios: list[bytes] = []
+    for p in _paragraphs(text):
+        norm = (vntext.normalize(p) or "").strip()
+        if not re.search(r"\w", norm):
+            continue
+        audios.append(await _tts_one(norm, voice_id, speed))
+    if not audios:
+        raise HTTPException(502, "Không tạo được audio cho scene")
+    template = audios[0]
+    parts: list[bytes] = []
+    for i, a in enumerate(audios):
+        if i > 0 and para_gap > 0:
+            parts.append(_silence_wav_bytes(template, para_gap))
+        parts.append(a)
+    return _concat_wav_to_bytes(parts)
+
+
+def _assemble_continuous_wav(raw: bytes, starts: list[float], pause_after: list[bool],
+                             pause: float, edge_pad: float
+                             ) -> tuple[bytes, list[tuple[float, float]], list[float], float]:
+    """Slice the raw continuous WAV at the aligned shot `starts`, re-join with `pause` silence
+    after shots that end a sentence, and add `edge_pad` silent handles at both ends.
+
+    Returns (wav_bytes, [(start,end)] per shot on the FINAL timeline, [spoken read] per shot,
+    lead). Shot end = next shot's start (tiles incl. the pause); read = the spoken span only."""
+    import io
+    import wave
+    with wave.open(io.BytesIO(raw), "rb") as w:
+        params = w.getparams()
+        frames = w.readframes(w.getnframes())
+    fr = params.framerate
+    bpf = params.sampwidth * params.nchannels
+    total = len(frames) // bpf
+    n = len(starts)
+    bidx = [max(0, min(total, int(round(s * fr)))) for s in starts] + [total]
+    for i in range(1, len(bidx)):                       # force non-decreasing frame boundaries
+        bidx[i] = max(bidx[i], bidx[i - 1])
+    lead_f = int(round(max(0.0, edge_pad) * fr))
+    pause_f = int(round(max(0.0, pause) * fr))
+    lead_sil = b"\x00" * (lead_f * bpf)
+    pause_sil = b"\x00" * (pause_f * bpf)
+    out = bytearray(lead_sil)
+    starts_f, reads = [], []
+    t = edge_pad
+    for i in range(n):
+        seg = frames[bidx[i] * bpf: bidx[i + 1] * bpf]
+        out += seg
+        read = (bidx[i + 1] - bidx[i]) / fr
+        starts_f.append(round(t, 3))
+        reads.append(round(read, 3))
+        t += read
+        if pause_f and i < n - 1 and pause_after[i]:
+            out += pause_sil
+            t += pause
+    out += lead_sil
+    times = [(starts_f[i], starts_f[i + 1] if i + 1 < n else round(t, 3)) for i in range(n)]
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setparams(params)
+        w.writeframes(bytes(out))
+    return buf.getvalue(), times, reads, round(max(0.0, edge_pad), 3)
+
+
+def _ends_sentence(text: str) -> bool:
+    """True if `text`'s last visible char is sentence/clause-ending punctuation — so a pause may
+    be spliced after it without landing mid-sentence."""
+    t = vntext.strip_decoration(text or "").rstrip()
+    return bool(t) and t[-1] in _TERM_PUNCT
+
+
+async def _make_scene_narration(voiceover: str, shot_texts: list[str], voice_id: int,
+                                pid: str, sid: str, speed: float, para_gap: float,
+                                sentence_pause: float, edge_pad: float
+                                ) -> tuple[str, list[tuple[float, float]], list[float], float, float]:
+    """Build a scene's narration as ONE continuous read, then align the shots' spoken slices to
+    it. Returns (web_path, [(start,end)] per shot, [read] per shot, lead, scene_duration).
+
+    Raises HTTPException(502) if TTS produced nothing (caller keeps any existing audio)."""
+    raw = await _tts_continuous(voiceover, voice_id, speed, para_gap)
+    rel = f"{pid}/narr_scene_{sid}.wav"
+    dest = media_store.MEDIA_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(dest.write_bytes, raw)      # raw take for alignment
+    spans = await asyncio.to_thread(align.align_sentences, str(dest), shot_texts)
+    starts = [s for s, _ in spans] if spans else [0.0]
+    pause_after = [_ends_sentence(t) for t in shot_texts]
+    final, times, reads, lead = await asyncio.to_thread(
+        _assemble_continuous_wav, raw, starts, pause_after, sentence_pause, edge_pad)
+    await asyncio.to_thread(dest.write_bytes, final)
+    scene_dur = round((times[-1][1] if times else 0.0) + lead, 3)
+    return f"/media/{rel}", times, reads, lead, scene_dur
+
+
 async def _ensure_source_segments(pid: str, force: bool = False) -> None:
     """Populate scene.source_segment by CONTENT-aligning the project's source prose (idea) to
     its scenes (once; or re-run when force=True). This replaces the naive equal-length split so
@@ -1744,52 +1894,52 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
             expanded.append(nb)
     beats = expanded
 
-    # 3) TTS one continuous read PER BEAT (with a breathing GAP between beats) → the scene WAV
-    #    + each beat's exact READ duration. The beat occupies read+gap on the timeline; the
-    #    subtitle covers the spoken read; the gap is a silent pause (less tiring, natural cut).
+    # 3) Narration = ONE continuous read of the whole scene (natural prosody), then align the
+    #    shots' spoken slices back to it (WhisperX) for real per-shot timing. A small pause is
+    #    spliced only after a shot that ends a sentence. Falls back to a word-count estimate if
+    #    TTS is off/unreachable. (tts_gap = pause BETWEEN paragraphs, tts_sentence_gap = extra
+    #    pause after a sentence, tts_edge_pad = silent handles at both ends.)
     voice_id = project.get("voice_id") or 0
     speed = float(project.get("tts_speed") or 1.0)
-    gap = min(max(float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
-    sentence_gap = min(max(
+    para_gap = min(max(float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
+    sentence_pause = min(max(
         float(project.get("tts_sentence_gap") if project.get("tts_sentence_gap") is not None else 0.3),
-        0.0), 1.0)
+        0.0), 1.5)
     edge_pad = min(max(
         float(project.get("tts_edge_pad") if project.get("tts_edge_pad") is not None else 0.5),
         0.0), 3.0)
-    narr_web, reads, lead = None, None, 0.0
-    if body.measure and any(b.get("_say") for b in beats):
+    shot_texts = [b.get("_say") or "" for b in beats]
+    narr_web, times, reads, lead, scene_dur = None, None, None, 0.0, 0.0
+    if body.measure and any(s.strip() for s in shot_texts):
         try:
-            narr_web, reads, lead = await _tts_beats(
-                [b["_say"] for b in beats], voice_id, project["id"], sid,
-                speed, gap, sentence_gap, edge_pad)
+            narr_web, times, reads, lead, scene_dur = await _make_scene_narration(
+                voiceover, shot_texts, voice_id, project["id"], sid,
+                speed, para_gap, sentence_pause, edge_pad)
         except HTTPException as e:
-            logger.warning("beat TTS unavailable (%s) — dùng ước lượng theo số từ", e.detail)
+            logger.warning("scene TTS unavailable (%s) — dùng ước lượng theo số từ", e.detail)
         except Exception as e:  # noqa: BLE001
-            logger.warning("beat TTS failed: %s — dùng ước lượng theo số từ", e)
-    if reads is None or len(reads) != len(beats):        # TTS off/failed → word-count estimate
-        wc = [max(1, len((b.get("_say") or "").split())) for b in beats]
+            logger.warning("scene TTS failed: %s — dùng ước lượng theo số từ", e)
+    if times is None or len(times) != len(beats):        # TTS off/failed → word-count estimate
+        wc = [max(1, len(s.split())) for s in shot_texts]
         total_wc = sum(wc) or 1
         scene_est = _estimate_narration_secs(voiceover)
         reads = [max(0.8, round(scene_est * w / total_wc, 3)) for w in wc]
-        narr_web = None
-    # per-beat timeline duration = its read + the trailing gap (no gap after the last beat),
-    # so durations sum to the gapped scene WAV and start_times stay in sync with the audio.
-    n = len(beats)
-    durs = [round(reads[i] + (gap if i < n - 1 else 0.0), 3) for i in range(n)]
-    # WAV = lead silence + gapped beats + trailing lead silence (edge handles for dissolves).
-    # The leading pad shifts every beat's start by `lead`; both pads count toward scene length.
-    scene_dur = round(sum(durs) + 2 * lead, 3)
+        times, acc = [], 0.0
+        for r in reads:
+            times.append((round(acc, 3), round(acc + r, 3)))
+            acc += r
+        lead, scene_dur, narr_web = 0.0, round(acc, 3), None
 
     await db.execute("DELETE FROM shot WHERE scene_id=?", (sid,))
     await db.update("scene", sid, {
         "narration_text": voiceover, "narration_path": narr_web,
         "narration_duration": scene_dur, "location_entity_id": scene_loc_id})
     ts = db.now()
-    t = lead                                   # first beat starts after the leading silent pad
     for i, b in enumerate(beats):
-        b_dur = durs[i]
+        start_t, end_t = times[i]
+        b_dur = round(end_t - start_t, 3)          # timeline share (incl. any trailing pause)
         # subtitle spans the SPOKEN read (nearly the whole shot), not the trailing pause
-        caps = _subtitle_windows(b.get("_say") or "", t, reads[i])
+        caps = _subtitle_windows(b.get("_say") or "", start_t, reads[i])
         text = " ".join(filter(None, [b.get("description"), b.get("visual_prompt"), b.get("motion_prompt")]))
         ref_ids = _resolve_shot_refs(text, b.get("ref_entity_names"), by_name, scene_loc_id)
         await db.insert("shot", {
@@ -1800,16 +1950,15 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
             "visual_prompt": b.get("visual_prompt") or None,
             "motion_prompt": b.get("motion_prompt") or None,
             "beat_action": b.get("beat_action") or None,
-            # narrator_text = this beat's VERBATIM spoken slice; its audio is the beat's
-            # segment of the scene WAV (read duration above, then a gap).
+            # narrator_text = this beat's VERBATIM spoken slice; its audio is the aligned segment
+            # of the one continuous scene WAV.
             "narrator_text": b.get("_say") or None,
             "narration_duration": b_dur,          # this beat's real share of the timeline
-            "start_time": round(t, 3),            # scene-local offset
+            "start_time": start_t,                # scene-local offset (aligned)
             "captions": json.dumps(caps, ensure_ascii=False),
             "ref_entity_ids": json.dumps(ref_ids),
             "duration": max(1, int(round(b_dur))),
             "status": "pending", "created_at": ts, "updated_at": ts})
-        t += b_dur
 
     return {"shots": await db.query_all(
         "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,)),
@@ -1837,48 +1986,49 @@ async def rebuild_scene_audio(sid: str):
     if not any(say):
         raise HTTPException(400, "Các shot chưa có lời đọc (narrator_text) để tạo audio")
 
+    # The whole scene is read CONTINUOUSLY (the shots' spoken slices joined, in order); each
+    # existing shot is then re-timed by aligning its slice back to that one take. Images are not
+    # touched. So even shots whose text was split mid-sentence by an old build now sit under
+    # smooth, un-chopped audio — only the image change lands mid-sentence, which is fine.
+    voiceover = " ".join(s for s in say if s)
     voice_id = project.get("voice_id") or 0
     speed = float(project.get("tts_speed") or 1.0)
-    gap = min(max(float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
-    sentence_gap = min(max(
+    para_gap = min(max(float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
+    sentence_pause = min(max(
         float(project.get("tts_sentence_gap") if project.get("tts_sentence_gap") is not None else 0.3),
-        0.0), 1.0)
+        0.0), 1.5)
     edge_pad = min(max(
         float(project.get("tts_edge_pad") if project.get("tts_edge_pad") is not None else 0.5),
         0.0), 3.0)
 
     try:
-        narr_web, reads, lead = await _tts_beats(
-            say, voice_id, project["id"], sid, speed, gap, sentence_gap, edge_pad)
+        narr_web, times, reads, lead, scene_dur = await _make_scene_narration(
+            voiceover, say, voice_id, project["id"], sid,
+            speed, para_gap, sentence_pause, edge_pad)
     except HTTPException as e:
         raise HTTPException(502, f"Không tạo được audio ({e.detail}). Kiểm tra OmniVoice URL "
                                  f"trong ⚙ Settings rồi thử lại — audio cũ được giữ nguyên.")
-    if len(reads) != len(shots):                      # one read per beat → must line up 1:1
+    if len(times) != len(shots):                      # one aligned span per shot → must line up 1:1
         raise HTTPException(500, "Số đoạn audio không khớp số shot")
 
-    # Re-time: leading pad shifts every shot's start; both pads count toward scene length.
-    n = len(shots)
-    durs = [round(reads[i] + (gap if i < n - 1 else 0.0), 3) for i in range(n)]
-    scene_dur = round(sum(durs) + 2 * lead, 3)
-
     await db.update("scene", sid, {
-        "narration_path": narr_web, "narration_duration": scene_dur})
+        "narration_path": narr_web, "narration_duration": scene_dur,
+        "narration_text": voiceover})
     ts = db.now()
-    t = lead
     for i, s in enumerate(shots):
-        b_dur = durs[i]
-        # captions re-tiled over the new read timing (start shifted by the leading pad)
-        caps = _subtitle_windows(say[i], t, reads[i])
+        start_t, end_t = times[i]
+        b_dur = round(end_t - start_t, 3)
+        # captions re-tiled over the new aligned timing (spoken read only, not the trailing pause)
+        caps = _subtitle_windows(say[i], start_t, reads[i])
         update = {
             "narration_duration": b_dur,
-            "start_time": round(t, 3),
+            "start_time": start_t,
             "captions": json.dumps(caps, ensure_ascii=False),
             "duration": max(1, int(round(b_dur))),
             "updated_at": ts}
         if say[i] and say[i] != (s.get("narrator_text") or "").strip():
             update["narrator_text"] = say[i]    # persist the decoration-stripped narration
         await db.update("shot", s["id"], update)
-        t += b_dur
 
     return {"shots": await db.query_all(
         "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,)),
