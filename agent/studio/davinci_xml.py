@@ -255,7 +255,11 @@ async def build(project_id: str) -> dict:
             staged = await asyncio.to_thread(_stage_image_jpg, path, name, dv_dir) if is_img \
                 else _stage(path, name, dv_dir)
             items.append(_clipitem(i, sh.get("title") or f"Shot {i+1}", staged, start_f, dur_f, w, h))
-            beat_spans.append((start_f, dur_f))
+            # 3rd field = this beat's TRUE offset into the scene WAV (shot.start_time, which
+            # includes the leading edge-pad silence). The audio slice must read from here, NOT
+            # from the cumulative image position (start_f - scene_start_f) which omits that pad.
+            src_off_f = round(float(sh.get("start_time") or 0) * FPS)
+            beat_spans.append((start_f, dur_f, src_off_f))
             try:
                 scene_caps.extend(json.loads(sh.get("captions") or "[]"))
             except (json.JSONDecodeError, TypeError):
@@ -277,9 +281,13 @@ async def build(project_id: str) -> dict:
         # Captions are timed against the SCENE NARRATION (scene-local seconds), which plays
         # continuously from scene_start_f — NOT against the scaled image-clip starts. Place
         # them absolutely so they stay in sync with the audio (same as the burned-in video).
+        # In the per-beat (measured) path the audio slices skip the leading edge-pad, so the
+        # narration reaches each phrase `cap_lead_f` frames earlier than its WAV timestamp —
+        # subtract that lead so captions land on the audio + images (0 for the continuous path).
+        cap_lead_f = beat_spans[0][2] if (have_measured and beat_spans) else 0
         for c in scene_caps:
             cstart, cend = float(c.get("start", 0)), float(c.get("end", 0))
-            cs = scene_start_f + round(cstart * FPS)
+            cs = scene_start_f + round(cstart * FPS) - cap_lead_f
             cd = max(1, round((cend - cstart) * FPS))
             cd = min(cd, max(1, scene_end_f - cs))     # clamp inside the scene span
             if c.get("text") and scene_start_f <= cs < scene_end_f:
@@ -310,8 +318,13 @@ async def build(project_id: str) -> dict:
         file_dur_f = max(1, round(await assembler.probe_duration(ap) * FPS))
         staged_ap = _stage(ap, f"narr{_alpha(aid)}", dv_dir)
         fid = f"afile{aid}"
-        for k, (cs_f, cdur_f) in enumerate(spans):
-            src_in = max(0, cs_f - scene_sf)
+        for k, (cs_f, cdur_f, src_off_f) in enumerate(spans):
+            # Read each beat from its true WAV offset (incl. the leading edge-pad silence).
+            # Deriving it from the cumulative image position (cs_f - scene_sf) instead skips the
+            # pad, shifting every slice ~edge_pad early — which cut the last word of the scene and
+            # ran the audio ahead of the images. Fall back to the old cumulative offset if a shot
+            # has no start_time (older data with edge_pad=0 → identical result).
+            src_in = max(0, src_off_f if src_off_f > 0 else cs_f - scene_sf)
             cdur = min(cdur_f, max(1, file_dur_f - src_in))   # clamp inside the WAV
             audio_items.append(_audio_item(
                 aid, "narration", staged_ap, cs_f, cdur, src_in_f=src_in,
