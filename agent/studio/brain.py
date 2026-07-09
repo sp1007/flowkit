@@ -480,17 +480,26 @@ def _split_long_sentence(sent: str, max_words: int) -> list[str]:
     return out or [sent]
 
 
-def chunk_by_duration(text: str, max_secs: float = 8.0, wps: float = 2.5) -> list[str]:
-    """Split `text` into contiguous, VERBATIM chunks each ≈≤ max_secs of narration, so a shot
-    is at most ~max_secs. Sentences are the base unit; a sentence longer than the budget is
-    further split at CLAUSE boundaries (, ; : —) then by word count. Short sentences/clauses are
-    then PACKED together up to the budget (so we get ~max_secs chunks, not lots of tiny ones).
+def chunk_by_duration(text: str, max_secs: float = 10.0, min_secs: float = 8.0,
+                      wps: float = 2.5) -> list[str]:
+    """Split `text` into contiguous, VERBATIM chunks that each AIM for the [min_secs, max_secs]
+    band of narration — one shot (and so one generated image) per chunk.
+
+    Sentences are the base unit; a sentence longer than the budget is further split at CLAUSE
+    boundaries (, ; : —) then by word count. Pieces are then PACKED to FILL the band: a chunk is
+    only closed once it has reached `min_secs` worth of words, so we stop emitting the swarm of
+    3–5s shots that made the image count explode. When a piece would overflow `max_secs` while
+    the chunk is still under the minimum, we keep whichever choice lands nearer the band's middle.
+    A tiny trailing chunk is folded back into the previous one rather than left as a stray shot.
+
     Concatenating the chunks back gives the whole text (whitespace normalized) — never rewrites
-    or drops content. This is what lets shots hit ≤8s even when the source has long sentences."""
+    or drops content."""
     text = (text or "").strip()
     if not text:
         return []
     max_words = max(3, round(max_secs * wps))
+    min_words = max(2, min(round(min_secs * wps), max_words))
+    target_words = (min_words + max_words) // 2
     pieces: list[str] = []
     for s in _sentences(text):
         if len(s.split()) <= max_words:
@@ -502,13 +511,23 @@ def chunk_by_duration(text: str, max_secs: float = 8.0, wps: float = 2.5) -> lis
     cur_w = 0
     for p in pieces:
         w = len(p.split())
-        if cur and cur_w + w > max_words:       # would overflow → close the current chunk
-            out.append(" ".join(cur))
-            cur, cur_w = [], 0
+        if cur and cur_w + w > max_words:
+            # Over the cap. Close only if the chunk already fills the band, or if closing lands
+            # strictly nearer the target than overflowing would — otherwise keep packing (a
+            # slightly long shot beats a stray 3s one, and ties favour packing).
+            if cur_w >= min_words or abs(cur_w - target_words) < abs(cur_w + w - target_words):
+                out.append(" ".join(cur))
+                cur, cur_w = [], 0
         cur.append(p)
         cur_w += w
     if cur:
-        out.append(" ".join(cur))
+        # A trailing chunk under the minimum reads as a stray short shot. Fold it into the
+        # previous one when that stays within a reasonable overshoot; else keep it standalone.
+        prev_w = len(out[-1].split()) if out else 0
+        if out and cur_w < min_words and prev_w + cur_w <= round(max_words * 1.25):
+            out[-1] = f"{out[-1]} {' '.join(cur)}"
+        else:
+            out.append(" ".join(cur))
     return out or [text]
 
 
@@ -626,13 +645,15 @@ def scene_segment_prompt(voiceover: str, entities: list[dict], style: str,
             "reuse it for every beat."
         )
     count_line = (
-        f"Aim for ABOUT {target_beats} beats (so each on-screen image lasts roughly 8 seconds "
-        "of narration — short enough that the visuals keep changing and the viewer stays "
-        "engaged). Split at natural sentence/clause boundaries; a beat is usually 1–2 "
-        "sentences. Prefer MORE, SHORTER beats over a few long ones."
+        f"Aim for ABOUT {target_beats} beats — each on-screen image should last 8–10 seconds of "
+        "narration. That is fresh enough to keep the viewer engaged, while each beat costs one "
+        "generated image, so do NOT over-split. Split at natural sentence/clause boundaries; a "
+        "beat is usually 2–3 sentences. Avoid beats shorter than ~8 seconds: merge a short "
+        "thought into its neighbour rather than emitting a tiny beat."
         if target_beats else
-        "Each beat should cover roughly one short on-screen moment (about 1–2 sentences); "
-        "prefer more, shorter beats over a few long ones so the visuals keep changing."
+        "Each beat should cover one on-screen moment worth 8–10 seconds of narration (usually "
+        "2–3 sentences). Each beat costs one generated image, so avoid tiny beats — merge a "
+        "short thought into its neighbour instead of over-splitting."
     )
     plan_line = ""
     if plan and (plan.get("blocking") or plan.get("coverage")):

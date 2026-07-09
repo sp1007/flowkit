@@ -28,10 +28,13 @@ from agent.studio.jobs import get_job_manager
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/studio", tags=["studio"])
 
-# Storytelling: an on-screen image changes at most every ~this many seconds of narration, so
-# a beat longer than this is split into ≤this-second sub-shots (image change ≈ every 8s).
-MAX_SHOT_SECS = float(os.environ.get("FLOWKIT_MAX_SHOT_SECS", "8"))
-# When one beat is split into several ≤8s sub-shots, rotate the framing so they don't render as
+# Storytelling: one shot = one generated image, so shot length drives how many images a chapter
+# costs. Aim each shot at the [MIN, MAX] band of narration (~8–10s) rather than merely capping it
+# — packing to fill the band avoids the swarm of 3–5s shots that blew up the image count.
+MIN_SHOT_SECS = float(os.environ.get("FLOWKIT_MIN_SHOT_SECS", "8"))
+MAX_SHOT_SECS = float(os.environ.get("FLOWKIT_MAX_SHOT_SECS", "10"))
+SHOT_TARGET_SECS = (MIN_SHOT_SECS + MAX_SHOT_SECS) / 2      # drives how many beats we ask AI for
+# When one beat is split into several sub-shots, rotate the framing so they don't render as
 # the same still — a natural coverage cycle (establish → tighten → reaction → insert).
 _SUBSHOT_ANGLES = [
     "wide establishing shot", "medium shot", "over-the-shoulder shot", "close-up",
@@ -1913,9 +1916,10 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     # 2) segment the verbatim narration into visual beats (AI = visual structure + key
     #    phrases). The SPOKEN text per beat is re-derived verbatim from the narration so the
     #    audio always covers the whole scene in order — no AI drift, no dropped sentences.
-    # ~8s of narration per beat → an image change every ~8s (keeps the video from going
-    # stale on one still). Target count drives the AI; partition_text caps it at sentence count.
-    target_beats = max(1, round(_estimate_narration_secs(voiceover) / 8.0))
+    # ~SHOT_TARGET_SECS of narration per beat → an image change every ~9s: fresh enough that the
+    # video doesn't go stale on one still, long enough that a chapter doesn't cost a swarm of
+    # images. Target count drives the AI; partition_text caps it at sentence count.
+    target_beats = max(1, round(_estimate_narration_secs(voiceover) / SHOT_TARGET_SECS))
     loc_name = scene_loc["name"] if scene_loc else None
     # First understand the WHOLE scene (who's present, blocking, coverage) so the beats form a
     # coherent scene instead of a random string of solo shots. Best-effort — segmentation still
@@ -1955,13 +1959,13 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
         # it via normalize; this keeps the TEXT in sync).
         b["_say"] = vntext.strip_decoration(say[i] if i < len(say) else (b.get("text") or "")).strip()
 
-    # Enforce ≤~8s per shot regardless of how few beats the AI returned (LLMs cap their output,
-    # so a long scene came back as a handful of 40–60s beats). Split any over-long beat's spoken
-    # slice into ≤8s sub-shots at sentence/clause boundaries — each sub-shot keeps the parent
-    # beat's visual context (its coherent moment), the narration just advances through it.
+    # Re-cut every beat to the ~8–10s shot band regardless of what the AI returned (LLMs cap their
+    # output, so a long scene came back as a handful of 40–60s beats). Sub-shots split at
+    # sentence/clause boundaries and PACK to fill the band, so we never emit a swarm of 3–5s
+    # shots; each sub-shot keeps the parent beat's visual context, the narration just advances.
     expanded: list[dict] = []
     for b in beats:
-        subs = brain.chunk_by_duration(b.get("_say") or "", MAX_SHOT_SECS)
+        subs = brain.chunk_by_duration(b.get("_say") or "", MAX_SHOT_SECS, MIN_SHOT_SECS)
         if len(subs) <= 1:
             expanded.append(b)
             continue
