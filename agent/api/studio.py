@@ -1668,49 +1668,132 @@ async def _tts_continuous(text: str, voice_id: int, speed: float, para_gap: floa
     return _concat_wav_to_bytes(parts)
 
 
+_SNAP_WIN = 0.12          # ± window (s) to snap a boundary onto the natural gap
+_FADE = 0.006             # fade (s) around inserted silence, kills the click/pop
+_QUIET = 350              # |int16| below this ≈ silence; a pause is only spliced into real gaps
+
+
+def _fade_edge(seg, fade_n: int, ch: int, fade_in: bool) -> None:
+    """Linear-fade the first (fade_in) or last (fade_out) `fade_n` frames of `seg` in place, so
+    joining it to silence has no abrupt step → no click."""
+    fn = len(seg) // ch
+    f = min(fade_n, fn)
+    if f <= 0:
+        return
+    for k in range(f):
+        g = (k + 1) / (f + 1) if fade_in else (f - k) / (f + 1)
+        base = (k if fade_in else fn - f + k) * ch
+        for c in range(ch):
+            seg[base + c] = int(seg[base + c] * g)
+
+
 def _assemble_continuous_wav(raw: bytes, starts: list[float], pause_after: list[bool],
                              pause: float, edge_pad: float
                              ) -> tuple[bytes, list[tuple[float, float]], list[float], float]:
     """Slice the raw continuous WAV at the aligned shot `starts`, re-join with `pause` silence
     after shots that end a sentence, and add `edge_pad` silent handles at both ends.
 
+    A raw pause spliced exactly at the aligned timestamp can land MID-WORD (alignment is only
+    ~frame-accurate, and ':'/'—' shots have no real gap), chopping the word into a stutter
+    ("vấp"). So each internal boundary is snapped to the quietest frame within ±_SNAP_WIN, the
+    pause is inserted ONLY where the audio is actually silent there (else skipped, never cutting
+    speech), and a short fade wraps every inserted silence to avoid clicks.
+
     Returns (wav_bytes, [(start,end)] per shot on the FINAL timeline, [spoken read] per shot,
     lead). Shot end = next shot's start (tiles incl. the pause); read = the spoken span only."""
+    import array
     import io
     import wave
     with wave.open(io.BytesIO(raw), "rb") as w:
         params = w.getparams()
         frames = w.readframes(w.getnframes())
     fr = params.framerate
-    bpf = params.sampwidth * params.nchannels
-    total = len(frames) // bpf
+    ch = params.nchannels
     n = len(starts)
-    bidx = [max(0, min(total, int(round(s * fr)))) for s in starts] + [total]
-    for i in range(1, len(bidx)):                       # force non-decreasing frame boundaries
-        bidx[i] = max(bidx[i], bidx[i - 1])
     lead_f = int(round(max(0.0, edge_pad) * fr))
     pause_f = int(round(max(0.0, pause) * fr))
-    lead_sil = b"\x00" * (lead_f * bpf)
-    pause_sil = b"\x00" * (pause_f * bpf)
-    out = bytearray(lead_sil)
-    starts_f, reads = [], []
-    t = edge_pad
+
+    if params.sampwidth != 2:                    # non-16-bit: plain contiguous splice (no fades)
+        bpf = params.sampwidth * ch
+        total = len(frames) // bpf
+        bidx = [max(0, min(total, int(round(s * fr)))) for s in starts] + [total]
+        for i in range(1, len(bidx)):
+            bidx[i] = max(bidx[i], bidx[i - 1])
+        out = bytearray(b"\x00" * (lead_f * bpf))
+        starts_f, reads, t = [], [], edge_pad
+        for i in range(n):
+            out += frames[bidx[i] * bpf: bidx[i + 1] * bpf]
+            read = (bidx[i + 1] - bidx[i]) / fr
+            starts_f.append(round(t, 3)); reads.append(round(read, 3)); t += read
+            if pause_f and i < n - 1 and pause_after[i]:
+                out += b"\x00" * (pause_f * bpf); t += pause
+        out += b"\x00" * (lead_f * bpf)
+        times = [(starts_f[i], starts_f[i + 1] if i + 1 < n else round(t, 3)) for i in range(n)]
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setparams(params); w.writeframes(bytes(out))
+        return buf.getvalue(), times, reads, round(max(0.0, edge_pad), 3)
+
+    samples = array.array("h")
+    samples.frombytes(frames)
+    total = len(samples) // ch
+    ewin = max(1, int(0.003 * fr))               # ±3ms window for the peak-amplitude probe
+
+    def amp(f: int) -> int:                       # peak |amplitude| on ch0 around frame f
+        lo = max(0, f - ewin) * ch
+        hi = min(total, f + ewin) * ch
+        m = 0
+        for k in range(lo, hi, ch):
+            v = samples[k]
+            v = -v if v < 0 else v
+            if v > m:
+                m = v
+        return m
+
+    win = int(_SNAP_WIN * fr)
+    step = max(1, int(0.002 * fr))
+    bnd = [0]
+    quiet = [True]                                # was boundary i snapped onto a real gap?
+    for i in range(1, n):
+        b0 = min(max(int(round(starts[i] * fr)), 0), total)
+        lo = max(bnd[-1] + 1, b0 - win)
+        hi = min(total - 1, b0 + win)
+        best, bestv = b0, amp(b0)
+        f = lo
+        while f <= hi:
+            v = amp(f)
+            if v < bestv:
+                bestv, best = v, f
+            f += step
+        bnd.append(max(best, bnd[-1] + 1))
+        quiet.append(bestv <= _QUIET)
+    bnd.append(total)
+
+    fade_n = int(_FADE * fr)
+    out = array.array("h", bytes(0))
+    out.extend([0] * (lead_f * ch))
+    starts_f, reads, t = [], [], edge_pad
+    fade_in_next = False
     for i in range(n):
-        seg = frames[bidx[i] * bpf: bidx[i + 1] * bpf]
-        out += seg
-        read = (bidx[i + 1] - bidx[i]) / fr
-        starts_f.append(round(t, 3))
-        reads.append(round(read, 3))
-        t += read
-        if pause_f and i < n - 1 and pause_after[i]:
-            out += pause_sil
-            t += pause
-    out += lead_sil
+        seg = samples[bnd[i] * ch: bnd[i + 1] * ch]          # array slice = a copy
+        if fade_in_next:
+            _fade_edge(seg, fade_n, ch, True)
+            fade_in_next = False
+        do_pause = bool(pause_f and i < n - 1 and pause_after[i] and quiet[i + 1])
+        if do_pause:
+            _fade_edge(seg, fade_n, ch, False)
+        out.extend(seg)
+        read = (bnd[i + 1] - bnd[i]) / fr
+        starts_f.append(round(t, 3)); reads.append(round(read, 3)); t += read
+        if do_pause:
+            out.extend([0] * (pause_f * ch)); t += pause
+            fade_in_next = True
+    out.extend([0] * (lead_f * ch))
     times = [(starts_f[i], starts_f[i + 1] if i + 1 < n else round(t, 3)) for i in range(n)]
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setparams(params)
-        w.writeframes(bytes(out))
+        w.writeframes(out.tobytes())
     return buf.getvalue(), times, reads, round(max(0.0, edge_pad), 3)
 
 
