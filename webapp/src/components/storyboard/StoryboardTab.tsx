@@ -697,21 +697,23 @@ export default function StoryboardTab({
                   >
                     {busy === "split:" + sc.id ? "Đang tách…" : "✂ Tách scene"}
                   </button>
-                  <button
-                    disabled={!!busy}
-                    onClick={() => autofill(sc.id)}
-                    className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
-                  >
-                    {busy === "autofill:" + sc.id ? "…" : "✨ Autofill"}
-                  </button>
+                  {!project.storytelling && (
+                    <button
+                      disabled={!!busy}
+                      onClick={() => autofill(sc.id)}
+                      className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
+                    >
+                      {busy === "autofill:" + sc.id ? "…" : "✨ Autofill"}
+                    </button>
+                  )}
                   {!!project.storytelling && (
                     <button
                       disabled={!!busy || !!beatsJob}
                       onClick={() => buildSceneBeats(sc.id)}
-                      title="Dựng lại CHỈ scene này theo lời đọc (TTS) — dùng khi scene bị bỏ sót / chưa có audio"
+                      title="Dựng lại toàn bộ shots của scene này từ lời đọc (TTS). ⚠ XOÁ shots + ẢNH hiện có rồi cắt lại từ đầu — chỉ dùng khi scene chưa có shot hoặc muốn chia lại. Nếu chỉ muốn làm lại tiếng mà GIỮ ảnh, dùng '🔊 Tạo lại audio'."
                       className="rounded-md border border-violet-700/60 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
                     >
-                      {rebuilding.has(sc.id) ? "Đang dựng…" : "🎙 Lời đọc"}
+                      {rebuilding.has(sc.id) ? "Đang dựng…" : "🎙 Dựng shots"}
                     </button>
                   )}
                   {!!project.storytelling && !!shots.length && (
