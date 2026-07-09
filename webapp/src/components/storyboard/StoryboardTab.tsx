@@ -173,7 +173,7 @@ export default function StoryboardTab({
       message:
         "Đọc (TTS) phần nội dung gốc của RIÊNG scene này, đo thời lượng và cắt beat bám " +
         "đúng audio. Thao tác này XOÁ các shot hiện tại của scene.",
-      confirmText: "Dựng theo lời đọc",
+      confirmText: "Dựng shots",
       danger: true,
     });
     if (!ok) return;
@@ -437,8 +437,8 @@ export default function StoryboardTab({
         "Mỗi scene được đọc (TTS) liền mạch MỘT lần để giữ cảm xúc, rồi cắt thành beat " +
         "(1 cảnh) bám đúng thời điểm audio; từ khoá quan trọng được canh giờ để hiện chữ " +
         "lên video. Cần BẬT OmniVoice (TTS); nếu tắt sẽ ước lượng theo số từ.\n\n" +
-        "Thao tác này XOÁ các shot hiện tại.",
-      confirmText: "Dựng theo lời đọc",
+        "Thao tác này XOÁ các shot + ẢNH hiện có của mọi scene.",
+      confirmText: "Dựng shots (tất cả)",
       danger: true,
     });
     if (!ok) return;
@@ -459,7 +459,7 @@ export default function StoryboardTab({
       title: "Căn lại nội dung vào đúng scene?",
       message:
         "Dùng AI gán lại từng đoạn của nội dung gốc vào scene khớp bối cảnh của nó (theo " +
-        "heading/địa điểm), thay cho cách chia đều theo độ dài. Sau đó hãy 'Dựng theo lời đọc' lại.",
+        "heading/địa điểm), thay cho cách chia đều theo độ dài. Sau đó hãy '🎙 Dựng shots (tất cả)' lại.",
       confirmText: "Căn lại nội dung",
     });
     if (!ok) return;
@@ -481,7 +481,7 @@ export default function StoryboardTab({
       title: "Tách scene dài này?",
       message:
         "Chia scene thành nhiều scene ngắn (~90s) THEO THỜI LƯỢNG, GIỮ NGUYÊN địa điểm. " +
-        "Các shot hiện tại của scene sẽ bị xoá — sau đó bấm 'Dựng theo lời đọc' để dựng lại. " +
+        "Các shot hiện tại của scene sẽ bị xoá — sau đó bấm '🎙 Dựng shots' để dựng lại. " +
         "Dùng khi cả chương bị gộp thành 1 scene / shot quá dài.",
       confirmText: "Tách scene",
       danger: true,
@@ -492,7 +492,7 @@ export default function StoryboardTab({
     try {
       const r = await storyboard.splitScene(sc.id);
       await reloadAll();
-      setNotice(`Đã tách thành ${r.split_into} scene (cùng địa điểm) — hãy 'Dựng theo lời đọc' lại.`);
+      setNotice(`Đã tách thành ${r.split_into} scene (cùng địa điểm) — hãy '🎙 Dựng shots' lại.`);
       setTimeout(() => setNotice(null), 4000);
     } catch (e: any) {
       setErr(e.message);
@@ -551,28 +551,32 @@ export default function StoryboardTab({
             <p className="text-sm text-neutral-500">Ảnh từng frame theo scene</p>
           </div>
           <div className="flex gap-2">
-            <button
-              disabled={!!busy || !scenes.length}
-              onClick={autofillAll}
-              title="Autofill các scene CHƯA có shot (bỏ qua scene đã có)"
-              className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40"
-            >
-              {busy === "autofill-all" ? "Đang autofill…" : "✨ Autofill all"}
-            </button>
-            <button
-              disabled={!!busy || !scenes.length}
-              onClick={rebuildAll}
-              title="Dựng lại shots từ kịch bản cho MỌI scene (xóa shot cũ)"
-              className="rounded-lg border border-amber-700/60 px-3 py-2 text-sm text-amber-300 hover:bg-amber-950/40 disabled:opacity-40"
-            >
-              {busy === "rebuild-all" ? "Đang dựng lại…" : "↻ Dựng lại tất cả"}
-            </button>
+            {!project.storytelling && (
+              <>
+                <button
+                  disabled={!!busy || !scenes.length}
+                  onClick={autofillAll}
+                  title="Autofill các scene CHƯA có shot (bỏ qua scene đã có)"
+                  className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40"
+                >
+                  {busy === "autofill-all" ? "Đang autofill…" : "✨ Autofill all"}
+                </button>
+                <button
+                  disabled={!!busy || !scenes.length}
+                  onClick={rebuildAll}
+                  title="Dựng lại shots từ kịch bản cho MỌI scene (xóa shot cũ)"
+                  className="rounded-lg border border-amber-700/60 px-3 py-2 text-sm text-amber-300 hover:bg-amber-950/40 disabled:opacity-40"
+                >
+                  {busy === "rebuild-all" ? "Đang dựng lại…" : "↻ Dựng lại tất cả"}
+                </button>
+              </>
+            )}
             {!!project.storytelling && (
               <>
                 <button
                   disabled={!!busy || !!beatsJob || !scenes.length}
                   onClick={alignSource}
-                  title="Căn nội dung gốc vào đúng scene theo bối cảnh (sửa lệch nội dung giữa các scene). Sau đó dựng lại theo lời đọc."
+                  title="Căn nội dung gốc vào đúng scene theo bối cảnh (sửa lệch nội dung giữa các scene). Sau đó bấm '🎙 Dựng shots (tất cả)'."
                   className="rounded-lg border border-sky-700/60 px-3 py-2 text-sm text-sky-300 hover:bg-sky-950/40 disabled:opacity-40"
                 >
                   {busy === "align" ? "Đang căn nội dung…" : "🧭 Căn nội dung scene"}
@@ -580,10 +584,10 @@ export default function StoryboardTab({
                 <button
                   disabled={!!busy || !!beatsJob || !scenes.length}
                   onClick={buildBeats}
-                  title="Storytelling: dựng shots theo độ dài lời đọc (beat audio-driven)"
+                  title="Đọc (TTS) liền mạch mỗi scene rồi cắt shots bám đúng audio, cho MỌI scene. ⚠ Xoá shots + ảnh hiện có. Chỉ muốn làm lại tiếng thì dùng '🔊 Tạo lại audio' trong từng scene."
                   className="rounded-lg border border-violet-700/60 px-3 py-2 text-sm text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
                 >
-                  {beatsJob ? `Đang dựng beat ${beatsJob.done}/${beatsJob.total}…` : "🎙 Dựng theo lời đọc"}
+                  {beatsJob ? `Đang dựng ${beatsJob.done}/${beatsJob.total}…` : "🎙 Dựng shots (tất cả)"}
                 </button>
               </>
             )}
