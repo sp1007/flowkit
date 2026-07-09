@@ -65,6 +65,16 @@ async def run_ws_server():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Flow Kit starting on %s:%d", API_HOST, API_PORT)
+    # Echo the storytelling knobs at boot: a stale server silently rebuilding shots with the old
+    # shot band / words-per-sec is otherwise indistinguishable from a bug in the new code.
+    try:
+        from agent.api.studio import MAX_SHOT_SECS, MIN_SHOT_SECS
+        from agent.studio import align, brain
+        logger.info("Storytelling: shot band %.0f–%.0fs @ %.1f words/s | WhisperX align: %s",
+                    MIN_SHOT_SECS, MAX_SHOT_SECS, brain.WORDS_PER_SEC,
+                    "on" if align.available() else "off (canh giờ theo số từ)")
+    except Exception as e:  # noqa: BLE001 — a banner must never block startup
+        logger.warning("storytelling config banner unavailable: %s", e)
     ws_task = asyncio.create_task(run_ws_server())
     logger.info("WS server started")
 
