@@ -348,6 +348,26 @@ export default function StoryboardTab({
     },
   });
 
+  // Bulk "🔊 Tạo lại audio (tất cả)" — re-TTS + re-time every scene, KEEPS images. Same watcher
+  // shape as beats, but it never clears shots, so just refresh timing/badges as it advances.
+  const audioJob = jobFor("audio");
+  useJobWatcher("audio", {
+    onAdvance: () => {
+      reloadAll();
+      refreshScenes();
+    },
+    onDone: (j) => {
+      reloadAll();
+      refreshScenes();
+      if (j.errors.length) {
+        setErr(`Tạo lại audio: ${j.done}/${j.total} scene xong, ${j.errors.length} lỗi.`);
+      } else {
+        setNotice(`Đã tạo lại audio cho ${j.done}/${j.total} scene (giữ nguyên ảnh).`);
+        setTimeout(() => setNotice(null), 6000);
+      }
+    },
+  });
+
   // "Đa dạng góc máy": rewrites shot descriptions only (keeps audio) → regen images after.
   const revaryJob = jobFor("revary");
   useJobWatcher("revary", {
@@ -447,6 +467,26 @@ export default function StoryboardTab({
       // Background job (§9): TTS is slow, so we kick it off and watch progress in the
       // banner instead of blocking. Shots rebuild scene-by-scene as it advances.
       await storyboard.buildBeats(project.id);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
+  // Bulk "🔊 Tạo lại audio (tất cả)": re-TTS + re-time EVERY scene, KEEPING images — the safe,
+  // non-destructive counterpart of "🎙 Dựng shots (tất cả)". Runs as a background job.
+  const rebuildAudioAll = async () => {
+    const ok = await confirm({
+      title: "Tạo lại audio cho TẤT CẢ scene?",
+      message:
+        "Đọc (TTS) lại liền mạch từng scene rồi căn lại thời gian + phụ đề cho các shot HIỆN CÓ. " +
+        "GIỮ NGUYÊN ảnh/prompt/ref — không vẽ lại ảnh. Dùng khi đổi giọng/tốc độ/khoảng nghỉ. " +
+        "Cần BẬT OmniVoice; chạy nền và hơi lâu (mỗi scene phải đọc + căn giờ).",
+      confirmText: "Tạo lại audio (tất cả)",
+    });
+    if (!ok) return;
+    setErr(null);
+    try {
+      await storyboard.rebuildProjectAudio(project.id);
     } catch (e: any) {
       setErr(e.message);
     }
@@ -574,7 +614,7 @@ export default function StoryboardTab({
             {!!project.storytelling && (
               <>
                 <button
-                  disabled={!!busy || !!beatsJob || !scenes.length}
+                  disabled={!!busy || !!beatsJob || !!audioJob || !scenes.length}
                   onClick={alignSource}
                   title="Căn nội dung gốc vào đúng scene theo bối cảnh (sửa lệch nội dung giữa các scene). Sau đó bấm '🎙 Dựng shots (tất cả)'."
                   className="rounded-lg border border-sky-700/60 px-3 py-2 text-sm text-sky-300 hover:bg-sky-950/40 disabled:opacity-40"
@@ -582,12 +622,20 @@ export default function StoryboardTab({
                   {busy === "align" ? "Đang căn nội dung…" : "🧭 Căn nội dung scene"}
                 </button>
                 <button
-                  disabled={!!busy || !!beatsJob || !scenes.length}
+                  disabled={!!busy || !!beatsJob || !!audioJob || !scenes.length}
                   onClick={buildBeats}
-                  title="Đọc (TTS) liền mạch mỗi scene rồi cắt shots bám đúng audio, cho MỌI scene. ⚠ Xoá shots + ảnh hiện có. Chỉ muốn làm lại tiếng thì dùng '🔊 Tạo lại audio' trong từng scene."
+                  title="Đọc (TTS) liền mạch mỗi scene rồi cắt shots bám đúng audio, cho MỌI scene. ⚠ Xoá shots + ảnh hiện có. Chỉ muốn làm lại tiếng (GIỮ ảnh) thì dùng '🔊 Tạo lại audio (tất cả)'."
                   className="rounded-lg border border-violet-700/60 px-3 py-2 text-sm text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
                 >
                   {beatsJob ? `Đang dựng ${beatsJob.done}/${beatsJob.total}…` : "🎙 Dựng shots (tất cả)"}
+                </button>
+                <button
+                  disabled={!!busy || !!beatsJob || !!audioJob || !scenes.length}
+                  onClick={rebuildAudioAll}
+                  title="Tạo LẠI audio cho MỌI scene từ lời đọc hiện có (GIỮ ảnh) rồi căn lại thời gian + phụ đề. Dùng khi đổi giọng/tốc độ/khoảng nghỉ mà không vẽ lại ảnh."
+                  className="rounded-lg border border-sky-700/60 px-3 py-2 text-sm text-sky-300 hover:bg-sky-950/40 disabled:opacity-40"
+                >
+                  {audioJob ? `Đang tạo audio ${audioJob.done}/${audioJob.total}…` : "🔊 Tạo lại audio (tất cả)"}
                 </button>
               </>
             )}
@@ -712,7 +760,7 @@ export default function StoryboardTab({
                   )}
                   {!!project.storytelling && (
                     <button
-                      disabled={!!busy || !!beatsJob}
+                      disabled={!!busy || !!beatsJob || !!audioJob}
                       onClick={() => buildSceneBeats(sc.id)}
                       title="Dựng lại toàn bộ shots của scene này từ lời đọc (TTS). ⚠ XOÁ shots + ẢNH hiện có rồi cắt lại từ đầu — chỉ dùng khi scene chưa có shot hoặc muốn chia lại. Nếu chỉ muốn làm lại tiếng mà GIỮ ảnh, dùng '🔊 Tạo lại audio'."
                       className="rounded-md border border-violet-700/60 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
@@ -722,7 +770,7 @@ export default function StoryboardTab({
                   )}
                   {!!project.storytelling && !!shots.length && (
                     <button
-                      disabled={!!busy || !!beatsJob || rebuildingAudio.has(sc.id)}
+                      disabled={!!busy || !!beatsJob || !!audioJob || rebuildingAudio.has(sc.id)}
                       onClick={() => rebuildAudio(sc.id)}
                       title="Tạo LẠI audio cho scene này từ lời đọc hiện có của các shot (GIỮ ảnh đã tạo), rồi căn lại thời gian & caption. Dùng khi đổi tốc độ/khoảng nghỉ/đệm 2 đầu mà không muốn vẽ lại ảnh."
                       className="rounded-md border border-sky-700/60 px-2.5 py-1 text-xs text-sky-300 hover:bg-sky-950/40 disabled:opacity-40"

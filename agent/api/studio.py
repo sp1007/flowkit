@@ -2178,6 +2178,31 @@ async def build_project_beats(pid: str, body: BuildBeatsRequest):
     return {"job_id": job.id, "total": len(scenes)}
 
 
+@router.post("/projects/{pid}/rebuild-audio")
+async def rebuild_project_audio(pid: str):
+    """Re-synthesize narration for EVERY scene that has shots (continuous read + WhisperX
+    re-timing) while KEEPING all generated images — the bulk version of a scene's '🔊 Tạo lại
+    audio'. Background job (§9): TTS + alignment are slow, so report progress per scene. Only
+    scenes whose shots carry narrator_text are included (others have nothing to re-read)."""
+    await _project_or_404(pid)
+    scenes = await db.query_all(
+        "SELECT s.* FROM scene s WHERE s.project_id=? AND EXISTS "
+        "(SELECT 1 FROM shot sh WHERE sh.scene_id=s.id AND sh.narrator_text IS NOT NULL) "
+        "ORDER BY s.idx", (pid,))
+    if not scenes:
+        raise HTTPException(400, "Chưa scene nào có lời đọc (narrator_text) để tạo lại audio.")
+
+    async def _worker(sc):
+        await rebuild_scene_audio(sc["id"])
+
+    job = get_job_manager().start(
+        project_id=pid, type_="audio", items=scenes, worker=_worker,
+        label=f"Tạo lại audio ({len(scenes)} scene)",
+        throttle=(0.3, 1.0),  # alignment serializes on its own lock; keep the gap small
+        item_label=lambda sc: sc.get("heading") or sc["id"])
+    return {"job_id": job.id, "total": len(scenes)}
+
+
 @router.post("/scenes/{sid}/shots")
 async def add_shot(sid: str):
     await _scene_or_404(sid)

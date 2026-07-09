@@ -384,6 +384,11 @@ export const storyboard = {
   rebuildSceneAudio: (sid: string) =>
     req<{ shots: Shot[]; scene_duration: number; narration_path: string | null; measured: boolean }>(
       `/scenes/${sid}/rebuild-audio`, { method: "POST" }),
+  // Bulk version of rebuildSceneAudio: re-TTS + re-time EVERY scene that has shots, keeping
+  // images. Runs as a background job (§9, type "audio") since TTS + alignment are slow.
+  rebuildProjectAudio: (pid: string) =>
+    req<{ job_id: string; total: number }>(
+      `/projects/${pid}/rebuild-audio`, { method: "POST" }),
   updateShot: (sid: string, body: Partial<Omit<Shot, "ref_entity_ids">> & { ref_entity_ids?: string[] }) =>
     req<Shot>(`/shots/${sid}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteShot: (sid: string) => req<{ ok: boolean }>(`/shots/${sid}`, { method: "DELETE" }),
