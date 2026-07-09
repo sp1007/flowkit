@@ -480,8 +480,15 @@ def _split_long_sentence(sent: str, max_words: int) -> list[str]:
     return out or [sent]
 
 
+# Vietnamese narration rate of the TTS voice, words per second. Measured over 95 built scenes
+# (words ÷ scene WAV duration, incl. its pauses): ~3.4 for the continuous-read v2 takes. The old
+# 2.5 under-counted by ~35%, which inflated every duration estimate → too many beats, and made a
+# "10s" chunk actually run ~7s. Override with FLOWKIT_WORDS_PER_SEC.
+WORDS_PER_SEC = float(os.environ.get("FLOWKIT_WORDS_PER_SEC", "3.4"))
+
+
 def chunk_by_duration(text: str, max_secs: float = 10.0, min_secs: float = 8.0,
-                      wps: float = 2.5) -> list[str]:
+                      wps: float = WORDS_PER_SEC) -> list[str]:
     """Split `text` into contiguous, VERBATIM chunks that each AIM for the [min_secs, max_secs]
     band of narration — one shot (and so one generated image) per chunk.
 

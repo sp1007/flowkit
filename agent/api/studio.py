@@ -1082,8 +1082,10 @@ class BuildBeatsRequest(BaseModel):
 # ≈2.5 spoken words/second (video-app.md §5.2) → estimate a narration's length without
 # burning TTS quota. Real durations replace this when narration is generated / at assemble.
 def _estimate_narration_secs(text: str) -> float:
+    """Seconds this text takes to narrate, from the voice's measured words/sec (brain
+    .WORDS_PER_SEC). Used to size beats and as the timing fallback when TTS/alignment is off."""
     words = len((text or "").split())
-    return max(1.0, round(words / 2.5, 2))
+    return max(1.0, round(words / brain.WORDS_PER_SEC, 2))
 
 
 class UpdateShotRequest(BaseModel):
@@ -1094,6 +1096,35 @@ class UpdateShotRequest(BaseModel):
     motion_prompt: Optional[str] = None
     duration: Optional[int] = None
     video_model: Optional[str] = None
+
+
+def _merge_short_beats(beats: list[dict]) -> list[dict]:
+    """Fold beats whose spoken slice is shorter than ~half the shot minimum into a neighbour.
+
+    The AI sometimes returns a beat that is a single fragment ("của anh.", "chín."), and
+    chunk_by_duration can only pack WITHIN a beat — so those became sub-second shots, each
+    costing a generated image. Merge them into the PREVIOUS beat (or the next, for the first
+    one), keeping that neighbour's framing/refs, unless doing so would make an over-long shot.
+    Spoken slices are concatenated in order, so the narration stays verbatim and complete."""
+    if len(beats) <= 1:
+        return beats
+    floor_w = max(2, round(MIN_SHOT_SECS * brain.WORDS_PER_SEC * 0.5))
+    ceil_w = round(MAX_SHOT_SECS * brain.WORDS_PER_SEC * 1.4)
+
+    def wc(b: dict) -> int:
+        return len((b.get("_say") or "").split())
+
+    out: list[dict] = []
+    for b in beats:
+        if out and wc(b) < floor_w and wc(out[-1]) + wc(b) <= ceil_w:
+            out[-1]["_say"] = f"{out[-1].get('_say') or ''} {b.get('_say') or ''}".strip()
+        else:
+            out.append(dict(b))
+    # the FIRST beat has no previous one to fold into — pull it into the second instead
+    if len(out) > 1 and wc(out[0]) < floor_w and wc(out[0]) + wc(out[1]) <= ceil_w:
+        out[1]["_say"] = f"{out[0].get('_say') or ''} {out[1].get('_say') or ''}".strip()
+        out.pop(0)
+    return out
 
 
 async def _scene_or_404(sid: str) -> dict:
@@ -1980,6 +2011,12 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
                                      "a distinctly different angle from the previous shot.")
             expanded.append(nb)
     beats = expanded
+
+    # chunk_by_duration only packs WITHIN a beat, so an AI beat that is itself tiny ("của anh.",
+    # "chín.") still became a sub-second shot — and a whole image. Merge any beat under the floor
+    # into its neighbour (keeping the neighbour's framing), as long as the result stays a
+    # reasonable shot. Verbatim: the spoken slices are concatenated in order, nothing is dropped.
+    beats = _merge_short_beats(beats)
 
     # 3) Narration = ONE continuous read of the whole scene (natural prosody), then align the
     #    shots' spoken slices back to it (WhisperX) for real per-shot timing. A small pause is
