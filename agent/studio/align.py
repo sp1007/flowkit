@@ -147,6 +147,53 @@ def _spread(starts: list[float], wc: list[int], dur: float) -> list[float]:
     return out
 
 
+def _repair_outliers(starts: list[float], wc: list[int], dur: float) -> list[float]:
+    """Re-interpolate the boundaries around units whose seconds-per-word is wildly off.
+
+    `_plausible` is only a global gate: a handful of surviving outliers still squeeze one unit to
+    a fraction of a second while stretching its neighbour. A boundary is trusted only when BOTH
+    units touching it read at a sane rate; each untrusted run is redistributed between the
+    nearest trusted boundaries in proportion to word counts."""
+    n = len(starts)
+    if n < 3:
+        return starts
+    ends = starts[1:] + [dur]
+    rates = [(ends[i] - starts[i]) / max(1, wc[i]) for i in range(n)]
+    ref = sorted(rates[i] for i in range(n) if wc[i] >= 5)
+    if len(ref) < 5:
+        return starts
+    med = ref[len(ref) // 2]
+    if med <= 0:
+        return starts
+    bad = [r < med / 2.5 or r > med * 2.5 for r in rates]
+    if not any(bad):
+        return starts
+    cum = [0]
+    for w in wc:
+        cum.append(cum[-1] + w)
+    # boundary k = start of unit k (k in 0..n); boundary 0 and n are anchors by definition
+    btime = list(starts) + [dur]
+    trusted = [True] * (n + 1)
+    for k in range(1, n):
+        trusted[k] = not (bad[k - 1] or bad[k])
+    out = list(btime)
+    k = 1
+    while k < n:
+        if trusted[k]:
+            k += 1
+            continue
+        j = k
+        while j < n and not trusted[j]:
+            j += 1
+        a, b = out[k - 1], out[j]
+        span = max(0.0, b - a)
+        tw = max(1, cum[j] - cum[k - 1])
+        for m in range(k, j):
+            out[m] = a + span * (cum[m] - cum[k - 1]) / tw
+        k = j + 1
+    return out[:n]
+
+
 def _word_time(sent_starts: list[float], sent_wc: list[int], dur: float, k: int) -> float:
     """Time of global word index `k`, interpolating linearly inside the sentence that holds it."""
     base = 0
@@ -192,6 +239,7 @@ def align_sentences(wav_path: str, texts: list[str], *,
             model, metadata = _load(language)
             sent_starts = _align_units(whisperx, audio, dur, sents, model, metadata)
         sent_starts = _spread(sent_starts, sent_wc, dur)
+        sent_starts = _repair_outliers(sent_starts, sent_wc, dur)   # fix at the source
         # shot i spans global word indices [cum_i, cum_{i+1}) → interpolate its start
         out: list[tuple[float, float]] = []
         cum, prev = 0, 0.0
@@ -201,6 +249,7 @@ def align_sentences(wav_path: str, texts: list[str], *,
             starts.append(v)
             prev, cum = v, cum + w
         starts = _spread(starts, text_wc, dur)      # no zero-length shots
+        starts = _repair_outliers(starts, text_wc, dur)   # no squeezed / stretched shots
         for i in range(len(texts)):
             end = starts[i + 1] if i + 1 < len(starts) else dur
             out.append((round(starts[i], 3), round(max(starts[i], end), 3)))
