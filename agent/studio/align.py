@@ -238,28 +238,102 @@ def align_sentences(wav_path: str, texts: list[str], *,
             dur = len(audio) / float(_SR)
             model, metadata = _load(language)
             sent_starts = _align_units(whisperx, audio, dur, sents, model, metadata)
-        sent_starts = _spread(sent_starts, sent_wc, dur)
-        sent_starts = _repair_outliers(sent_starts, sent_wc, dur)   # fix at the source
-        # shot i spans global word indices [cum_i, cum_{i+1}) → interpolate its start
-        out: list[tuple[float, float]] = []
-        cum, prev = 0, 0.0
-        starts: list[float] = []
-        for w in text_wc:
-            v = max(prev, _word_time(sent_starts, sent_wc, dur, cum))
-            starts.append(v)
-            prev, cum = v, cum + w
-        starts = _spread(starts, text_wc, dur)      # no zero-length shots
-        starts = _repair_outliers(starts, text_wc, dur)   # no squeezed / stretched shots
-        for i in range(len(texts)):
-            end = starts[i + 1] if i + 1 < len(starts) else dur
-            out.append((round(starts[i], 3), round(max(starts[i], end), 3)))
-        if not _plausible(out, texts):
-            logger.warning("WhisperX align không hợp lệ (nhiều đoạn lệch nhịp) — "
-                           "dùng canh giờ theo số từ")
-            return seed
-        return out
+        return _shots_from_sent_starts(texts, text_wc, sent_wc, sent_starts, dur, seed,
+                                       "WhisperX")
     except Exception as e:  # noqa: BLE001 — never let alignment sink a build
         logger.warning("WhisperX align failed (%s) — dùng canh giờ theo số từ", e)
         return seed
+
+
+def _shots_from_sent_starts(texts, text_wc, sent_wc, sent_starts, dur, seed, src):
+    """Map sentence START times → one (start,end) per shot text, by each shot's word position.
+
+    Shared by the WhisperX path and the OmniVoice-SRT path: given monotonic sentence starts and
+    each sentence's word count, interpolate the boundary of every shot (whose spoken slice may be
+    a mid-sentence fragment). Repairs zero-length and rate-outlier spans; returns `seed`
+    (proportional) if the result still fails the global plausibility check."""
+    sent_starts = _spread(sent_starts, sent_wc, dur)
+    sent_starts = _repair_outliers(sent_starts, sent_wc, dur)      # fix at the source
+    out: list[tuple[float, float]] = []
+    cum, prev = 0, 0.0
+    starts: list[float] = []
+    for w in text_wc:
+        v = max(prev, _word_time(sent_starts, sent_wc, dur, cum))
+        starts.append(v)
+        prev, cum = v, cum + w
+    starts = _spread(starts, text_wc, dur)                          # no zero-length shots
+    starts = _repair_outliers(starts, text_wc, dur)                # no squeezed / stretched shots
+    for i in range(len(texts)):
+        end = starts[i + 1] if i + 1 < len(starts) else dur
+        out.append((round(starts[i], 3), round(max(starts[i], end), 3)))
+    if not _plausible(out, texts):
+        logger.warning("%s align không hợp lệ (nhiều đoạn lệch nhịp) — dùng canh giờ theo số từ",
+                       src)
+        return seed
+    return out
+
+
+def _srt_ts(v: str) -> float:
+    """'HH:MM:SS,mmm' → seconds."""
+    v = v.strip().replace(".", ",")
+    hms, _, ms = v.partition(",")
+    h, m, s = (hms.split(":") + ["0", "0", "0"])[:3]
+    return int(h) * 3600 + int(m) * 60 + int(s) + (int(ms or 0) / 1000.0)
+
+
+def parse_srt(srt: str) -> list[tuple[float, float, str]]:
+    """Parse an SRT string → [(start, end, text)] in order. Tolerant of blank-line spacing and
+    of '.'/',' millisecond separators; ignores malformed blocks."""
+    out: list[tuple[float, float, str]] = []
+    if not srt:
+        return out
+    import re as _re
+    for block in _re.split(r"\n\s*\n", srt.replace("\r\n", "\n").strip()):
+        lines = [ln for ln in block.split("\n") if ln.strip() != ""]
+        if len(lines) < 2:
+            continue
+        ti = 0 if "-->" in lines[0] else (1 if len(lines) > 1 and "-->" in lines[1] else -1)
+        if ti < 0:
+            continue
+        a, _, b = lines[ti].partition("-->")
+        try:
+            start, end = _srt_ts(a), _srt_ts(b)
+        except (ValueError, IndexError):
+            continue
+        text = " ".join(lines[ti + 1:]).strip()
+        if text:
+            out.append((start, end, text))
+    return out
+
+
+def align_with_cues(texts: list[str], cues: list[tuple[float, float, str]],
+                    dur: float) -> list[tuple[float, float]] | None:
+    """Time shots from OmniVoice's server-side SRT cues instead of local WhisperX.
+
+    Each cue is a source-text sentence with a real start time. We treat the cues as the sentence
+    units and interpolate every shot's boundary by word position (same mapper as WhisperX). Falls
+    back (returns None → caller runs WhisperX) when the cue word count doesn't match the shots'
+    (e.g. the server split sentences differently), so a mismatch never mis-times a scene."""
+    texts = [t for t in (texts or []) if (t or "").strip()]
+    if not texts or not cues or dur <= 0:
+        return None
+    from agent.studio import vntext
+    cues = sorted(cues, key=lambda c: c[0])
+    cue_wc = [max(1, len((c[2] or "").split())) for c in cues]
+    # The cues carry the NORMALIZED text we sent the server (numbers/symbols spoken out), so count
+    # each shot's words on its normalized form too — otherwise any scene with a number would
+    # mismatch and needlessly fall back to WhisperX.
+    text_wc = [max(1, len((vntext.normalize(t) or t).split())) for t in texts]
+    if sum(cue_wc) != sum(text_wc):
+        logger.warning("SRT cues không khớp số từ (%d vs %d) — thử WhisperX",
+                       sum(cue_wc), sum(text_wc))
+        return None
+    starts, prev = [], 0.0
+    for c in cues:
+        v = min(max(float(c[0]), prev), dur)      # monotonic + clamped
+        starts.append(v)
+        prev = v
+    seed = _proportional(texts, dur)
+    return _shots_from_sent_starts(texts, text_wc, cue_wc, starts, dur, seed, "SRT")
 
 

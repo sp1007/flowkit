@@ -50,6 +50,7 @@ class TTSRequest(BaseModel):
     voice: Optional[str] = None      # base64 WAV/MP3 cho dynamic cloning
     speed: float = 1.0
     instruct: Optional[str] = None
+    srt: bool = False                # thêm phụ đề SRT khớp thời gian (cần asr_loaded trên Colab)
 
 
 class AddVoiceRequest(BaseModel):

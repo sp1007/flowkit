@@ -1495,18 +1495,26 @@ def _concat_wav_bytes(chunks: list[bytes], dest) -> None:
             out.writeframes(f)
 
 
-async def _tts_one(text: str, voice_id: int, speed: float = 1.0) -> bytes:
+async def _tts_one(text: str, voice_id: int, speed: float = 1.0, want_srt: bool = False):
     """ONE TTS call for the whole text → WAV bytes. A single continuous read keeps the
-    narration's emotion (no seams from stitching many short clips)."""
+    narration's emotion (no seams from stitching many short clips).
+
+    With want_srt, ask OmniVoice for a source-text SRT (Whisper-timed, sentence-level) and return
+    (wav_bytes, srt_str_or_None). The SRT lets us time shots server-side instead of running local
+    WhisperX; None if the server's ASR isn't loaded."""
     import base64
     from agent.api.tts import _proxy
-    res = await _proxy("POST", "/api/tts",
-                       json={"text": text, "voice_id": voice_id, "speed": speed},
-                       timeout=600.0)
+    payload = {"text": text, "voice_id": voice_id, "speed": speed}
+    if want_srt:
+        payload["srt"] = True
+    res = await _proxy("POST", "/api/tts", json=payload, timeout=600.0)
     b64 = res.get("audio") if isinstance(res, dict) else None
     if not b64:
         raise HTTPException(502, "OmniVoice không trả audio")
-    return base64.b64decode(b64)
+    audio = base64.b64decode(b64)
+    if want_srt:
+        return audio, (res.get("srt") or None)
+    return audio
 
 
 async def _tts_segments(text: str, voice_id: int, speed: float = 1.0) -> list[bytes]:
@@ -1642,6 +1650,10 @@ async def _tts_beats(texts: list[str], voice_id: int, pid: str, scene_id: str,
 
 _PARA_MAX_CHARS = int(os.environ.get("FLOWKIT_TTS_PARA_MAX_CHARS", "800"))
 _TERM_PUNCT = ".!?…;:—–"
+# Ask OmniVoice for source-text SRT and time shots from it (GPU, server-side) instead of running
+# local WhisperX. Safe to leave on: if the server's ASR isn't loaded it returns no SRT and we
+# fall back to WhisperX. Set FLOWKIT_TTS_SRT=0 to always use local WhisperX.
+_TTS_SRT = os.environ.get("FLOWKIT_TTS_SRT", "1").strip().lower() not in ("0", "false", "no")
 
 
 def _paragraphs(text: str) -> list[str]:
@@ -1687,24 +1699,46 @@ def _concat_wav_to_bytes(chunks: list[bytes]) -> bytes:
     return buf.getvalue()
 
 
-async def _tts_continuous(text: str, voice_id: int, speed: float, para_gap: float) -> bytes:
+async def _tts_continuous(text: str, voice_id: int, speed: float, para_gap: float,
+                          want_srt: bool = False) -> tuple[bytes, list[tuple[float, float, str]] | None]:
     """Read `text` as continuous paragraphs (ONE OmniVoice call per paragraph) and concat with
-    `para_gap` silence between paragraphs. No per-sentence stitching → the read stays natural."""
+    `para_gap` silence between paragraphs. No per-sentence stitching → the read stays natural.
+
+    Returns (wav_bytes, cues). With want_srt, `cues` is the scene's SRT cues [(start, end, text)]
+    with each paragraph's times offset by where its audio sits in the concatenated take — so the
+    caller can time shots from them. `cues` is None if SRT was off or ANY paragraph lacked it
+    (mixing real + estimated timing would drift), so the caller falls back to WhisperX."""
     audios: list[bytes] = []
+    srts: list[str | None] = []
     for p in _paragraphs(text):
         norm = (vntext.normalize(p) or "").strip()
         if not re.search(r"\w", norm):
             continue
-        audios.append(await _tts_one(norm, voice_id, speed))
+        if want_srt:
+            a, s = await _tts_one(norm, voice_id, speed, want_srt=True)
+            audios.append(a)
+            srts.append(s)
+        else:
+            audios.append(await _tts_one(norm, voice_id, speed))
     if not audios:
         raise HTTPException(502, "Không tạo được audio cho scene")
     template = audios[0]
     parts: list[bytes] = []
+    cues: list[tuple[float, float, str]] | None = [] if want_srt else None
+    offset = 0.0
     for i, a in enumerate(audios):
         if i > 0 and para_gap > 0:
             parts.append(_silence_wav_bytes(template, para_gap))
+            offset += para_gap
+        if cues is not None:
+            if not srts[i]:
+                cues = None                       # a paragraph missing SRT → drop the whole set
+            else:
+                cues.extend((s + offset, e + offset, txt)
+                            for (s, e, txt) in align.parse_srt(srts[i]))
+        offset += _wav_bytes_duration(a)
         parts.append(a)
-    return _concat_wav_to_bytes(parts)
+    return _concat_wav_to_bytes(parts), cues
 
 
 _SNAP_WIN = 0.12          # ± window (s) to snap a boundary onto the natural gap
@@ -1851,12 +1885,17 @@ async def _make_scene_narration(voiceover: str, shot_texts: list[str], voice_id:
     it. Returns (web_path, [(start,end)] per shot, [read] per shot, lead, scene_duration).
 
     Raises HTTPException(502) if TTS produced nothing (caller keeps any existing audio)."""
-    raw = await _tts_continuous(voiceover, voice_id, speed, para_gap)
+    raw, cues = await _tts_continuous(voiceover, voice_id, speed, para_gap, want_srt=_TTS_SRT)
     rel = f"{pid}/narr_scene_{sid}.wav"
     dest = media_store.MEDIA_DIR / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(dest.write_bytes, raw)      # raw take for alignment
-    spans = await asyncio.to_thread(align.align_sentences, str(dest), shot_texts)
+    dur = _wav_bytes_duration(raw)
+    # Prefer OmniVoice's server-side SRT timing (GPU, no local WhisperX). Fall back to local
+    # WhisperX forced-alignment, which itself falls back to word-count timing.
+    spans = align.align_with_cues(shot_texts, cues, dur) if cues else None
+    if spans is None:
+        spans = await asyncio.to_thread(align.align_sentences, str(dest), shot_texts)
     starts = [s for s, _ in spans] if spans else [0.0]
     pause_after = [_ends_sentence(t) for t in shot_texts]
     final, times, reads, lead = await asyncio.to_thread(
