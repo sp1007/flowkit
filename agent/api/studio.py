@@ -43,6 +43,9 @@ _SUBSHOT_ANGLES = [
 # A whole chapter sometimes parses to ONE scene; split it into ~this-many-second sub-scenes so
 # each gets its own coherent shot plan (env FLOWKIT_TARGET_SCENE_SECS).
 TARGET_SCENE_SECS = float(os.environ.get("FLOWKIT_TARGET_SCENE_SECS", "90"))
+# Max reference images per frame generate. Flow returns HTTP 400 above 8, so cap here (location
+# is kept first, then the most relevant entities; the overflow is dropped). Env-overridable.
+MAX_FRAME_REFS = max(1, int(os.environ.get("FLOWKIT_MAX_FRAME_REFS", "8")))
 _PART_SUFFIX_RE = re.compile(r"\s*·\s*phần\s*\d+/\d+\s*$")
 
 
@@ -1152,7 +1155,9 @@ async def _next_shot_idx(scene_id: str) -> int:
 
 
 async def _build_frame_references(shot: dict, scene: dict) -> list[dict]:
-    """Resolve shot ref entities (+ scene location) → references list (≤10, location first)."""
+    """Resolve shot ref entities (+ scene location) → references list, location first, capped at
+    MAX_FRAME_REFS. Flow rejects a generate request with more than 8 reference images (HTTP 400),
+    so we keep the location + the most relevant characters/props and drop the overflow."""
     try:
         ids = json.loads(shot.get("ref_entity_ids") or "[]")
     except (json.JSONDecodeError, TypeError):
@@ -1171,7 +1176,7 @@ async def _build_frame_references(shot: dict, scene: dict) -> list[dict]:
         if e and e.get("media_id") and e["media_id"] not in seen:
             refs.append({"handle": e["name"], "media_id": e["media_id"]})
             seen.add(e["media_id"])
-        if len(refs) >= 10:
+        if len(refs) >= MAX_FRAME_REFS:
             break
     return refs
 
