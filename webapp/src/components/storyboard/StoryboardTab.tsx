@@ -1028,6 +1028,7 @@ function FramePanel({
 }) {
   const [title, setTitle] = useState(shot.title);
   const [desc, setDesc] = useState(shot.description ?? "");
+  const [cont, setCont] = useState(shot.continuity ?? "");
   const refIds: string[] = (() => {
     try {
       return JSON.parse(shot.ref_entity_ids || "[]");
@@ -1040,6 +1041,7 @@ function FramePanel({
   useEffect(() => {
     setTitle(shot.title);
     setDesc(shot.description ?? "");
+    setCont(shot.continuity ?? "");
     try {
       setRefs(JSON.parse(shot.ref_entity_ids || "[]"));
     } catch {
@@ -1049,7 +1051,12 @@ function FramePanel({
 
   const save = async () => {
     onChange(
-      await storyboard.updateShot(shot.id, { title, description: desc, ref_entity_ids: refs })
+      await storyboard.updateShot(shot.id, {
+        title,
+        description: desc,
+        continuity: cont,
+        ref_entity_ids: refs,
+      })
     );
   };
 
@@ -1059,7 +1066,9 @@ function FramePanel({
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-neutral-800 bg-neutral-950/50">
       <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-2.5">
-        <span className="text-sm font-medium">Frame</span>
+        <span className="min-w-0 truncate text-sm font-medium" title={shot.media_name || undefined}>
+          {shot.media_name || "Frame"}
+        </span>
         <button onClick={onClose} className="text-neutral-500 hover:text-neutral-300">✕</button>
       </div>
       <div className="flex-1 space-y-4 overflow-auto p-4">
@@ -1080,6 +1089,22 @@ function FramePanel({
             onBlur={save}
             className="h-28 w-full resize-none rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-sm outline-none focus:border-indigo-500"
           />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-neutral-400">
+            Nối tiếp frame trước
+          </label>
+          <textarea
+            value={cont}
+            onChange={(e) => setCont(e.target.value)}
+            onBlur={save}
+            placeholder="Nhân vật đã đi tới đâu, máy quay chuyển thế nào so với frame trước…"
+            className="h-16 w-full resize-none rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-sm outline-none focus:border-indigo-500"
+          />
+          <p className="mt-1 text-[11px] text-neutral-500">
+            Câu này giữ các frame thành MỘT cú máy liên tục và là nguyên liệu để tab Shots viết
+            prompt timeline cho clip gộp.
+          </p>
         </div>
         <div>
           <label className="mb-1.5 block text-xs text-neutral-400">Reference Assets (≤10)</label>

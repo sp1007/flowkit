@@ -45,6 +45,17 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   (`project.music_mode`): nhạc là tiếng duy nhất, các bài cách nhau `music_gap` giây, và tổng
   thời lượng playlist quyết định độ dài video — hình được lặp cho phủ kín, thừa thì cắt.
   Xem [agent/studio/music.py](agent/studio/music.py) + tab "Nhạc" trong workspace.
+- **Frame ≠ clip — số shot hai tab KHÔNG bằng nhau.** Tab Storyboard cắt scene thành FRAME:
+  các khoảnh khắc chính của MỘT cú máy liên tục, nên frame liền nhau phải nối được vào nhau
+  (`shot.continuity` + khối `brain._CONTINUITY` trong prompt autofill). Tab Shots gom tối đa 6
+  frame liền nhau thành một CLIP (`shot.clip_id`, frame `clip_idx=0` là frame dẫn và giữ video
+  của cả nhóm) rồi render bằng MỘT lượt Omni Flash r2v: mọi frame là reference `frame 1..N` và
+  prompt là timeline gọi tên chúng (`[00:00] mở ở (frame 1), máy lùi dần sang (frame 2)…`).
+  Trần 6 vì clip dài nhất chỉ 10s. Veo là i2v (một ảnh start) nên KHÔNG render được clip gộp.
+  Quy tắc gom nằm ở [agent/studio/clips.py](agent/studio/clips.py) và `assembler` phải chia
+  nhóm y hệt, không thì lời đọc của các frame sau trong nhóm biến mất khỏi video cuối.
+- **Một frame một tên: `sc001-s01-mô-tả`** (`shot.media_name`) — dùng chung cho tên hiển thị
+  trên Flow, tên file export và nhãn trong app. Đổi thứ tự shot thì tên được đặt lại.
 - `media_id` is always UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`), never `CAMS...`
 - The agent holds no state; all generation goes through the connected extension.
   If `extension_connected: false`, open Google Flow in Chrome with the extension loaded.

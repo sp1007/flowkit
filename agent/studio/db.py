@@ -193,6 +193,19 @@ _MIGRATIONS = [
     # shot has several angles of the place to reference — JSON list of {media_id,
     # primary_media_id, path}. Stops shots from copying one fixed location framing.
     ("entity", "extra_media", "TEXT"),
+    # Tên chuẩn của frame: "sc001-s01-<mô-tả-ngắn>". Dùng CHUNG cho tên hiển thị trên Flow,
+    # tên file export và nhãn trong app, nên một frame chỉ có MỘT tên ở mọi nơi.
+    ("shot", "media_name", "TEXT"),
+    # Một câu: frame này nối tiếp frame trước thế nào (nhân vật đã di chuyển tới đâu, máy quay
+    # đi đường nào). Đây là thứ khiến các frame liền nhau ghép được thành một cú máy liên tục
+    # thay vì mấy tấm minh hoạ rời rạc — và là nguyên liệu để viết prompt cho clip gộp.
+    ("shot", "continuity", "TEXT"),
+    # Gom frame thành CLIP (tab Shots): các frame liên tiếp cùng `clip_id` được render thành
+    # MỘT video duy nhất, mỗi frame là một reference `frame 1..N` trong prompt timeline. Frame
+    # có clip_idx = 0 là frame DẪN — video + narration ghép của cả nhóm nằm trên nó; các frame
+    # còn lại không giữ video riêng. NULL/rỗng = frame đứng một mình như trước.
+    ("shot", "clip_id", "TEXT"),
+    ("shot", "clip_idx", "INTEGER DEFAULT 0"),
 ]
 
 

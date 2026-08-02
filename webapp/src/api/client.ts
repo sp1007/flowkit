@@ -480,6 +480,14 @@ export interface Shot {
   narrator_text?: string | null;
   narration_duration?: number | null;
   start_time?: number | null;
+  // Tên chuẩn "sc001-s01-mô-tả" — dùng chung ở DB, trên Flow và khi export.
+  media_name?: string | null;
+  // Một câu: frame này nối tiếp frame trước thế nào (chuỗi liên tục của storyboard).
+  continuity?: string | null;
+  // Gộp clip: các frame liền nhau cùng clip_id render thành MỘT video, nằm trên frame
+  // clip_idx = 0. NULL = frame đứng một mình.
+  clip_id?: string | null;
+  clip_idx?: number | null;
 }
 
 export const storyboard = {
@@ -583,6 +591,37 @@ export const shots = {
     req<{ job_id: string; total: number }>(`/projects/${pid}/shots/generate-all`, { method: "POST" }),
   narration: (sid: string, language = "Vietnamese") =>
     req<Shot>(`/shots/${sid}/narration`, { method: "POST", body: JSON.stringify({ language }) }),
+};
+
+// Clip = nhóm frame storyboard liền nhau được render thành MỘT video (tối đa 6 frame, vì clip
+// dài nhất chỉ 10s). Vì thế số thẻ ở tab Shots ≠ số frame ở tab Storyboard.
+export const MAX_CLIP_FRAMES = 6;
+
+export const clips = {
+  autogroupProject: (pid: string, framesPerClip?: number) =>
+    req<{ clips: number }>(`/projects/${pid}/clips/autogroup`, {
+      method: "POST",
+      body: JSON.stringify({ frames_per_clip: framesPerClip ?? null }),
+    }),
+  autogroupScene: (sid: string, framesPerClip?: number) =>
+    req<{ clips: number; shots: Shot[] }>(`/scenes/${sid}/clips/autogroup`, {
+      method: "POST",
+      body: JSON.stringify({ frames_per_clip: framesPerClip ?? null }),
+    }),
+  group: (shotIds: string[]) =>
+    req<{ shots: Shot[] }>("/clips/group", {
+      method: "POST",
+      body: JSON.stringify({ shot_ids: shotIds }),
+    }),
+  ungroup: (leadId: string) =>
+    req<{ shots: Shot[] }>(`/clips/${leadId}/ungroup`, { method: "POST" }),
+  // ✨ Viết prompt timeline đi xuyên các frame: "[00:00] mở ở (frame 1), máy lùi dần…"
+  genPrompt: (leadId: string) => req<Shot>(`/clips/${leadId}/prompt`, { method: "POST" }),
+  genVideo: (leadId: string) => req<Shot>(`/clips/${leadId}/video`, { method: "POST" }),
+  genAll: (pid: string) =>
+    req<{ job_id: string; total: number }>(`/projects/${pid}/clips/generate-all`, {
+      method: "POST",
+    }),
 };
 
 // `goal` distinguishes a shot's two graphs: "video" (shots tab) vs "image" (storyboard).

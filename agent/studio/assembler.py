@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 from agent.config import BASE_DIR
-from agent.studio import db, hires, media_store
+from agent.studio import clips, db, hires, media_store
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +350,24 @@ async def concat_videos(paths: list[Path], out: Path) -> None:
                     "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(out)])
 
 
+async def concat_audio(paths: list[Path], out: Path) -> Path | None:
+    """Nối các file lời đọc thành một. Trả về file duy nhất khi chỉ có một, None khi không có.
+
+    Cần cho CLIP GỘP: một clip phủ nhiều frame storyboard, nên tiếng của nó là lời đọc của tất
+    cả các frame trong nhóm nối lại — nếu chỉ lấy lời đọc của frame dẫn thì phần lời của các
+    frame sau biến mất khỏi video cuối."""
+    paths = [p for p in paths if p and p.exists()]
+    if not paths:
+        return None
+    if len(paths) == 1:
+        return paths[0]
+    lst = out.with_name(f"{out.stem}_alist.txt")
+    lst.write_text("".join(f"file '{p.as_posix()}'\n" for p in paths), encoding="utf-8")
+    await _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+                "-c:a", "pcm_s16le", str(out)])
+    return out
+
+
 def _ff_path(p: str) -> str:
     """Escape a filesystem path for use inside an ffmpeg filtergraph option: forward
     slashes + escaped drive colon (e.g. C:/Fonts/arial.ttf → C\\:/Fonts/arial.ttf),
@@ -528,10 +546,14 @@ async def assemble(project_id: str) -> dict:
     project = await db.query_one("SELECT * FROM project WHERE id=?", (project_id,))
     if not project:
         raise RuntimeError("project not found")
-    shots = await db.query_all(
+    # Đơn vị ghép là CLIP, không phải frame: các frame cùng `clip_id` được render thành MỘT
+    # video nằm trên frame dẫn, nên phải đọc toàn bộ shot rồi mới gom, chứ lọc sẵn
+    # `video_path IS NOT NULL` thì mất luôn lời đọc của các frame sau trong nhóm.
+    all_shots = await db.query_all(
         "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
-        "WHERE sc.project_id=? AND sh.video_path IS NOT NULL ORDER BY sc.idx, sh.idx",
-        (project_id,))
+        "WHERE sc.project_id=? ORDER BY sc.idx, sh.idx", (project_id,))
+    groups = clips.clip_groups(all_shots)
+    shots = [g[0] for g in groups if g[0].get("video_path")]
     if not shots:
         raise RuntimeError("Chưa có shot nào có video để ghép")
 
@@ -540,13 +562,16 @@ async def assemble(project_id: str) -> dict:
     w, h = _res(project["aspect_ratio"], timeline_short_side(shots))
 
     norm_paths = []
-    for i, sh in enumerate(shots):
+    for i, group in enumerate(g for g in groups if g[0].get("video_path")):
+        sh = group[0]
         # Bản upscale 1080p/4K nếu còn đúng với video hiện tại, không thì bản HD. (Cũng xử lý
         # được video chained nằm trong /studio-media/ — _local chỉ hiểu /media/.)
         src = shot_video_path(sh)
         if not src:
             continue
-        narr = _local(sh["narration_path"]) if sh.get("narration_path") else None
+        narr = await concat_audio(
+            [_local(m["narration_path"]) for m in group if m.get("narration_path")],
+            out_dir / f"narr{i:03d}.wav")
         out = out_dir / f"norm{i:03d}.mp4"
         await _normalize(src, narr, out, w, h)
         norm_paths.append(out)

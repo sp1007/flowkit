@@ -369,6 +369,36 @@ _CINE = (
     "volumetric light, particles — whatever sells the scene's emotion."
 )
 
+# Continuity spec for storyboard frames. Without it every frame was written as a standalone
+# illustration of the same scene text: the model re-invented where the subject stood, which way
+# it faced, how far the light had moved — so two adjacent "shots" could not be cut together, and
+# the video step had nothing to travel BETWEEN. A storyboard is a single continuous take broken
+# into key poses, so the frames must be written as one moving chain, not N independent pictures.
+_CONTINUITY = (
+    "CONTINUITY — the frames of this scene are consecutive moments of ONE unbroken take, in "
+    "order. Frame N+1 must be physically reachable from frame N in a second or two of real "
+    "time. Write them as a chain, never as separate illustrations of the same scene:\n"
+    "  • LOCKED for the whole scene (identical in every frame, restate them so nothing drifts): "
+    "time of day, weather, light direction and colour temperature, every character's costume / "
+    "hair / accessories, the props they carry, and the architecture and dressing of the place.\n"
+    "  • ONE spatial path: decide where the subject starts and where it ends up, then have each "
+    "frame advance ALONG that path. A subject may not teleport, change which way it faces, or "
+    "swap which hand holds a prop between two frames without the movement being described.\n"
+    "  • The camera also travels a path. Adjacent frames must still DIFFER in shot size and "
+    "angle (see CINEMATOGRAPHY), but the change has to read as a camera MOVE or a cut a real "
+    "operator would make from the previous position — a push-in to a closer size, an arc around "
+    "to the other side, a follow from behind — not a random new viewpoint each frame.\n"
+    "  • Carry the surroundings across: the background elements, lights, vehicles, bystanders "
+    "and weather visible in one frame stay present and consistent in the neighbouring frames, "
+    "seen from the new angle.\n"
+    "  • `continuity` (per frame) says in ONE sentence how this frame follows the previous one "
+    "— what the subject moved, where the camera went, what changed. For the FIRST frame write "
+    "what the scene opens on instead.\n"
+    "  • The `description` of every frame after the first must OPEN by anchoring to that "
+    "carried-over state (e.g. \"continuing from the same rainy street, now three steps closer "
+    "to the gate, ...\") before it gives this frame's framing and action."
+)
+
 # Dynamic spec injected into every motion-generating prompt. The shot's START FRAME is an
 # image-to-video reference that ALREADY locks the static look (shot size, angle, focal
 # length, lighting, composition). So the `motion_prompt` must NOT redefine that look — it
@@ -456,33 +486,87 @@ def storyboard_autofill_prompt(scene_heading: str, scene_body: str,
         )
     count = f"about {n_frames} frames" if n_frames else "as many frames as the action needs (2–6)"
     return (
-        "Break this scene into storyboard FRAMES (still shots). Every frame in this scene "
-        "happens at ONE shared location.\n"
+        "Break this scene into storyboard FRAMES (still shots) — consecutive key moments of "
+        "ONE continuous take, in order. Every frame in this scene happens at ONE shared "
+        "location.\n"
         f"{loc_line}\n\n"
         "For each frame return:\n"
         "- `title`: short label.\n"
+        "- `continuity`: ONE sentence on how this frame follows the previous one (what the "
+        "subject moved, where the camera travelled, what changed); for frame 1, what the scene "
+        "opens on.\n"
         "- `description`: a vivid image-generator prompt that MUST begin by naming the "
-        "location, then a SPECIFIC shot size + camera angle/height for THIS frame, then the "
-        "action — e.g. \"At {Khu rừng}, low-angle medium close-up, {Mai} opens the wooden "
+        "location, then — for every frame after the first — the state carried over from the "
+        "previous frame, then a SPECIFIC shot size + camera angle/height for THIS frame, then "
+        "the action — e.g. \"At {Khu rừng}, same overcast noon light, {Mai} now at the "
+        "threshold she was walking toward, low-angle medium close-up, she opens the wooden "
         "door...\". The shot size AND angle MUST DIFFER from the previous frame's (alternate "
-        "wide / medium / close and change the angle/height) so consecutive frames cut together "
-        "with rhythm instead of looking like the same shot repeated.\n"
+        "wide / medium / close and change the angle/height) while still reading as the next "
+        "position of the SAME camera move, so consecutive frames cut together with rhythm "
+        "instead of looking like the same shot repeated.\n"
         "- `visual_prompt`: the full camera setup + what is on screen for an image-to-video "
         "model — keep the SAME entity references.\n"
         "- `motion_prompt`: the camera move + the concrete action that happens during the "
         "clip, referencing the SAME entities.\n"
         "- `ref_entity_names`: every entity used in the frame (names WITHOUT braces), and it "
         "MUST include the scene's location.\n"
-        f"\n{_CINE}\n\n{motion_spec(engine, clip_s)}\n\n"
+        f"\n{_CINE}\n\n{_CONTINUITY}\n\n{motion_spec(engine, clip_s)}\n\n"
         "IMPORTANT: whenever a known entity (character/location/prop) appears in ANY prompt, "
         "wrap its name in curly braces exactly as listed (e.g. {Mai}) so it binds to its "
         "reference image.\n"
         f"Visual style: {style}. Produce {count}.\n\n"
         f"AVAILABLE ENTITIES:\n{roster}\n\n"
         f"SCENE: {scene_heading}\n{scene_body}\n\n"
-        "Return ONLY JSON array: [{\"title\":\"...\",\"description\":\"At {Location}, "
-        "<angle>, ... {Entity} ...\",\"visual_prompt\":\"...\",\"motion_prompt\":\"...\","
-        "\"ref_entity_names\":[\"Location\",\"Entity\"]}]"
+        "Return ONLY JSON array: [{\"title\":\"...\",\"continuity\":\"...\",\"description\":"
+        "\"At {Location}, <carried-over state>, <angle>, ... {Entity} ...\",\"visual_prompt\":"
+        "\"...\",\"motion_prompt\":\"...\",\"ref_entity_names\":[\"Location\",\"Entity\"]}]"
+    )
+
+
+def clip_timeline_prompt(frames: list[dict], clip_s: int, scene_heading: str = "",
+                         style: str = "") -> str:
+    """Write ONE video prompt that travels through several storyboard frames.
+
+    The Shots tab groups consecutive storyboard frames into a single clip: every frame image is
+    passed to Omni Flash as a reference with the handle `frame 1`, `frame 2`, … and the prompt is
+    a timestamped route through them. So this asks for cues that name the frames explicitly and
+    describe the MOVE that carries the camera/subject from one to the next — the in-between the
+    storyboard cannot draw."""
+    n = len(frames)
+    listing = "\n".join(
+        f"(frame {i+1}) {(f.get('title') or '').strip()}"
+        + (f" — {(f.get('continuity') or '').strip()}" if f.get("continuity") else "")
+        + f"\n    {(f.get('description') or '').strip()}"
+        for i, f in enumerate(frames))
+    # Spread the cues over the clip so each frame gets a fair share; ~2 frames per cue reads
+    # better than one cue per frame (the model needs room to describe the travel between them).
+    n_cues = max(2, min(n, round(clip_s / 3) or 2))
+    return (
+        f"You are writing the motion prompt for ONE {clip_s}-second video clip that passes "
+        f"through {n} storyboard frames, in order. Each frame image is attached as a reference "
+        f"named `frame 1` … `frame {n}`.\n\n"
+        "Write the clip as a SEQUENCE of timestamp cues:\n"
+        "  • Format: `[mm:ss] <what happens from this moment until the next cue>`. Always open "
+        f"at `[00:00]`, use about {n_cues} cues, and the last cue runs to the end of the clip.\n"
+        f"  • Name the frames in the text exactly as `(frame 1)` … `(frame {n})`, in order, so "
+        "the model knows which reference each moment must land on. Every frame must be named "
+        "at least once and the clip must reach the LAST frame before it ends.\n"
+        "  • Between two frames, describe the TRAVEL — the camera move (tracking back, pushing "
+        "in, arcing around, following from behind, craning up) and the subject's continuing "
+        "action that carries one composition into the next. This in-between is the whole point: "
+        "never just list the frames.\n"
+        "  • The frames already fix the look (costume, light, weather, place). Do NOT redescribe "
+        "the style or re-invent the setting — only what MOVES.\n"
+        "  • ONE continuous take: no cuts, no teleporting, no new characters.\n"
+        "  • Example shape (do not copy the content): `[00:00] Opening on (frame 1), the camera "
+        "tracks back as she walks toward the gate through heavy rain, tightening to the medium "
+        "framing of (frame 2) as she tilts the umbrella against the downpour. [00:03] she "
+        "reaches the gate and lowers the umbrella to pass under the arch (frame 3), the camera "
+        "swinging behind her shoulder to follow her into the dark vault (frame 4).`\n"
+        + (f"\nVisual style (context only, do not restate): {style}.\n" if style else "")
+        + (f"\nSCENE: {scene_heading}\n" if scene_heading else "")
+        + f"\nFRAMES:\n{listing}\n\n"
+        "Return ONLY JSON: {\"motion_prompt\":\"[00:00] ... (frame 1) ... (frame 2) ...\"}"
     )
 
 
@@ -762,21 +846,26 @@ def scene_segment_prompt(voiceover: str, entities: list[dict], style: str,
         "For each beat return:\n"
         "- `text`: the verbatim voiceover slice for this beat.\n"
         "- `beat_action`: the concrete action happening on screen.\n"
-        "- `description`: image prompt beginning with the location then a SPECIFIC shot size + "
+        "- `continuity`: ONE sentence on how this beat follows the previous one (what moved, "
+        "where the camera went, what changed); for beat 1, what the scene opens on.\n"
+        "- `description`: image prompt beginning with the location, then — for every beat after "
+        "the first — the state carried over from the previous beat, then a SPECIFIC shot size + "
         "camera angle/height (which MUST DIFFER from the previous beat's — alternate "
         "wide/medium/close and change the angle so beats don't look like one repeated shot), "
-        "then the action, e.g. \"At {Làng}, low-angle wide shot, {Tấm} scrubs the porch...\".\n"
+        "then the action, e.g. \"At {Làng}, same grey dawn light, {Tấm} still at the porch she "
+        "knelt on, low-angle wide shot, she scrubs the boards...\".\n"
         "- `visual_prompt`: the full camera setup + what is on screen (same entity refs).\n"
         "- `motion_prompt`: camera move + action during the clip (same entity refs).\n"
         "- `ref_entity_names`: entity names WITHOUT braces, MUST include the location.\n"
         "- `key_phrases`: 1–3 SHORT punchy phrases taken VERBATIM from this beat's `text` "
         "(the words worth flashing on screen as captions); [] if none.\n\n"
-        f"{_CINE}\n\n{motion_spec(engine, clip_s)}\n\n"
+        f"{_CINE}\n\n{_CONTINUITY}\n\n{motion_spec(engine, clip_s)}\n\n"
         f"Wrap known entity names in curly braces. Visual style: {style}.\n\n"
         f"AVAILABLE ENTITIES:\n{roster}\n\nVOICEOVER:\n{voiceover}\n\n"
         "Return ONLY JSON array: [{\"text\":\"...\",\"beat_action\":\"...\","
-        "\"description\":\"At {Loc}, <angle>, ...\",\"visual_prompt\":\"...\","
-        "\"motion_prompt\":\"...\",\"ref_entity_names\":[\"Loc\"],\"key_phrases\":[\"...\"]}]"
+        "\"continuity\":\"...\",\"description\":\"At {Loc}, <carried-over state>, <angle>, ...\","
+        "\"visual_prompt\":\"...\",\"motion_prompt\":\"...\",\"ref_entity_names\":[\"Loc\"],"
+        "\"key_phrases\":[\"...\"]}]"
     )
 
 
