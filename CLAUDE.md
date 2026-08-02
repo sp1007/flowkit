@@ -47,15 +47,19 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   Xem [agent/studio/music.py](agent/studio/music.py) + tab "Nhạc" trong workspace.
 - **Frame ≠ clip — số shot hai tab KHÔNG bằng nhau.** Tab Storyboard cắt scene thành FRAME:
   các khoảnh khắc chính của MỘT cú máy liên tục, nên frame liền nhau phải nối được vào nhau
-  (`shot.continuity` + khối `brain._CONTINUITY` trong prompt autofill). Tab Shots gom tối đa 6
-  frame liền nhau thành một CLIP (`shot.clip_id`, frame `clip_idx=0` là frame dẫn và giữ video
-  của cả nhóm) rồi render bằng MỘT lượt Omni Flash r2v: mọi frame là reference `frame 1..N` và
-  prompt là timeline gọi tên chúng (`[00:00] mở ở (frame 1), máy lùi dần sang (frame 2)…`).
-  Trần 6 vì clip dài nhất chỉ 10s. Veo là i2v (một ảnh start) nên KHÔNG render được clip gộp.
-  Quy tắc gom nằm ở [agent/studio/clips.py](agent/studio/clips.py) và `assembler` phải chia
-  nhóm y hệt, không thì lời đọc của các frame sau trong nhóm biến mất khỏi video cuối.
+  (`shot.continuity` + khối `brain._CONTINUITY` trong prompt autofill). Tab Shots gom
+  `project.clip_frames` frame liền nhau thành một CLIP (`shot.clip_id`, frame `clip_idx=0` là
+  frame dẫn và giữ video của cả nhóm) rồi render bằng MỘT lượt Omni Flash r2v. Trần cứng 6
+  (`clips.HARD_MAX_CLIP_FRAMES`) vì clip dài nhất chỉ 10s; hạ `clip_frames` xuống là các nhóm
+  đang có tự tách ra theo. Veo là i2v (một ảnh start) nên KHÔNG render được clip gộp. Quy tắc
+  gom nằm ở [agent/studio/clips.py](agent/studio/clips.py) và `assembler` phải chia nhóm y hệt,
+  không thì lời đọc của các frame sau trong nhóm biến mất khỏi video cuối.
 - **Một frame một tên: `sc001-s01-mô-tả`** (`shot.media_name`) — dùng chung cho tên hiển thị
-  trên Flow, tên file export và nhãn trong app. Đổi thứ tự shot thì tên được đặt lại.
+  trên Flow, tên file export, nhãn trong app VÀ làm handle reference của frame. Đổi thứ tự shot
+  thì tên được đặt lại. Prompt timeline của clip gọi frame bằng token `{sc001-s01-mô-tả}`:
+  ngoặc nhọn là cú pháp DUY NHẤT Flow bind (`flow_client._build_structured_parts`, cùng cơ chế
+  `{handle}` của Node Editor) — viết kiểu khác thì ảnh vẫn đi kèm request nhưng model không
+  biết khoảnh khắc nào thuộc reference nào. Vì thế `_slug` phải bỏ `{}` khỏi tên.
 - `media_id` is always UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`), never `CAMS...`
 - The agent holds no state; all generation goes through the connected extension.
   If `extension_connected: false`, open Google Flow in Chrome with the extension loaded.

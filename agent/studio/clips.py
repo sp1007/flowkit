@@ -17,22 +17,40 @@ from __future__ import annotations
 import itertools
 import os
 
-# Trần frame/clip. Clip dài nhất Omni Flash cho phép là 10s (các model khác 8s); quá 6 frame
-# thì mỗi frame còn chưa tới 1.7s — model không kịp chạm tới frame cuối trước khi hết giờ.
-MAX_CLIP_FRAMES = max(1, min(6, int(os.environ.get("FLOWKIT_MAX_CLIP_FRAMES", "6"))))
+# TRẦN CỨNG do model quy định, không phải lựa chọn thẩm mỹ: clip dài nhất Omni Flash cho phép
+# là 10s (các model khác 8s), quá 6 frame thì mỗi frame còn chưa tới 1.7s — model không kịp
+# chạm tới frame cuối trước khi hết giờ. Số frame/clip THỰC DÙNG là `project.clip_frames`, đặt
+# ở ⚙ Cấu hình dự án và luôn bị kẹp xuống trần này.
+HARD_MAX_CLIP_FRAMES = max(1, min(6, int(os.environ.get("FLOWKIT_MAX_CLIP_FRAMES", "6"))))
+
+DEFAULT_CLIP_FRAMES = HARD_MAX_CLIP_FRAMES
 
 
-def split_clips(shots: list[dict]) -> list[list[dict]]:
+def frames_per_clip(project: dict | None) -> int:
+    """Số frame tối đa mỗi clip của dự án, đã kẹp vào [1, HARD_MAX_CLIP_FRAMES].
+
+    Dự án cũ (chưa có cột) và giá trị rác đều rơi về mặc định thay vì làm hỏng lượt render."""
+    try:
+        n = int((project or {}).get("clip_frames") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        n = DEFAULT_CLIP_FRAMES
+    return max(1, min(HARD_MAX_CLIP_FRAMES, n))
+
+
+def split_clips(shots: list[dict], n_max: int = DEFAULT_CLIP_FRAMES) -> list[list[dict]]:
     """Shot của MỘT scene (đã sắp theo idx) → danh sách clip.
 
-    Frame không có `clip_id` đứng một mình. Trần MAX_CLIP_FRAMES được ép lại ở đây chứ không
-    chỉ lúc gom, để một nhóm cũ (hoặc sửa tay trong DB) quá dài vẫn bị cắt ra thay vì đẩy một
-    request quá tải lên Flow."""
+    Frame không có `clip_id` đứng một mình. Trần `n_max` được ép lại ở đây chứ không chỉ lúc
+    gom: hạ số frame/clip trong cấu hình dự án là các nhóm đang có tự tách ra theo, và một
+    nhóm quá dài (sửa tay trong DB) không đẩy được request quá tải lên Flow."""
+    n_max = max(1, min(HARD_MAX_CLIP_FRAMES, n_max))
     groups: list[list[dict]] = []
     cur: list[dict] = []
     for s in shots:
         cid = s.get("clip_id")
-        if cur and cid and cur[-1].get("clip_id") == cid and len(cur) < MAX_CLIP_FRAMES:
+        if cur and cid and cur[-1].get("clip_id") == cid and len(cur) < n_max:
             cur.append(s)
             continue
         if cur:
@@ -43,18 +61,20 @@ def split_clips(shots: list[dict]) -> list[list[dict]]:
     return groups
 
 
-def clip_groups(shots: list[dict]) -> list[list[dict]]:
+def clip_groups(shots: list[dict], n_max: int = DEFAULT_CLIP_FRAMES) -> list[list[dict]]:
     """Như `split_clips` nhưng cho shot của NHIỀU scene (đã sắp theo scene.idx, shot.idx).
 
     Clip không bao giờ vắt qua ranh giới scene — mỗi scene là một địa điểm/thời điểm riêng."""
     out: list[list[dict]] = []
     for _, group in itertools.groupby(shots, key=lambda s: s["scene_id"]):
-        out.extend(split_clips(list(group)))
+        out.extend(split_clips(list(group), n_max))
     return out
 
 
 def pack_clips(shots: list[dict], n_max: int, budget: float) -> list[list[dict]]:
     """Xếp các frame liên tiếp vào clip: tối đa `n_max` frame và không quá `budget` giây.
+
+    `n_max` đến từ `frames_per_clip(project)`.
 
     `budget` chỉ ràng buộc khi frame có lời đọc ĐÃ ĐO (`narration_duration`) — chế độ kể
     chuyện, ở đó mỗi frame đã tự chiếm 8–10s nên nhóm ra đúng một frame như trước khi có clip.

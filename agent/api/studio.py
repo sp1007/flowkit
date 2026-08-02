@@ -133,6 +133,8 @@ class UpdateProjectRequest(BaseModel):
     target_duration: Optional[int] = None
     shot_duration: Optional[int] = None
     storytelling: Optional[bool] = None
+    # Số frame storyboard tối đa gộp vào MỘT clip video (trần cứng 6 — clip dài nhất chỉ 10s).
+    clip_frames: Optional[int] = None
     auto_hires: Optional[bool] = None
     auto_upscale_video: Optional[bool] = None
     upscale_res: Optional[str] = None
@@ -616,6 +618,9 @@ async def update_project(pid: str, body: UpdateProjectRequest):
         data["bgm_duck"] = 1 if data["bgm_duck"] else 0
     if "seed" in data and (data["seed"] is None or data["seed"] <= 0):
         data["seed"] = None   # ≤0 / trống = bỏ khoá seed (ngẫu nhiên)
+    if "clip_frames" in data:
+        # Kẹp ngay lúc ghi: trần là giới hạn của model, không phải gợi ý.
+        data["clip_frames"] = clips.frames_per_clip({"clip_frames": data["clip_frames"]})
     data["updated_at"] = db.now()
     await db.update("project", pid, data)
     return await db.query_one("SELECT * FROM project WHERE id=?", (pid,))
@@ -1385,11 +1390,14 @@ async def _scene_project(scene: dict) -> dict:
 
 
 def _slug(s: str) -> str:
-    """Filename-safe slug (keeps Vietnamese diacritics, spaces → '-')."""
+    """Filename-safe slug (keeps Vietnamese diacritics, spaces → '-').
+
+    Ngoặc nhọn bị bỏ như `graph._handle_of` làm: slug này còn được dùng làm HANDLE reference
+    (`{sc001-s01-…}`), mà một dấu `{` lọt vào giữa tên là token vỡ và frame mất binding."""
     import re as _re
     s = (s or "").strip().lower()
     s = _re.sub(r"\s+", "-", s)
-    s = _re.sub(r'[\\/:*?"<>|\r\n\t]+', "", s)
+    s = _re.sub(r'[\\/:*?"<>|{}\r\n\t]+', "", s)
     s = _re.sub(r"-{2,}", "-", s).strip("-")
     return s[:60] or "shot"
 
@@ -3329,30 +3337,35 @@ async def _maybe_auto_upscale_video(sid: str, project: dict) -> None:
 
 # ─── Clip: gộp nhiều frame storyboard → MỘT video ───────────
 # Quy tắc gom nằm ở agent/studio/clips.py (assembler dùng chung). Ở đây chỉ là các endpoint
-# gom/tách + render một clip.
-MAX_CLIP_FRAMES = clips.MAX_CLIP_FRAMES
-
-# Prompt của clip BẮT BUỘC gọi tên frame ("(frame 2)"); prompt không có nó là motion_prompt
-# của một frame đơn lẻ còn sót lại → phải viết lại trước khi render.
-_FRAME_REF_RE = re.compile(r"\(\s*frame\s*\d+\s*\)", re.I)
-
+# gom/tách + render một clip. Số frame/clip là `project.clip_frames` (⚙ Cấu hình dự án), luôn
+# bị kẹp xuống trần cứng của model.
+MAX_CLIP_FRAMES = clips.HARD_MAX_CLIP_FRAMES
 
 async def _project_clips(pid: str) -> list[list[dict]]:
-    return clips.clip_groups(await db.query_all(
-        "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
-        "WHERE sc.project_id=? ORDER BY sc.idx, sh.idx", (pid,)))
+    project = await _project_or_404(pid)
+    return clips.clip_groups(
+        await db.query_all(
+            "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
+            "WHERE sc.project_id=? ORDER BY sc.idx, sh.idx", (pid,)),
+        clips.frames_per_clip(project))
 
 
-async def _clip_members(lead: dict) -> list[dict]:
+async def _clip_members(lead: dict, n_max: int) -> list[dict]:
     """Các frame thuộc cùng clip với `lead`, theo thứ tự. `lead` phải là frame đầu clip."""
     if not lead.get("clip_id"):
         return [lead]
     shots = await db.query_all(
         "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (lead["scene_id"],))
-    for group in clips.split_clips(shots):
+    for group in clips.split_clips(shots, n_max):
         if group[0]["id"] == lead["id"]:
             return group
     return [lead]
+
+
+async def _clip_frames_of_shot(shot: dict) -> int:
+    """Số frame/clip của dự án chứa shot này."""
+    scene = await _scene_or_404(shot["scene_id"])
+    return clips.frames_per_clip(await _project_or_404(scene["project_id"]))
 
 
 async def _write_clips(groups: list[list[dict]]) -> int:
@@ -3368,12 +3381,12 @@ async def _write_clips(groups: list[list[dict]]) -> int:
 
 
 class AutoGroupRequest(BaseModel):
-    # Số frame tối đa mỗi clip (trần cứng MAX_CLIP_FRAMES). None → dùng trần.
+    # Ghi đè số frame/clip CHO LƯỢT GOM NÀY. None → dùng `project.clip_frames`. Vẫn bị kẹp
+    # xuống trần cứng của model.
     frames_per_clip: Optional[int] = None
 
 
-async def _autogroup(pid: str, scene_ids: list[str], n_max: int) -> int:
-    project = await _project_or_404(pid)
+async def _autogroup(project: dict, scene_ids: list[str], n_max: int) -> int:
     _, clip_max = _video_engine(project)
     total = 0
     for sid in scene_ids:
@@ -3383,12 +3396,16 @@ async def _autogroup(pid: str, scene_ids: list[str], n_max: int) -> int:
     return total
 
 
+def _group_size(project: dict, override: Optional[int]) -> int:
+    return clips.frames_per_clip({"clip_frames": override} if override else project)
+
+
 @router.post("/scenes/{sid}/clips/autogroup")
 async def autogroup_scene_clips(sid: str, body: AutoGroupRequest):
-    """Gom các frame liền nhau của scene thành clip (mỗi clip ≤ 6 frame)."""
+    """Gom các frame liền nhau của scene thành clip (≤ `project.clip_frames` frame)."""
     scene = await _scene_or_404(sid)
-    n_max = max(1, min(MAX_CLIP_FRAMES, body.frames_per_clip or MAX_CLIP_FRAMES))
-    n_clips = await _autogroup(scene["project_id"], [sid], n_max)
+    project = await _project_or_404(scene["project_id"])
+    n_clips = await _autogroup(project, [sid], _group_size(project, body.frames_per_clip))
     return {"clips": n_clips, "shots": await db.query_all(
         "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,))}
 
@@ -3396,11 +3413,11 @@ async def autogroup_scene_clips(sid: str, body: AutoGroupRequest):
 @router.post("/projects/{pid}/clips/autogroup")
 async def autogroup_project_clips(pid: str, body: AutoGroupRequest):
     """Gom frame thành clip cho TOÀN dự án."""
-    await _project_or_404(pid)
-    n_max = max(1, min(MAX_CLIP_FRAMES, body.frames_per_clip or MAX_CLIP_FRAMES))
+    project = await _project_or_404(pid)
     scenes = await db.query_all(
         "SELECT id FROM scene WHERE project_id=? ORDER BY idx", (pid,))
-    n_clips = await _autogroup(pid, [s["id"] for s in scenes], n_max)
+    n_clips = await _autogroup(project, [s["id"] for s in scenes],
+                               _group_size(project, body.frames_per_clip))
     return {"clips": n_clips}
 
 
@@ -3413,12 +3430,13 @@ async def group_shots(body: GroupRequest):
     """Gộp thủ công các frame ĐƯỢC CHỌN thành một clip. Phải cùng scene và LIỀN NHAU."""
     if len(body.shot_ids) < 2:
         raise HTTPException(400, "Chọn ít nhất 2 frame để gộp")
-    if len(body.shot_ids) > MAX_CLIP_FRAMES:
-        raise HTTPException(400, f"Một clip tối đa {MAX_CLIP_FRAMES} frame "
-                                 f"(clip dài nhất chỉ 10s)")
     picked = [await _shot_or_404(i) for i in body.shot_ids]
     if len({s["scene_id"] for s in picked}) != 1:
         raise HTTPException(400, "Chỉ gộp được các frame trong CÙNG một scene")
+    n_max = await _clip_frames_of_shot(picked[0])
+    if len(body.shot_ids) > n_max:
+        raise HTTPException(400, f"Một clip tối đa {n_max} frame — đổi ở ⚙ Cấu hình dự án "
+                                 f"(trần {MAX_CLIP_FRAMES} vì clip dài nhất chỉ 10s)")
     picked.sort(key=lambda s: s["idx"])
     idxs = [s["idx"] for s in picked]
     if idxs != list(range(idxs[0], idxs[0] + len(idxs))):
@@ -3432,7 +3450,7 @@ async def group_shots(body: GroupRequest):
 async def ungroup_clip(lead_id: str):
     """Tách clip: mỗi frame lại đứng một mình. Video đã render vẫn nằm trên frame dẫn."""
     lead = await _shot_or_404(lead_id)
-    for m in await _clip_members(lead):
+    for m in await _clip_members(lead, await _clip_frames_of_shot(lead)):
         await db.update("shot", m["id"], {"clip_id": None, "clip_idx": 0})
     return {"shots": await db.query_all(
         "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (lead["scene_id"],))}
@@ -3451,25 +3469,50 @@ async def list_project_clips(pid: str):
     } for g in await _project_clips(pid)]}
 
 
+async def _clip_handles(members: list[dict], scene: dict) -> list[str]:
+    """Handle reference của từng frame trong clip = `media_name` của nó (`sc001-s01-…`).
+
+    Phải là media_name chứ không phải "frame 1": Flow CHỈ bind token `{handle}` (xem
+    `flow_client._build_structured_parts`), nên tên nào cũng được miễn prompt gọi đúng nó — và
+    dùng luôn tên đã có trên Flow/khi export thì mở thư viện lên là đối chiếu được ngay."""
+    return [await _ensure_media_name(m, scene) for m in members]
+
+
+def _clip_prompt_binds(motion: str, handles: list[str]) -> bool:
+    """Prompt clip có gọi ĐỦ token `{sc001-s01-…}` của mọi frame không?
+
+    Thiếu một token nghĩa là frame đó không được bind vào khoảnh khắc nào — ảnh vẫn đi kèm
+    request nhưng model không biết dùng nó lúc nào. Prompt cũ của frame đơn lẻ cũng rơi vào
+    đây, nên kiểm tra này vừa bắt lỗi vừa tự chữa (server viết lại trước khi submit)."""
+    tokens = {t.strip() for t in _BRACE_RE.findall(motion or "")}
+    return bool(handles) and all(h in tokens for h in handles)
+
+
 async def _clip_timeline(lead: dict, members: list[dict], scene: dict,
                          project: dict, clip_s: int) -> str:
     """Viết prompt timeline đi xuyên các frame của clip và lưu lên frame dẫn."""
+    handles = await _clip_handles(members, scene)
+    named = [{**m, "media_name": h} for m, h in zip(members, handles)]
     out = await brain.run_json(brain.clip_timeline_prompt(
-        members, clip_s, scene.get("heading") or "", project.get("style") or ""))
+        named, clip_s, scene.get("heading") or "", project.get("style") or ""))
     motion = (out or {}).get("motion_prompt") if isinstance(out, dict) else None
     if not motion:
         raise HTTPException(502, "AI không viết được prompt timeline cho clip")
+    if not _clip_prompt_binds(motion, handles):
+        missing = [h for h in handles if h not in {t.strip() for t in _BRACE_RE.findall(motion)}]
+        raise HTTPException(502, "Prompt timeline không gọi đủ tên frame (thiếu: "
+                                 + ", ".join(missing) + ") — thử lại")
     await db.update("shot", lead["id"], {"motion_prompt": motion, "updated_at": db.now()})
     return motion
 
 
 @router.post("/clips/{lead_id}/prompt")
 async def gen_clip_prompt(lead_id: str):
-    """✨ Viết prompt timeline cho clip (gọi tên (frame 1)…(frame N))."""
+    """✨ Viết prompt timeline cho clip (gọi tên {sc001-s01-…} của từng frame)."""
     lead = await _shot_or_404(lead_id)
     scene = await _scene_or_404(lead["scene_id"])
     project = await _project_or_404(scene["project_id"])
-    members = await _clip_members(lead)
+    members = await _clip_members(lead, clips.frames_per_clip(project))
     if len(members) < 2:
         raise HTTPException(400, "Frame này không thuộc clip gộp — dùng ✨ AI của shot")
     _, clip_max = _video_engine(project)
@@ -3487,16 +3530,16 @@ def _omni_duration(secs: float, clip_max: int) -> int:
 
 
 async def _generate_clip_video(lead: dict) -> dict:
-    """Render MỘT clip gộp: mọi frame làm reference `frame 1..N` + prompt timeline.
+    """Render MỘT clip gộp: mọi frame là reference `{sc001-s01-…}` + prompt timeline.
 
     Chỉ Omni Flash làm được — Veo là i2v, chỉ nhận đúng MỘT ảnh start nên không có cách nào
     đưa frame 2..N vào. Clip một frame rơi về đường render cũ."""
-    members = await _clip_members(lead)
+    scene = await _scene_or_404(lead["scene_id"])
+    project = await _project_or_404(scene["project_id"])
+    members = await _clip_members(lead, clips.frames_per_clip(project))
     if len(members) < 2:
         return await _generate_shot_video(lead)
 
-    scene = await _scene_or_404(lead["scene_id"])
-    project = await _project_or_404(scene["project_id"])
     client = _require_extension()
     missing = [m for m in members if not m.get("image_media_id")]
     if missing:
@@ -3508,16 +3551,17 @@ async def _generate_clip_video(lead: dict) -> dict:
             400, "Clip gộp nhiều frame chỉ render được bằng Omni Flash (Veo i2v chỉ nhận MỘT "
                  "ảnh start). Đổi model video ở ⚙ Cấu hình dự án, hoặc tách clip.")
 
+    handles = await _clip_handles(members, scene)
     motion = lead.get("motion_prompt") or ""
-    if not _FRAME_REF_RE.search(motion):
+    if not _clip_prompt_binds(motion, handles):
         motion = await _clip_timeline(lead, members, scene, project, clip_max)
 
     # Lời đọc đã đo của cả nhóm quyết định độ dài; không có thì dùng trần của model.
     spoken = sum(float(m.get("narration_duration") or 0) for m in members)
     duration = _omni_duration(spoken, clip_max) if spoken else clip_max
 
-    refs = [{"handle": f"frame {i+1}", "media_id": m["image_media_id"]}
-            for i, m in enumerate(members)]
+    refs = [{"handle": h, "media_id": m["image_media_id"]}
+            for h, m in zip(handles, members)]
     # Còn chỗ thì thêm entity ref — prompt timeline thỉnh thoảng vẫn gọi {Tên} và chỉ khi có
     # reference tương ứng thì dấu ngoặc nhọn mới bind, không thì lọt vào prompt dưới dạng chữ.
     seen = {r["media_id"] for r in refs}

@@ -528,29 +528,35 @@ def clip_timeline_prompt(frames: list[dict], clip_s: int, scene_heading: str = "
     """Write ONE video prompt that travels through several storyboard frames.
 
     The Shots tab groups consecutive storyboard frames into a single clip: every frame image is
-    passed to Omni Flash as a reference with the handle `frame 1`, `frame 2`, … and the prompt is
-    a timestamped route through them. So this asks for cues that name the frames explicitly and
-    describe the MOVE that carries the camera/subject from one to the next — the in-between the
-    storyboard cannot draw."""
+    attached as an Omni Flash reference whose HANDLE is that frame's `media_name`
+    (`sc001-s01-…`), and the prompt is a timestamped route through them.
+
+    The frames must be named as `{sc001-s01-…}` tokens — curly braces are the ONLY syntax Flow
+    binds (`flow_client._build_structured_parts` turns each `{handle}` into a reference part).
+    A frame written any other way is plain text: the image would still ride along as an
+    imageInput, but nothing tells the model WHICH moment belongs to WHICH reference."""
     n = len(frames)
+    names = [(f.get("media_name") or f"frame-{i+1}") for i, f in enumerate(frames)]
     listing = "\n".join(
-        f"(frame {i+1}) {(f.get('title') or '').strip()}"
-        + (f" — {(f.get('continuity') or '').strip()}" if f.get("continuity") else "")
+        f"{{{names[i]}}} — {(f.get('title') or '').strip()}"
+        + (f" · {(f.get('continuity') or '').strip()}" if f.get("continuity") else "")
         + f"\n    {(f.get('description') or '').strip()}"
         for i, f in enumerate(frames))
+    token_list = ", ".join("{" + x + "}" for x in names)
     # Spread the cues over the clip so each frame gets a fair share; ~2 frames per cue reads
     # better than one cue per frame (the model needs room to describe the travel between them).
     n_cues = max(2, min(n, round(clip_s / 3) or 2))
     return (
         f"You are writing the motion prompt for ONE {clip_s}-second video clip that passes "
         f"through {n} storyboard frames, in order. Each frame image is attached as a reference "
-        f"named `frame 1` … `frame {n}`.\n\n"
+        f"whose name is the token below.\n\n"
         "Write the clip as a SEQUENCE of timestamp cues:\n"
         "  • Format: `[mm:ss] <what happens from this moment until the next cue>`. Always open "
         f"at `[00:00]`, use about {n_cues} cues, and the last cue runs to the end of the clip.\n"
-        f"  • Name the frames in the text exactly as `(frame 1)` … `(frame {n})`, in order, so "
-        "the model knows which reference each moment must land on. Every frame must be named "
-        "at least once and the clip must reach the LAST frame before it ends.\n"
+        f"  • Refer to the frames by their EXACT tokens, in this order: {token_list}. Copy each "
+        "token character for character, keep the curly braces, and do not renumber, translate "
+        "or shorten them. Every token must appear at least once and the clip must reach the "
+        "LAST one before it ends.\n"
         "  • Between two frames, describe the TRAVEL — the camera move (tracking back, pushing "
         "in, arcing around, following from behind, craning up) and the subject's continuing "
         "action that carries one composition into the next. This in-between is the whole point: "
@@ -558,15 +564,18 @@ def clip_timeline_prompt(frames: list[dict], clip_s: int, scene_heading: str = "
         "  • The frames already fix the look (costume, light, weather, place). Do NOT redescribe "
         "the style or re-invent the setting — only what MOVES.\n"
         "  • ONE continuous take: no cuts, no teleporting, no new characters.\n"
-        "  • Example shape (do not copy the content): `[00:00] Opening on (frame 1), the camera "
-        "tracks back as she walks toward the gate through heavy rain, tightening to the medium "
-        "framing of (frame 2) as she tilts the umbrella against the downpour. [00:03] she "
-        "reaches the gate and lowers the umbrella to pass under the arch (frame 3), the camera "
-        "swinging behind her shoulder to follow her into the dark vault (frame 4).`\n"
+        "  • Example shape (do not copy the content, and use THIS clip's tokens): `[00:00] "
+        "Opening on {sc001-s01-co-gai-trong-mua}, the camera tracks back as she walks toward "
+        "the gate through heavy rain, tightening to the medium framing of "
+        "{sc001-s02-nghieng-o-chan-mua} as she tilts the umbrella against the downpour. "
+        "[00:03] she reaches the gate and lowers the umbrella to pass under the arch "
+        "{sc001-s03-ha-o-qua-vom-cong}, the camera swinging behind her shoulder to follow her "
+        "into the dark vault {sc001-s04-di-duoi-vom-toi}.`\n"
         + (f"\nVisual style (context only, do not restate): {style}.\n" if style else "")
         + (f"\nSCENE: {scene_heading}\n" if scene_heading else "")
         + f"\nFRAMES:\n{listing}\n\n"
-        "Return ONLY JSON: {\"motion_prompt\":\"[00:00] ... (frame 1) ... (frame 2) ...\"}"
+        "Return ONLY JSON: {\"motion_prompt\":\"[00:00] ... "
+        + "{" + names[0] + "} ... " + "{" + names[-1] + "} ...\"}"
     )
 
 

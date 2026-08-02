@@ -5,6 +5,8 @@ import {
   synthesize,
   base64ToAudioUrl,
   projectExportUrl,
+  framesPerClip,
+  HARD_MAX_CLIP_FRAMES,
   type Project,
   storyboard,
   shots as shotsApi,
@@ -37,6 +39,7 @@ export default function ProjectSettings({
     video_model: project.video_model ?? "",
   });
   const [shotDuration, setShotDuration] = useState<number>(project.shot_duration ?? 8);
+  const [clipFrames, setClipFrames] = useState<number>(framesPerClip(project));
   const [storytelling, setStorytelling] = useState<boolean>(!!project.storytelling);
   const [autoHires, setAutoHires] = useState<boolean>(!!project.auto_hires);
   const [hiresInfo, setHiresInfo] = useState<{ label: string; done: number; total: number; missing: number } | null>(null);
@@ -140,6 +143,7 @@ export default function ProjectSettings({
         bgm_duck: bgmDuck,
         voice_id: voiceId,
         shot_duration: shotDuration,
+        clip_frames: clipFrames,
         storytelling,
         auto_hires: autoHires,
         auto_upscale_video: autoUpVideo,
@@ -194,12 +198,12 @@ export default function ProjectSettings({
   // loading a preset still left you hunting for the same music file by hand every time.
   const STR_KEYS = ["style", "script_lang", "image_text_lang", "culture_hint",
     "prompt_header", "prompt_footer", "image_model", "aspect_ratio", "video_model", "upscale_res"] as const;
-  const NUM_KEYS = ["shot_duration", "seed", "bgm_volume", "voice_id",
+  const NUM_KEYS = ["shot_duration", "clip_frames", "seed", "bgm_volume", "voice_id",
     "tts_speed", "tts_gap", "tts_sentence_gap", "tts_edge_pad"] as const;
   const BOOL_KEYS = ["storytelling", "auto_hires", "auto_upscale_video", "bgm_duck"] as const;
 
   const collectSettings = () => ({
-    ...s, shot_duration: shotDuration, storytelling, auto_hires: autoHires,
+    ...s, shot_duration: shotDuration, clip_frames: clipFrames, storytelling, auto_hires: autoHires,
     auto_upscale_video: autoUpVideo, upscale_res: upscaleRes,
     seed, bgm_volume: bgmVol, bgm_duck: bgmDuck, bgm_path: bgmPath,
     voice_id: voiceId, tts_speed: ttsSpeed, tts_gap: ttsGap, tts_sentence_gap: ttsSentenceGap,
@@ -228,6 +232,7 @@ export default function ProjectSettings({
         video_model: u.video_model ?? p.video_model,
       }));
       if (u.shot_duration != null) setShotDuration(u.shot_duration);
+      if (u.clip_frames != null) setClipFrames(framesPerClip(u));
       if (u.storytelling != null) setStorytelling(!!u.storytelling);
       if (u.auto_hires != null) setAutoHires(!!u.auto_hires);
       if (u.auto_upscale_video != null) setAutoUpVideo(!!u.auto_upscale_video);
@@ -389,6 +394,20 @@ export default function ProjectSettings({
                 className={inp} />
             </Field>
           </div>
+
+          <Field label="Số frame mỗi clip video">
+            <input type="number" min={1} max={HARD_MAX_CLIP_FRAMES} value={clipFrames}
+              onChange={(e) => setClipFrames(framesPerClip({ clip_frames: Number(e.target.value) }))}
+              className={inp} />
+            <p className="mt-1 text-xs text-neutral-600">
+              Tab Shots gộp bấy nhiêu frame storyboard liền nhau vào MỘT clip: mọi frame thành
+              ảnh tham chiếu <code>{"{sc001-s01-…}"}</code> và model tự dựng đoạn chuyển tiếp
+              giữa chúng. Trần {HARD_MAX_CLIP_FRAMES} vì clip dài nhất chỉ 10s — đông frame quá
+              thì mỗi frame chưa tới 2s và model không kịp chạm tới frame cuối. Hạ số này xuống
+              là các clip đang có tự tách ra theo. Frame đã có lời đọc đo thật (kể chuyện) luôn
+              tự chiếm trọn một clip, không bị gộp.
+            </p>
+          </Field>
 
           <Field label="Model video">
             <select value={s.video_model} onChange={(e) => set("video_model", e.target.value)} className={inp}>

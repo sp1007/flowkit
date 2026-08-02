@@ -552,7 +552,7 @@ async def assemble(project_id: str) -> dict:
     all_shots = await db.query_all(
         "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id "
         "WHERE sc.project_id=? ORDER BY sc.idx, sh.idx", (project_id,))
-    groups = clips.clip_groups(all_shots)
+    groups = clips.clip_groups(all_shots, clips.frames_per_clip(project))
     shots = [g[0] for g in groups if g[0].get("video_path")]
     if not shots:
         raise RuntimeError("Chưa có shot nào có video để ghép")

@@ -4,7 +4,7 @@ import {
   storyboard,
   shots as shotsApi,
   clips as clipsApi,
-  MAX_CLIP_FRAMES,
+  framesPerClip,
   type Project,
   type Scene,
   type Shot,
@@ -17,15 +17,15 @@ import { creditGuard, CREDIT_COST } from "../../lib/credits";
 import { downloadFile, slugName, pad3 } from "../../lib/download";
 import { useJobs, useJobWatcher } from "../../jobs/JobsContext";
 
-// Một CLIP = nhóm frame storyboard liền nhau được render thành MỘT video (tối đa
-// MAX_CLIP_FRAMES, vì clip dài nhất chỉ 10s). Frame không gộp là clip một frame. Vì thế số thẻ
-// ở tab này KHÁC số frame bên Storyboard. Quy tắc phải khớp `agent/studio/clips.py`.
-const groupClips = (list: Shot[]): Shot[][] => {
+// Một CLIP = nhóm frame storyboard liền nhau được render thành MỘT video (tối đa `nMax` =
+// project.clip_frames). Frame không gộp là clip một frame. Vì thế số thẻ ở tab này KHÁC số
+// frame bên Storyboard. Quy tắc phải khớp `agent/studio/clips.py`.
+const groupClips = (list: Shot[], nMax: number): Shot[][] => {
   const out: Shot[][] = [];
   let cur: Shot[] = [];
   for (const s of list) {
     const last = cur[cur.length - 1];
-    if (last && s.clip_id && last.clip_id === s.clip_id && cur.length < MAX_CLIP_FRAMES) {
+    if (last && s.clip_id && last.clip_id === s.clip_id && cur.length < nMax) {
       cur.push(s);
       continue;
     }
@@ -87,6 +87,9 @@ export default function ShotsTab({
   const [picked, setPicked] = useState<string[]>([]);
   const confirm = useConfirm();
   const { jobFor } = useJobs();
+  // Số frame tối đa mỗi clip — đổi ở ⚙ Cấu hình dự án. Hạ xuống là các nhóm đang có tự tách ra
+  // theo (cả ở đây lẫn server), không cần gom lại bằng tay.
+  const nMax = framesPerClip(project);
 
   const loadShots = async (sid: string) => {
     const r = await storyboard.sceneShots(sid);
@@ -131,8 +134,8 @@ export default function ShotsTab({
       return n;
     });
 
-  // Render MỘT clip. Nhóm nhiều frame đi qua /clips/{lead}/video (Omni Flash, mọi frame là
-  // reference `frame 1..N`); clip một frame vẫn dùng đường cũ.
+  // Render MỘT clip. Nhóm nhiều frame đi qua /clips/{lead}/video (Omni Flash, mỗi frame là một
+  // reference mang tên `{sc001-s01-…}` của chính nó); clip một frame vẫn dùng đường cũ.
   const genClip = async (group: Shot[]): Promise<boolean> => {
     const lead = group[0];
     const noImage = group.filter((s) => !s.image_path);
@@ -156,7 +159,7 @@ export default function ShotsTab({
   // Render all clips (every frame has an image, no video yet) as a server-side background job
   // (§9): survives tab close, throttled + verified server-side, streams to the banner.
   const genAll = async () => {
-    const groups = scenes.flatMap((sc) => groupClips(byScene[sc.id] || []));
+    const groups = scenes.flatMap((sc) => groupClips(byScene[sc.id] || [], nMax));
     const todo = groups.filter((g) => g.every((s) => s.image_media_id) && !g[0].video_path);
     if (!todo.length) {
       setErr("Không có clip nào (đủ ảnh, chưa có video) để render.");
@@ -171,14 +174,14 @@ export default function ShotsTab({
     }
   };
 
-  // Gộp tự động toàn dự án: các frame liền nhau trong cùng scene được xếp vào clip ≤ 6 frame.
+  // Gộp tự động toàn dự án: các frame liền nhau trong cùng scene được xếp vào clip ≤ nMax frame.
   // Frame đã có lời đọc đo được (kể chuyện) tự chiếm trọn một clip nên không bị gộp nhầm.
   const autogroup = async () => {
     if (
       !(await confirm({
         title: "Gộp frame thành clip?",
         message:
-          `Các frame liền nhau trong cùng scene sẽ được xếp vào clip tối đa ${MAX_CLIP_FRAMES} frame — ` +
+          `Các frame liền nhau trong cùng scene sẽ được xếp vào clip tối đa ${nMax} frame — ` +
           "mỗi clip render MỘT lần, model tự dựng đoạn chuyển tiếp giữa các frame. Cách gộp cũ bị ghi đè.",
         confirmText: "Gộp",
       }))
@@ -238,14 +241,14 @@ export default function ShotsTab({
           <div>
             <h2 className="text-xl font-semibold">Cinematic Shots</h2>
             <p className="text-sm text-neutral-500">
-              Mỗi thẻ là một CLIP — gộp tối đa {MAX_CLIP_FRAMES} frame storyboard vào một video
+              Mỗi thẻ là một CLIP — gộp tối đa {nMax} frame storyboard vào một video
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               disabled={busy || !!videoJob}
               onClick={autogroup}
-              title={`Xếp các frame liền nhau vào clip ≤ ${MAX_CLIP_FRAMES} frame`}
+              title={`Xếp các frame liền nhau vào clip ≤ ${nMax} frame`}
               className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40"
             >
               ⛓ Gộp tự động
@@ -263,14 +266,14 @@ export default function ShotsTab({
           <div className="mb-4 flex items-center justify-between rounded-lg border border-indigo-800 bg-indigo-950/40 px-3 py-2 text-sm text-indigo-300">
             <span>
               Đã chọn {picked.length} frame
-              {picked.length > MAX_CLIP_FRAMES && ` — tối đa ${MAX_CLIP_FRAMES} frame một clip`}
+              {picked.length > nMax && ` — tối đa ${nMax} frame một clip`}
             </span>
             <div className="flex gap-2">
               <button onClick={() => setPicked([])} className="hover:text-indigo-100">
                 Bỏ chọn
               </button>
               <button
-                disabled={picked.length < 2 || picked.length > MAX_CLIP_FRAMES}
+                disabled={picked.length < 2 || picked.length > nMax}
                 onClick={groupPicked}
                 className="rounded-md bg-indigo-600 px-2.5 py-1 text-white hover:bg-indigo-500 disabled:opacity-40"
               >
@@ -292,7 +295,7 @@ export default function ShotsTab({
         )}
         {scenes.map((sc) => {
           const list = byScene[sc.id] || [];
-          const groups = groupClips(list);
+          const groups = groupClips(list, nMax);
           return (
             <section key={sc.id} className="mb-8">
               <h3 className="mb-3 text-sm font-medium text-neutral-200">
@@ -429,13 +432,13 @@ export default function ShotsTab({
         <ShotPanel
           shot={sel}
           project={project}
-          members={groupClips(byScene[sel.scene_id] || []).find((g) => g[0].id === sel.id) || [sel]}
+          members={groupClips(byScene[sel.scene_id] || [], nMax).find((g) => g[0].id === sel.id) || [sel]}
           sceneIdx={Math.max(0, scenes.findIndex((s) => s.id === sel.scene_id))}
           running={running.has(sel.id)}
           onClose={() => setSel(null)}
           onChange={setShot}
           onGenVideo={() =>
-            genClip(groupClips(byScene[sel.scene_id] || []).find((g) => g[0].id === sel.id) || [sel])
+            genClip(groupClips(byScene[sel.scene_id] || [], nMax).find((g) => g[0].id === sel.id) || [sel])
           }
         />
       )}
@@ -504,7 +507,8 @@ function ShotPanel({
   const save = async () =>
     onChange(await storyboard.updateShot(shot.id, { visual_prompt: visual, motion_prompt: motion }));
 
-  // Clip gộp cần prompt TIMELINE gọi tên (frame 1)…(frame N); frame đơn dùng prompt thường.
+  // Clip gộp cần prompt TIMELINE gọi token {sc001-s01-…} của từng frame; frame đơn dùng
+  // prompt thường.
   const aiPrompts = async () => {
     setAiBusy(true);
     try {
@@ -553,10 +557,16 @@ function ShotPanel({
             </label>
             <ol className="space-y-1.5">
               {members.map((m, i) => (
-                <li key={m.id} className="flex gap-2 text-xs">
-                  <span className="mt-0.5 shrink-0 rounded bg-neutral-800 px-1.5 text-neutral-300">
-                    frame {i + 1}
-                  </span>
+                <li key={m.id} className="text-xs">
+                  {/* Token reference THẬT của frame — copy nguyên si vào prompt thì Flow mới
+                      bind ảnh đó vào đúng khoảnh khắc (cùng cơ chế {handle} của Node Editor). */}
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(`{${m.media_name || ""}}`)}
+                    title="Chép token này vào prompt"
+                    className="mb-0.5 block max-w-full truncate rounded bg-neutral-800 px-1.5 font-mono text-[11px] text-indigo-300 hover:bg-neutral-700"
+                  >
+                    {`{${m.media_name || `frame-${i + 1}`}}`}
+                  </button>
                   <span className="min-w-0 text-neutral-400">
                     <span className="block truncate text-neutral-300">{m.title}</span>
                     {m.continuity && <span className="block">{m.continuity}</span>}
@@ -597,15 +607,22 @@ function ShotPanel({
             value={motion}
             onChange={(e) => setMotion(e.target.value)}
             onBlur={save}
-            placeholder={isClip ? "[00:00] mở ở (frame 1), máy lùi dần sang (frame 2)…" : "Motion prompt"}
+            placeholder={
+              isClip
+                ? `[00:00] mở ở {${members[0].media_name || "sc001-s01-…"}}, máy lùi dần sang {${
+                    members[1]?.media_name || "sc001-s02-…"
+                  }}…`
+                : "Motion prompt"
+            }
             className={`w-full resize-none rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-sm outline-none focus:border-indigo-500 ${
               isClip ? "h-44" : "h-20"
             }`}
           />
           {isClip && (
             <p className="mt-1 text-[11px] text-neutral-500">
-              Prompt phải gọi tên <code>(frame 1)</code>…<code>(frame {members.length})</code> —
-              thiếu thì lúc render server tự viết lại.
+              Prompt phải gọi ĐỦ {members.length} token <code>{"{sc…}"}</code> ở trên — dấu ngoặc
+              nhọn là thứ DUY NHẤT Flow bind ảnh vào (như <code>{"{handle}"}</code> của Node
+              Editor). Thiếu token nào thì lúc render server tự viết lại prompt.
             </p>
           )}
         </div>

@@ -15,6 +15,8 @@ export interface Project {
   video_model?: string | null;
   voice_id?: number | null;
   shot_duration?: number | null;
+  // Số frame storyboard tối đa gộp vào MỘT clip video (⚙ Cấu hình dự án, trần HARD_MAX_CLIP_FRAMES).
+  clip_frames?: number | null;
   tts_speed?: number | null;
   tts_gap?: number | null;
   tts_sentence_gap?: number | null;
@@ -593,9 +595,16 @@ export const shots = {
     req<Shot>(`/shots/${sid}/narration`, { method: "POST", body: JSON.stringify({ language }) }),
 };
 
-// Clip = nhóm frame storyboard liền nhau được render thành MỘT video (tối đa 6 frame, vì clip
-// dài nhất chỉ 10s). Vì thế số thẻ ở tab Shots ≠ số frame ở tab Storyboard.
-export const MAX_CLIP_FRAMES = 6;
+// Clip = nhóm frame storyboard liền nhau được render thành MỘT video. Vì thế số thẻ ở tab
+// Shots ≠ số frame ở tab Storyboard.
+//
+// TRẦN CỨNG do model quy định (clip dài nhất chỉ 10s) — phải khớp `clips.HARD_MAX_CLIP_FRAMES`.
+// Số thực dùng là `project.clip_frames`; đọc qua `framesPerClip()` để dự án cũ (chưa có cột)
+// và giá trị rác đều rơi về mặc định thay vì làm vỡ cách gom.
+export const HARD_MAX_CLIP_FRAMES = 6;
+
+export const framesPerClip = (p: { clip_frames?: number | null } | null | undefined) =>
+  Math.max(1, Math.min(HARD_MAX_CLIP_FRAMES, Number(p?.clip_frames) || HARD_MAX_CLIP_FRAMES));
 
 export const clips = {
   autogroupProject: (pid: string, framesPerClip?: number) =>

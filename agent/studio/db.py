@@ -206,6 +206,10 @@ _MIGRATIONS = [
     # còn lại không giữ video riêng. NULL/rỗng = frame đứng một mình như trước.
     ("shot", "clip_id", "TEXT"),
     ("shot", "clip_idx", "INTEGER DEFAULT 0"),
+    # Số frame tối đa mỗi clip cho dự án này (⚙ Cấu hình dự án). Trần cứng là
+    # clips.HARD_MAX_CLIP_FRAMES = 6 vì clip dài nhất chỉ 10s; hạ xuống 2–3 khi hành động dày
+    # và model không kịp chạm tới frame cuối. 0/NULL = mặc định.
+    ("project", "clip_frames", "INTEGER DEFAULT 6"),
 ]
 
 
