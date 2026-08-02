@@ -385,9 +385,10 @@ _CONTINUITY = (
     "frame advance ALONG that path. A subject may not teleport, change which way it faces, or "
     "swap which hand holds a prop between two frames without the movement being described.\n"
     "  • The camera also travels a path. Adjacent frames must still DIFFER in shot size and "
-    "angle (see CINEMATOGRAPHY), but the change has to read as a camera MOVE or a cut a real "
-    "operator would make from the previous position — a push-in to a closer size, an arc around "
-    "to the other side, a follow from behind — not a random new viewpoint each frame.\n"
+    "angle (see CINEMATOGRAPHY), but the change has to read as a move or a cut a real operator "
+    "would make from the previous position, motivated by what the scene is doing — not a random "
+    "new viewpoint each frame. Choose the coverage this particular moment calls for rather than "
+    "cycling through stock moves.\n"
     "  • Carry the surroundings across: the background elements, lights, vehicles, bystanders "
     "and weather visible in one frame stay present and consistent in the neighbouring frames, "
     "seen from the new angle.\n"
@@ -529,12 +530,18 @@ def clip_timeline_prompt(frames: list[dict], clip_s: int, scene_heading: str = "
 
     The Shots tab groups consecutive storyboard frames into a single clip: every frame image is
     attached as an Omni Flash reference whose HANDLE is that frame's `media_name`
-    (`sc001-s01-…`), and the prompt is a timestamped route through them.
+    (`sc001-s01-…`), and the prompt is a timestamped take that passes through them.
 
     The frames must be named as `{sc001-s01-…}` tokens — curly braces are the ONLY syntax Flow
     binds (`flow_client._build_structured_parts` turns each `{handle}` into a reference part).
     A frame written any other way is plain text: the image would still ride along as an
-    imageInput, but nothing tells the model WHICH moment belongs to WHICH reference."""
+    imageInput, but nothing tells the model WHICH moment belongs to WHICH reference.
+
+    What this prompt deliberately does NOT do is dictate the camera work. Handing the model a
+    menu of moves ("tracks back", "pushes in") got every clip written to the same template, and
+    turned the frames into a checklist to tick off rather than moments to play. The frames say
+    where the take must pass through; the model chooses how it gets there — including not
+    moving at all."""
     n = len(frames)
     names = [(f.get("media_name") or f"frame-{i+1}") for i, f in enumerate(frames)]
     listing = "\n".join(
@@ -543,34 +550,29 @@ def clip_timeline_prompt(frames: list[dict], clip_s: int, scene_heading: str = "
         + f"\n    {(f.get('description') or '').strip()}"
         for i, f in enumerate(frames))
     token_list = ", ".join("{" + x + "}" for x in names)
-    # Spread the cues over the clip so each frame gets a fair share; ~2 frames per cue reads
-    # better than one cue per frame (the model needs room to describe the travel between them).
-    n_cues = max(2, min(n, round(clip_s / 3) or 2))
+    timeline = _OMNI_TIMELINE_HEAD.format(clip_s=clip_s, n_beats=max(3, round(clip_s / 2)))
     return (
-        f"You are writing the motion prompt for ONE {clip_s}-second video clip that passes "
-        f"through {n} storyboard frames, in order. Each frame image is attached as a reference "
-        f"whose name is the token below.\n\n"
-        "Write the clip as a SEQUENCE of timestamp cues:\n"
-        "  • Format: `[mm:ss] <what happens from this moment until the next cue>`. Always open "
-        f"at `[00:00]`, use about {n_cues} cues, and the last cue runs to the end of the clip.\n"
-        f"  • Refer to the frames by their EXACT tokens, in this order: {token_list}. Copy each "
-        "token character for character, keep the curly braces, and do not renumber, translate "
-        "or shorten them. Every token must appear at least once and the clip must reach the "
-        "LAST one before it ends.\n"
-        "  • Between two frames, describe the TRAVEL — the camera move (tracking back, pushing "
-        "in, arcing around, following from behind, craning up) and the subject's continuing "
-        "action that carries one composition into the next. This in-between is the whole point: "
-        "never just list the frames.\n"
-        "  • The frames already fix the look (costume, light, weather, place). Do NOT redescribe "
-        "the style or re-invent the setting — only what MOVES.\n"
-        "  • ONE continuous take: no cuts, no teleporting, no new characters.\n"
-        "  • Example shape (do not copy the content, and use THIS clip's tokens): `[00:00] "
-        "Opening on {sc001-s01-co-gai-trong-mua}, the camera tracks back as she walks toward "
-        "the gate through heavy rain, tightening to the medium framing of "
-        "{sc001-s02-nghieng-o-chan-mua} as she tilts the umbrella against the downpour. "
-        "[00:03] she reaches the gate and lowers the umbrella to pass under the arch "
-        "{sc001-s03-ha-o-qua-vom-cong}, the camera swinging behind her shoulder to follow her "
-        "into the dark vault {sc001-s04-di-duoi-vom-toi}.`\n"
+        f"You are the cinematographer for ONE {clip_s}-second continuous take. {n} storyboard "
+        "frames of this take are attached as reference images, in order — each is what the shot "
+        "LOOKS LIKE at one moment of it. Write the motion prompt for the whole take.\n\n"
+        f"{timeline}\n\n"
+        "USING THE FRAMES:\n"
+        f"  • Refer to a frame by its EXACT token, in this order: {token_list}. Copy each token "
+        "character for character, keep the curly braces, and do not renumber, translate or "
+        "shorten them — the braces are what binds the image to that moment. Every token must "
+        "appear at least once and the take must reach the LAST one before it ends.\n"
+        "  • A token is the LOOK of that moment, not an editing instruction. Write the moment "
+        "itself and let the token sit inside it. Never write stage directions about the frames "
+        "— no 'cut to', 'transition to', 'move to the next frame', 'tighten to the framing of', "
+        "no numbering or announcing them.\n"
+        "  • YOU decide the motion. Read what actually happens between these frames — the "
+        "action, the emotion, the space — and choose the camera behaviour that shot deserves, "
+        "including holding still when stillness is what it deserves. Do not reach for a stock "
+        "move, do not apply the same move to every clip, and do not invent motion merely to "
+        "fill the seconds. The frames tell you where the take has to pass through; how it gets "
+        "there is your call.\n"
+        "  • The frames already fix costume, light, weather and place. Do NOT restate the style "
+        "or re-invent the setting — only what MOVES.\n"
         + (f"\nVisual style (context only, do not restate): {style}.\n" if style else "")
         + (f"\nSCENE: {scene_heading}\n" if scene_heading else "")
         + f"\nFRAMES:\n{listing}\n\n"

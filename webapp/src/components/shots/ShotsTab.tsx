@@ -609,9 +609,9 @@ function ShotPanel({
             onBlur={save}
             placeholder={
               isClip
-                ? `[00:00] mở ở {${members[0].media_name || "sc001-s01-…"}}, máy lùi dần sang {${
+                ? `[00:00] … {${members[0].media_name || "sc001-s01-…"}} … [00:0X] … {${
                     members[1]?.media_name || "sc001-s02-…"
-                  }}…`
+                  }} …`
                 : "Motion prompt"
             }
             className={`w-full resize-none rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-sm outline-none focus:border-indigo-500 ${
@@ -620,9 +620,11 @@ function ShotPanel({
           />
           {isClip && (
             <p className="mt-1 text-[11px] text-neutral-500">
-              Prompt phải gọi ĐỦ {members.length} token <code>{"{sc…}"}</code> ở trên — dấu ngoặc
-              nhọn là thứ DUY NHẤT Flow bind ảnh vào (như <code>{"{handle}"}</code> của Node
-              Editor). Thiếu token nào thì lúc render server tự viết lại prompt.
+              Phải gọi ĐỦ {members.length} token <code>{"{sc…}"}</code> ở trên — ngoặc nhọn là thứ
+              DUY NHẤT Flow bind ảnh vào (như <code>{"{handle}"}</code> của Node Editor); thiếu
+              token nào thì lúc render server tự viết lại prompt. Token đánh dấu KHOẢNH KHẮC
+              trông ra sao, không phải lệnh cắt cảnh — chuyển động để AI tự chọn theo hành động,
+              đừng viết “cắt sang”, “máy lùi về frame 2”.
             </p>
           )}
         </div>

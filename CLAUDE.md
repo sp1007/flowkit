@@ -60,6 +60,11 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   ngoặc nhọn là cú pháp DUY NHẤT Flow bind (`flow_client._build_structured_parts`, cùng cơ chế
   `{handle}` của Node Editor) — viết kiểu khác thì ảnh vẫn đi kèm request nhưng model không
   biết khoảnh khắc nào thuộc reference nào. Vì thế `_slug` phải bỏ `{}` khỏi tên.
+- **Đừng kê sẵn chuyển động cho model.** `brain.clip_timeline_prompt` cố ý KHÔNG liệt kê nước
+  máy ("lùi dần", "đẩy vào"): đưa menu vào thì mọi clip ra cùng một khuôn và các frame biến
+  thành checklist để tick. Token chỉ đánh dấu khoảnh khắc TRÔNG ra sao, không phải lệnh cắt
+  cảnh; frame nói cú máy phải đi qua đâu, còn đi kiểu gì — kể cả đứng yên — là model tự chọn
+  theo hành động. Nhịp thời gian dùng chung khối `_OMNI_TIMELINE_HEAD` sẵn có.
 - `media_id` is always UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`), never `CAMS...`
 - The agent holds no state; all generation goes through the connected extension.
   If `extension_connected: false`, open Google Flow in Chrome with the extension loaded.
