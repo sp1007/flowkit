@@ -116,6 +116,9 @@ tham chiếu) → Storyboard (chia frame) → Shot (ảnh frame + video) → Gh�
   nhất** (bỏ lời đọc) và tổng thời lượng của nó quyết định độ dài video: hình ngắn hơn được
   **lặp lại** cho phủ kín, dài hơn thì cắt đúng lúc nhạc dứt. Quản lý ở tab **Nhạc** của dự
   án; khác hẳn nhạc nền một bài ở trên.
+- **Dùng lại nhạc đã có:** cả nhạc nền lẫn playlist đều chọn được bài **đã tải về ở dự án
+  khác** (`GET /library/music` → `POST …/music/copy` hoặc `…/bgm/copy`) — không tốn lượt sinh
+  và không phải chờ. File được CHÉP riêng cho từng dự án nên xoá bên này không hỏng bên kia.
 - **Xuất DaVinci Resolve XML (FCP7/xmeml):** track video + track title (caption) + track
   audio (lời đọc từng scene), kèm `captions.srt` (chạy được cả bản Resolve Free).
 - **Node Editor:** đồ thị tuỳ biến cho asset/shot (tạo ảnh → sửa ảnh → tạo video), có
@@ -141,7 +144,8 @@ Toàn bộ endpoint nằm dưới `/api/studio/*`. Nhóm chính (chi tiết tron
 | Storytelling | `POST /scenes/{sid}/beats`, `POST /projects/{pid}/voiceover`, `POST /shots/{sid}/narration` |
 | Node graph | `GET/PUT /shots/{sid}/graph`, `POST /shots/{sid}/graph/run` (tương tự cho `/entities/{eid}/graph`) |
 | Ghép & Xuất | `POST /projects/{pid}/assemble`, `…/assemble-images`, `…/export`, `…/export/davinci-xml`, `GET /fonts` |
-| Playlist nhạc (music video) | `GET /projects/{pid}/music`, `PATCH …/music/settings` (bật chế độ + khoảng cách bài), `POST …/music/upload`, `…/music/generate`, `…/music/add`, `…/music/reorder`, `PATCH/DELETE /music-tracks/{tid}` |
+| Playlist nhạc (music video) | `GET /projects/{pid}/music`, `PATCH …/music/settings` (bật chế độ + khoảng cách bài), `POST …/music/upload`, `…/music/generate`, `…/music/add`, `…/music/copy` (chép bài đã tải về), `…/music/reorder`, `PATCH/DELETE /music-tracks/{tid}` |
+| Thư viện nhạc | `GET /library/music` (mọi bài đã tải về của mọi dự án — nguồn cho `music/copy` + `bgm/copy`) |
 | Nhạc nền | `POST /projects/{pid}/bgm` (upload), `POST …/bgm/copy` (chép từ dự án khác), `POST …/bgm/generate` (sinh bằng Flow Music), `POST …/bgm/select` (áp 1 bài đã sinh/có sẵn), `DELETE /projects/{pid}/bgm` |
 
 ---

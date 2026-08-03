@@ -6,19 +6,24 @@ import {
   type MusicSong,
   type MusicStatus,
   type MusicConversation,
+  type LibraryMusic,
 } from "../../api/client";
 import { useConfirm } from "../common/Confirm";
 
-// Sinh/quản lý nhạc bằng Flow Music: tạo mới (1 hoặc 2 bản A/B, nghe thử rồi chọn), hoặc
-// chọn lại 1 bài đã tạo trước đó trong tài khoản flowmusic.app (kèm xoá).
+// Sinh/chọn nhạc. Ba nguồn, dùng chung màn hình này:
+//   "new"     — sinh mới bằng Flow Music (1 hoặc 2 bản A/B, nghe thử rồi chọn).
+//   "library" — bài đã tạo trước đó trong TÀI KHOẢN flowmusic.app (kèm xoá). Phải tải về.
+//   "local"   — bài ĐÃ TẢI VỀ ở dự án khác trong kho studio. Chép thẳng, không cần mạng,
+//               không tốn lượt sinh — nguồn rẻ nhất và thường là thứ người dùng muốn.
 //
-// Hai chế độ dùng chung màn hình này:
+// Hai chế độ:
 //   "bgm"      — chọn MỘT bài làm nhạc nền chìm dưới lời đọc, chọn xong đóng luôn.
 //   "playlist" — thêm bài vào playlist music video; chọn xong KHÔNG đóng để thêm tiếp bài kế.
 export default function MusicManager({
   project,
   volume,
   mode = "bgm",
+  initialTab = "new",
   onApplied,
   onTracks,
   onClose,
@@ -26,11 +31,12 @@ export default function MusicManager({
   project: Project;
   volume: number;
   mode?: "bgm" | "playlist";
+  initialTab?: "new" | "library" | "local";
   onApplied?: (p: Project) => void;
   onTracks?: (s: MusicStatus) => void;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<"new" | "library">("new");
+  const [tab, setTab] = useState<"new" | "library" | "local">(initialTab);
   const [err, setErr] = useState<string | null>(null);
   const [added, setAdded] = useState<string | null>(null);
 
@@ -84,6 +90,45 @@ export default function MusicManager({
       setBusy(false);
     }
   };
+
+  // ── Đã tải về (kho studio, mọi dự án) ────────────────────
+  const [local, setLocal] = useState<LibraryMusic[] | null>(null);
+  const [localBusy, setLocalBusy] = useState(false);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    if (tab !== "local" || local !== null) return;
+    setLocalBusy(true);
+    api
+      .libraryMusic()
+      .then((r) => setLocal(r.music))
+      .catch((e) => setErr(e.message))
+      .finally(() => setLocalBusy(false));
+  }, [tab, local]);
+
+  // Chép bài đã có sang dự án này. Bản sao riêng: xoá ở dự án này không đụng dự án nguồn.
+  const copy = async (m: LibraryMusic) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (mode === "playlist") {
+        onTracks?.(await api.copyTrack(project.id, m.path, m.title));
+        setAdded(m.title || "(không tên)");
+      } else {
+        onApplied?.(await api.copyBgm(project.id, m.path, volume));
+        onClose();
+      }
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const localHits = (local ?? []).filter((m) => {
+    const s = q.trim().toLowerCase();
+    return !s || m.title.toLowerCase().includes(s) || m.project_title.toLowerCase().includes(s);
+  });
 
   // ── Bài đã tạo ───────────────────────────────────────────
   const [convos, setConvos] = useState<MusicConversation[] | null>(null);
@@ -162,10 +207,16 @@ export default function MusicManager({
             Tạo mới
           </button>
           <button
+            onClick={() => setTab("local")}
+            className={`px-3 py-2 text-sm ${tab === "local" ? "border-b-2 border-indigo-500 text-neutral-100" : "text-neutral-500 hover:text-neutral-300"}`}
+          >
+            Đã tải về
+          </button>
+          <button
             onClick={() => setTab("library")}
             className={`px-3 py-2 text-sm ${tab === "library" ? "border-b-2 border-indigo-500 text-neutral-100" : "text-neutral-500 hover:text-neutral-300"}`}
           >
-            Bài đã tạo
+            Trên Flow Music
           </button>
         </div>
 
@@ -211,6 +262,57 @@ export default function MusicManager({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {tab === "local" && (
+            <div className="space-y-2">
+              <p className="text-xs text-neutral-500">
+                Nhạc đã tải về ở các dự án khác — chép sang dùng luôn, không tốn lượt sinh và
+                không cần chờ. Bản chép là file riêng: xoá ở đây không đụng dự án nguồn.
+              </p>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Tìm theo tên bài hoặc tên dự án…"
+                className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-indigo-500 focus:outline-none"
+              />
+              {localBusy && <p className="text-sm text-neutral-500">Đang tải…</p>}
+              {local && local.length === 0 && (
+                <p className="text-sm text-neutral-500">
+                  Chưa dự án nào có nhạc đã tải về. Sinh một bài ở tab “Tạo mới” trước.
+                </p>
+              )}
+              {local && local.length > 0 && localHits.length === 0 && (
+                <p className="text-sm text-neutral-500">Không có bài nào khớp “{q}”.</p>
+              )}
+              {localHits.map((m) => (
+                <div
+                  key={`${m.kind}-${m.path}`}
+                  className="rounded-lg border border-neutral-700 bg-neutral-900 p-3"
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm font-medium text-neutral-200">
+                      {m.title || "(không tên)"}
+                    </span>
+                    <span
+                      className="shrink-0 text-xs text-neutral-600"
+                      title={m.kind === "bgm" ? "Nhạc nền của dự án đó" : "Bài trong playlist dự án đó"}
+                    >
+                      {m.kind === "bgm" ? "🎵 nhạc nền" : "🎧 playlist"}
+                    </span>
+                  </div>
+                  <p className="mb-1.5 truncate text-xs text-neutral-500">{m.project_title}</p>
+                  {m.web_path && <audio controls src={m.web_path} className="h-8 w-full" />}
+                  <button
+                    onClick={() => copy(m)}
+                    disabled={busy}
+                    className="mt-2 w-full rounded-md bg-indigo-600/20 px-3 py-1.5 text-xs font-medium text-indigo-300 hover:bg-indigo-600/30 disabled:opacity-40"
+                  >
+                    {mode === "playlist" ? "＋ Thêm vào playlist" : "✓ Dùng bài này làm nhạc nền"}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 

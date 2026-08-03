@@ -49,7 +49,8 @@ export default function ProjectSettings({
       choices: { value: string; label: string }[] } | null>(null);
   const [upscaleRes, setUpscaleRes] = useState<string>(project.upscale_res ?? "");
   const [seed, setSeed] = useState<number>(project.seed ?? 0);
-  const [showMusicManager, setShowMusicManager] = useState(false);
+  // Tab mở sẵn của bộ chọn nhạc; null = đang đóng.
+  const [showMusicManager, setShowMusicManager] = useState<"new" | "local" | null>(null);
   const [bgmPath, setBgmPath] = useState(project.bgm_path ?? null);
   const [bgmVol, setBgmVol] = useState(project.bgm_volume ?? 0.18);
   const [bgmDuck, setBgmDuck] = useState<boolean>(project.bgm_duck == null ? true : !!project.bgm_duck);
@@ -606,7 +607,7 @@ export default function ProjectSettings({
               <div className="flex items-center justify-between rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm">
                 <span className="truncate text-neutral-200">🎵 {bgmName}</span>
                 <div className="ml-2 flex shrink-0 gap-3">
-                  <button onClick={() => setShowMusicManager(true)} disabled={busy}
+                  <button onClick={() => setShowMusicManager("local")} disabled={busy}
                     className="text-indigo-400 hover:text-indigo-300 disabled:opacity-40">
                     Đổi bài
                   </button>
@@ -617,16 +618,24 @@ export default function ProjectSettings({
                 </div>
               </div>
             ) : (
-              <div className="flex gap-2">
-                <label className="flex flex-1 cursor-pointer items-center justify-center rounded-lg border border-dashed border-neutral-700 px-3 py-3 text-sm text-neutral-400 hover:border-indigo-500 hover:text-neutral-200">
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-neutral-700 px-3 py-3 text-sm text-neutral-400 hover:border-indigo-500 hover:text-neutral-200">
                   {busy ? "Đang tải…" : "＋ Chọn file nhạc"}
                   <input type="file" accept="audio/*" className="hidden"
                     onChange={(e) => onPickBgm(e.target.files?.[0])} />
                 </label>
-                <button type="button" onClick={() => setShowMusicManager(true)} disabled={busy}
-                  className="flex-1 rounded-lg border border-dashed border-neutral-700 px-3 py-3 text-sm text-neutral-400 hover:border-indigo-500 hover:text-neutral-200 disabled:opacity-40">
-                  🎧 Sinh bằng Flow Music
-                </button>
+                <div className="flex gap-2">
+                  {/* Nhạc đã tải về ở dự án khác là đường rẻ nhất (không tốn lượt sinh,
+                      không phải chờ) nên đứng trước nút sinh mới. */}
+                  <button type="button" onClick={() => setShowMusicManager("local")} disabled={busy}
+                    className="flex-1 rounded-lg border border-dashed border-neutral-700 px-3 py-3 text-sm text-neutral-400 hover:border-indigo-500 hover:text-neutral-200 disabled:opacity-40">
+                    🎵 Chọn nhạc đã có
+                  </button>
+                  <button type="button" onClick={() => setShowMusicManager("new")} disabled={busy}
+                    className="flex-1 rounded-lg border border-dashed border-neutral-700 px-3 py-3 text-sm text-neutral-400 hover:border-indigo-500 hover:text-neutral-200 disabled:opacity-40">
+                    🎧 Sinh nhạc mới
+                  </button>
+                </div>
               </div>
             )}
             <div className="mt-2 flex items-center gap-3">
@@ -715,12 +724,13 @@ export default function ProjectSettings({
         <MusicManager
           project={project}
           volume={bgmVol}
+          initialTab={showMusicManager}
           onApplied={(updated) => {
             setBgmPath(updated.bgm_path ?? null);
             if (updated.bgm_volume != null) setBgmVol(updated.bgm_volume);
             onSaved(updated);
           }}
-          onClose={() => setShowMusicManager(false)}
+          onClose={() => setShowMusicManager(null)}
         />
       )}
     </div>

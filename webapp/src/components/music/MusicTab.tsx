@@ -20,7 +20,8 @@ export default function MusicTab({ project }: { project: Project }) {
   const [st, setSt] = useState<MusicStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [picker, setPicker] = useState(false);
+  // Tab mở sẵn của bộ chọn nhạc; null = đang đóng.
+  const [picker, setPicker] = useState<"new" | "local" | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const confirm = useConfirm();
 
@@ -152,7 +153,7 @@ export default function MusicTab({ project }: { project: Project }) {
         <div className="space-y-2">
           {tracks.length === 0 && (
             <p className="rounded-xl border border-dashed border-neutral-800 px-4 py-8 text-center text-sm text-neutral-500">
-              Chưa có bài nào. Thêm nhạc bằng hai nút bên dưới — thứ tự trong danh sách là thứ
+              Chưa có bài nào. Thêm nhạc bằng các nút bên dưới — thứ tự trong danh sách là thứ
               tự phát.
             </p>
           )}
@@ -228,12 +229,22 @@ export default function MusicTab({ project }: { project: Project }) {
               onChange={(e) => upload(e.target.files?.[0])}
             />
           </label>
+          {/* Tách làm hai nút: "chọn bài đã có" trước đây nằm khuất trong tab thứ hai của
+              popup nên gần như không ai thấy, dù đó mới là đường rẻ nhất (không tốn lượt
+              sinh, không phải chờ 30–70s). */}
           <button
-            onClick={() => setPicker(true)}
+            onClick={() => setPicker("local")}
             disabled={busy}
             className="flex-1 rounded-lg border border-dashed border-neutral-700 px-3 py-3 text-sm text-neutral-400 hover:border-indigo-500 hover:text-neutral-200 disabled:opacity-40"
           >
-            🎧 Sinh / chọn bằng Flow Music
+            🎵 Chọn nhạc đã có
+          </button>
+          <button
+            onClick={() => setPicker("new")}
+            disabled={busy}
+            className="flex-1 rounded-lg border border-dashed border-neutral-700 px-3 py-3 text-sm text-neutral-400 hover:border-indigo-500 hover:text-neutral-200 disabled:opacity-40"
+          >
+            🎧 Sinh nhạc mới
           </button>
         </div>
 
@@ -248,8 +259,9 @@ export default function MusicTab({ project }: { project: Project }) {
           project={project}
           volume={0}
           mode="playlist"
+          initialTab={picker}
           onTracks={setSt}
-          onClose={() => setPicker(false)}
+          onClose={() => setPicker(null)}
         />
       )}
     </div>

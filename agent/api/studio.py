@@ -534,12 +534,11 @@ async def all_flow_media(images_only: bool = True):
 
 # ─── Studio projects (DB) ───────────────────────────────────
 
-@router.get("/projects")
-async def list_projects():
-    """Chỉ dự án của tài khoản Flow đang đăng nhập (+ dự án chưa có chủ).
+async def _my_projects() -> tuple[list[dict], Optional[str]]:
+    """Các dự án tài khoản Flow đang đăng nhập được thấy (+ dự án chưa có chủ), kèm id tài khoản.
 
-    Chưa xác định được tài khoản → trả hết kèm `account: null` để webapp hiện cảnh báo, thay
-    vì để người dùng nhìn danh sách trống khi extension rớt."""
+    Chưa xác định được tài khoản → trả HẾT kèm `account=None` để webapp hiện cảnh báo, thay vì
+    để người dùng nhìn danh sách trống khi extension rớt."""
     me = await accounts.current_id()
     if me and await accounts.multi_account():
         rows = await db.query_all(
@@ -547,6 +546,13 @@ async def list_projects():
             "ORDER BY updated_at DESC", (me,))
     else:
         rows = await db.query_all("SELECT * FROM project ORDER BY updated_at DESC")
+    return rows, me
+
+
+@router.get("/projects")
+async def list_projects():
+    """Chỉ dự án của tài khoản Flow đang đăng nhập (+ dự án chưa có chủ)."""
+    rows, me = await _my_projects()
     return {"projects": rows, "account": me}
 
 
@@ -4438,6 +4444,73 @@ async def add_track_from_url(pid: str, body: AddTrackRequest):
     dest = await _download_track(pid, body.audio_url)
     await music_mod.add_track(pid, dest, title=body.title or dest.stem,
                               source="flowmusic", audio_url=body.audio_url)
+    return await music_status(pid)
+
+
+class CopyTrackRequest(BaseModel):
+    source: str                       # đường dẫn file nhạc đã có trong kho studio
+    title: Optional[str] = None
+
+
+@router.get("/library/music")
+async def library_music():
+    """Mọi bài nhạc ĐÃ TẢI VỀ trong kho studio, gom từ tất cả dự án.
+
+    Sinh một bài mất 30–70s và tốn lượt Flow Music, nên nhạc đã dùng ở dự án khác đáng được
+    dùng lại thay vì sinh/tải lại. Gồm cả hai kiểu: `bgm` (bài trộn chìm của một dự án) và
+    `track` (bài trong playlist music video) — xem CLAUDE.md về khác biệt giữa chúng.
+    """
+    projects, _ = await _my_projects()
+    titles = {p["id"]: p.get("title") or "(không tên)" for p in projects}
+    out: list[dict] = []
+    for p in projects:
+        bgm = (p.get("bgm_path") or "").strip()
+        if bgm and Path(bgm).is_file():
+            out.append({
+                "kind": "bgm", "project_id": p["id"], "project_title": titles[p["id"]],
+                # File bgm luôn tên "bgm.<ext>" nên tên file không nói lên gì — lấy tên dự án
+                # làm nhãn, đó là thứ duy nhất phân biệt được các bài này với nhau.
+                "title": titles[p["id"]], "path": bgm,
+                "web_path": music_mod.web_path({"path": bgm}), "duration": None,
+            })
+    rows = await db.query_all(
+        "SELECT * FROM music_track WHERE project_id IN "
+        f"({','.join('?' * len(projects)) or 'NULL'}) ORDER BY created_at DESC",
+        tuple(p["id"] for p in projects)) if projects else []
+    for r in rows:
+        path = (r.get("path") or "").strip()
+        if not path or not Path(path).is_file():
+            continue          # bài đã bị xoá file — đừng chào mời thứ không chép được
+        out.append({
+            "kind": "track", "project_id": r["project_id"],
+            "project_title": titles.get(r["project_id"], "(không tên)"),
+            "title": r.get("title") or Path(path).stem, "path": path,
+            "web_path": music_mod.web_path(r), "duration": r.get("duration"),
+        })
+    return {"music": out}
+
+
+@router.post("/projects/{pid}/music/copy")
+async def copy_track(pid: str, body: CopyTrackRequest):
+    """Thêm vào playlist một bài ĐÃ TẢI VỀ ở dự án khác (nguồn từ `GET /library/music`).
+
+    CHÉP file chứ không trỏ chung đường dẫn, cùng lý do với `bgm/copy`: xoá bài ở dự án này
+    không được phép làm hỏng playlist của dự án kia."""
+    await _project_or_404(pid)
+    src = Path(body.source)
+    # Chỉ nhận nguồn nằm trong kho media của studio — đây là đường dẫn do client gửi lên,
+    # không được biến nó thành đường đọc file tuỳ ý trên máy.
+    try:
+        src.resolve().relative_to(assembler.STUDIO_MEDIA_DIR.resolve())
+    except ValueError:
+        raise HTTPException(400, "Nguồn nhạc nằm ngoài kho media của studio")
+    if not src.is_file():
+        raise HTTPException(404, "Không tìm thấy file nhạc nguồn")
+    out_dir = music_mod.track_dir(pid)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / f"{db.new_id()}{src.suffix.lower() or '.m4a'}"
+    await asyncio.to_thread(shutil.copyfile, src, dest)
+    await music_mod.add_track(pid, dest, title=body.title or src.stem, source="copy")
     return await music_status(pid)
 
 

@@ -85,10 +85,23 @@ export interface MusicTrack {
   title: string;
   path: string;
   duration: number;
-  source: string; // flowmusic | upload
+  source: string; // flowmusic | upload | copy
   audio_url: string | null;
   /** /studio-media/... — phát trực tiếp trong trình duyệt. */
   web_path: string | null;
+}
+
+/** Một bài nhạc ĐÃ TẢI VỀ trong kho studio (của bất kỳ dự án nào) — nguồn để dùng lại. */
+export interface LibraryMusic {
+  /** "bgm" = bài trộn chìm của một dự án; "track" = bài trong playlist music video. */
+  kind: "bgm" | "track";
+  project_id: string;
+  project_title: string;
+  title: string;
+  /** Đường dẫn tuyệt đối — gửi lại nguyên si khi copy. */
+  path: string;
+  web_path: string | null;
+  duration: number | null;
 }
 
 /** Playlist + đối chiếu thời lượng nhạc với thời lượng hình. */
@@ -257,6 +270,14 @@ export const api = {
     req<MusicStatus>(`/projects/${id}/music/add`, {
       method: "POST",
       body: JSON.stringify({ audio_url: audioUrl, title }),
+    }),
+  // Nhạc đã tải về của MỌI dự án — dùng lại thay vì sinh/tải lại (mất 30–70s + 1 lượt).
+  libraryMusic: () => req<{ music: LibraryMusic[] }>("/library/music"),
+  // Chép 1 bài trong kho studio vào playlist dự án này (bản sao riêng, xoá không ảnh hưởng nhau).
+  copyTrack: (id: string, source: string, title?: string | null) =>
+    req<MusicStatus>(`/projects/${id}/music/copy`, {
+      method: "POST",
+      body: JSON.stringify({ source, title }),
     }),
   reorderTracks: (id: string, ids: string[]) =>
     req<MusicStatus>(`/projects/${id}/music/reorder`, {
