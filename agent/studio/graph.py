@@ -525,13 +525,21 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                 # Shot frame: single-frame guard (don't copy the location grid layout) so a
                 # node-built frame matches the storyboard table.
                 img_prompt = brain.compose_prompt(project, body, single_frame=(kind == "shot"))
+            # Ảnh nối vào node này là ảnh người dùng CỐ Ý đưa vào, nên phải được bind vào
+            # structuredPrompt kể cả khi prompt không gọi tên nó — không thì Flow chỉ nhận nó
+            # như một imageInput vô danh và trả về ảnh chẳng liên quan gì tới ảnh tham chiếu.
+            if inp["references"]:
+                logger.info("image node %s: %d reference (%s)", nid, len(inp["references"]),
+                            ", ".join(f"{r.get('handle')}={r.get('media_id')}"
+                                      for r in inp["references"]))
             mid, web = await _img_gen_retry(lambda: client.generate_images(
                 prompt=img_prompt,
                 project_id=flow_pid,
                 aspect_ratio=_img_aspect(project, data),
                 user_paygate_tier=project["paygate_tier"],
                 references=inp["references"] or None,
-                image_model=_img_model(project, data)), pid)
+                image_model=_img_model(project, data),
+                bind_unreferenced=True), pid)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "png",
                             "handle": _handle_of(data, "image")}
 
@@ -609,11 +617,15 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             # Like editImage: the instruction goes in VERBATIM (no compose_prompt). Style /
             # culture / header / footer would fight the two source pictures and repaint the
             # subject — an edit must only do what it was told.
+            # rb_prompt gọi hai ảnh bằng lời ("first/second reference image") chứ không bằng
+            # token {subject}/{background}, nên nếu không bind thì cả hai đi lên dưới dạng vô
+            # danh và model dựng ra một ảnh mới thay vì ghép đúng hai ảnh này.
             mid, web = await _img_gen_retry(lambda: client.generate_images(
                 prompt=rb_prompt,
                 project_id=flow_pid, aspect_ratio=_img_aspect(project, data),
                 user_paygate_tier=project["paygate_tier"],
-                references=seen_rb[:10], image_model=_img_model(project, data)), pid)
+                references=seen_rb[:10], image_model=_img_model(project, data),
+                bind_unreferenced=True), pid)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "png",
                             "handle": _handle_of(data, "image")}
 

@@ -60,6 +60,15 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   ngoặc nhọn là cú pháp DUY NHẤT Flow bind (`flow_client._build_structured_parts`, cùng cơ chế
   `{handle}` của Node Editor) — viết kiểu khác thì ảnh vẫn đi kèm request nhưng model không
   biết khoảnh khắc nào thuộc reference nào. Vì thế `_slug` phải bỏ `{}` khỏi tên.
+- **Reference không được prompt gọi tên = coi như không có.** `imageInputs` chỉ đính ảnh vào
+  request; thứ thật sự khiến model bám theo ảnh là reference part trong `structuredPrompt`, mà
+  `_build_structured_parts` chỉ tạo cho `{handle}` XUẤT HIỆN trong prompt. Ảnh gửi kèm nhưng
+  không được gọi tên thì kết quả trả về như một lượt sinh mới, chẳng liên quan gì tới ảnh tham
+  chiếu. `edit_image` xử lý bằng `base_part`; `generate_images` có cờ `bind_unreferenced=True`
+  cho nơi BIẾT CHẮC ảnh phải được bám vào (node "Tạo ảnh"/"Thay nền" của Node Editor — người
+  dùng nối ảnh vào là có chủ đích). ĐỪNG bật ở chỗ references chỉ là kho ứng viên để prompt tự
+  chọn theo tên (ảnh storyboard, candidates): bind một entity mà shot không nhắc tới là mời
+  model vẽ nhân vật đó vào khung hình.
 - **Đừng kê sẵn chuyển động cho model.** `brain.clip_timeline_prompt` cố ý KHÔNG liệt kê nước
   máy ("lùi dần", "đẩy vào"): đưa menu vào thì mọi clip ra cùng một khuôn và các frame biến
   thành checklist để tick. Token chỉ đánh dấu khoảnh khắc TRÔNG ra sao, không phải lệnh cắt

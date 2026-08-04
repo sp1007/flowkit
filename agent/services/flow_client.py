@@ -327,7 +327,8 @@ class FlowClient:
                                image_model: str = None,
                                seed: int = None,
                                batch_id: str = None,
-                               serialize: bool = True) -> dict:
+                               serialize: bool = True,
+                               bind_unreferenced: bool = False) -> dict:
         """Generate image(s).
 
         Two ways to attach character/entity references:
@@ -350,6 +351,16 @@ class FlowClient:
         overlap (the whole point of batching); the extension handles each request id + captcha
         independently, so concurrent image gens are safe.
 
+        `bind_unreferenced=True`: a reference the prompt never names still gets its own
+        reference part (prepended), instead of riding along as an anonymous `imageInputs`
+        entry. An unnamed reference is attached but NOT bound into `structuredPrompt`, and the
+        model then largely ignores it — the same failure `edit_image` fixes with its
+        `base_part`: the result comes back looking like a fresh, unreferenced generation. Use
+        it wherever the caller KNOWS the picture must be conditioned on (the Node Editor wires
+        an image in on purpose). Leave it off where references are a candidate pool the prompt
+        selects from by name — binding an entity the shot never mentions invites the model to
+        paint that character into the frame.
+
         Response structure:
             data.media[].name = mediaId (used for video gen)
         """
@@ -359,6 +370,18 @@ class FlowClient:
 
         if references:
             parts = _build_structured_parts(prompt, references)
+            if bind_unreferenced:
+                bound = {p["reference"]["media"]["mediaId"]
+                         for p in parts if "reference" in p}
+                extra = [{"reference": {"media": {"handle": r.get("handle") or "image",
+                                                  "mediaId": r["media_id"]}}}
+                         for r in references
+                         if r.get("media_id") and r["media_id"] not in bound]
+                if extra:
+                    logger.info("generate_images: bind %d reference chưa được prompt gọi tên (%s)",
+                                len(extra), ", ".join(
+                                    p["reference"]["media"]["handle"] for p in extra))
+                parts = extra + parts
             # imageInputs follow the reference order, de-duplicated.
             ref_ids = list(dict.fromkeys(r["media_id"] for r in references))
         else:
