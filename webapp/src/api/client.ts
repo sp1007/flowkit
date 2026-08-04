@@ -353,8 +353,11 @@ export const api = {
     ),
   addEntity: (id: string, body: Partial<Entity>) =>
     req<Entity>(`/projects/${id}/entities`, { method: "POST", body: JSON.stringify(body) }),
-  updateEntity: (eid: string, body: Partial<Entity>) =>
-    req<Entity>(`/entities/${eid}`, { method: "PATCH", body: JSON.stringify(body) }),
+  // `ref_media` đi lên dưới dạng MẢNG (server tự json hoá), khác cột chuỗi trong Entity.
+  updateEntity: (
+    eid: string,
+    body: Partial<Omit<Entity, "ref_media">> & { ref_media?: EntityRefMedia[] }
+  ) => req<Entity>(`/entities/${eid}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteEntity: (eid: string) =>
     req<{ ok: boolean }>(`/entities/${eid}`, { method: "DELETE" }),
   generateEntity: (eid: string) =>
@@ -472,7 +475,25 @@ export interface Entity {
   image_path: string | null;
   // Location entities: JSON list of extra angle views ({media_id, primary_media_id, path}).
   extra_media?: string | null;
+  // Ảnh MẪU (đầu VÀO) để ✦ bám theo khi sinh ảnh — JSON list [{media_id, name?}]. Khác
+  // `media_id` (ảnh kết quả) và `extra_media` (góc phụ sinh thêm của location).
+  ref_media?: string | null;
 }
+
+/** Một ảnh mẫu đính vào entity. `name` trở thành handle `{name}` bind trong prompt. */
+export interface EntityRefMedia {
+  media_id: string;
+  name?: string;
+}
+
+export const parseRefMedia = (s: string | null | undefined): EntityRefMedia[] => {
+  try {
+    const v = JSON.parse(s || "[]");
+    return Array.isArray(v) ? v.filter((m) => m && m.media_id) : [];
+  } catch {
+    return [];
+  }
+};
 
 export interface Shot {
   id: string;

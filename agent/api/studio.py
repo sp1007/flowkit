@@ -177,6 +177,8 @@ class UpdateEntityRequest(BaseModel):
     description: Optional[str] = None
     ref_prompt: Optional[str] = None
     type: Optional[str] = None
+    # Ảnh mẫu để ✦ bám theo: [{media_id, path?, name?}]. [] = gỡ hết.
+    ref_media: Optional[list[dict]] = None
 
 
 class SetMediaRequest(BaseModel):
@@ -1016,20 +1018,44 @@ async def _store_media_on_entity(entity: dict, project: dict, info: dict, label:
     return await _entity_or_404(entity["id"])
 
 
+def _entity_ref_media(entity: dict) -> list[dict]:
+    """Ảnh mẫu đã đính vào entity → [{handle, media_id}] để làm reference khi sinh ảnh."""
+    try:
+        items = json.loads(entity.get("ref_media") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    out, seen = [], set()
+    for i, m in enumerate(items if isinstance(items, list) else []):
+        mid = (m or {}).get("media_id")
+        if not mid or mid in seen:
+            continue
+        # Handle phải sạch `{}` — nó được gọi lại bằng token `{handle}` trong prompt.
+        name = str((m or {}).get("name") or "").replace("{", "").replace("}", "").strip()
+        out.append({"handle": name or f"ảnh mẫu {i + 1}", "media_id": mid})
+        seen.add(mid)
+    return out[:MAX_FRAME_REFS]
+
+
 async def _generate_entity_image(entity: dict, project: dict) -> dict:
     client = _require_extension()
+    refs = _entity_ref_media(entity)
     body = brain.ref_image_prompt(
         entity["type"], entity["name"],
-        entity.get("description") or entity.get("ref_prompt") or "")
+        entity.get("description") or entity.get("ref_prompt") or "",
+        ref_handles=[r["handle"] for r in refs])
     prompt = brain.compose_prompt(project, body)
     aspect = ("IMAGE_ASPECT_RATIO_LANDSCAPE" if entity["type"] in ("character", "prop", "location")
               else _to_image_aspect(project["aspect_ratio"]))
     model = await _resolve_image_model(project)
     tier = await _current_tier()
+    if refs:
+        logger.info("asset %s: %d ảnh mẫu (%s)", entity["name"], len(refs),
+                    ", ".join(f"{r['handle']}={r['media_id']}" for r in refs))
     row = await _generate_image_verified(
         gen_call=lambda: client.generate_images(
             prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
-            user_paygate_tier=tier, image_model=model, seed=project.get("seed")),
+            user_paygate_tier=tier, image_model=model, seed=project.get("seed"),
+            references=refs or None, bind_unreferenced=bool(refs)),
         store_call=lambda info: _store_media_on_entity(
             entity, project, info, f"{entity['type']}_{entity['name']}"),
         label_for_err=f"asset {entity['name']}")
@@ -1231,6 +1257,8 @@ async def add_entity(pid: str, body: AddEntityRequest):
 async def update_entity(eid: str, body: UpdateEntityRequest):
     await _entity_or_404(eid)
     data = body.model_dump(exclude_none=True)
+    if "ref_media" in data:
+        data["ref_media"] = json.dumps(data["ref_media"], ensure_ascii=False)
     data["updated_at"] = db.now()
     await db.update("entity", eid, data)
     return await _entity_or_404(eid)
@@ -1275,9 +1303,30 @@ async def link_entity_media(eid: str, body: LinkEntityRequest):
 
 
 @router.post("/entities/{eid}/generate")
-async def generate_entity(eid: str):
+async def generate_entity(eid: str, use_graph: bool = True):
+    """✦ Sinh ảnh cho entity.
+
+    Entity ĐÃ CÓ node graph thì chạy graph, không sinh lại từ chữ. Trước đây nút này luôn bỏ
+    qua graph, nên ai dựng sẵn ảnh tham chiếu trong Node Editor rồi quay ra bấm ✦ sẽ nhận về
+    một ảnh sinh thuần từ description — mọi thứ đã nối vào bị vứt đi mà không báo gì.
+    `use_graph=false` để ép sinh lại từ chữ."""
     entity = await _entity_or_404(eid)
     project = await _project_or_404(entity["project_id"])
+    graph = None
+    if use_graph and entity.get("graph_json"):
+        try:
+            g = json.loads(entity["graph_json"])
+            if (g.get("nodes") or []):
+                graph = g
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            graph = None      # graph hỏng → sinh từ chữ như cũ, đừng chặn người dùng
+    if graph:
+        try:
+            await graph_mod.run_graph(
+                graph, entity, {**project, "paygate_tier": await _current_tier()}, "entity")
+        except graph_mod.GraphError as e:
+            raise HTTPException(400, f"Chạy graph của asset thất bại: {e}")
+        return await _entity_or_404(eid)
     return await _generate_entity_image(entity, project)
 
 

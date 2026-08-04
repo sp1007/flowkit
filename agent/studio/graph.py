@@ -518,9 +518,12 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             if kind == "entity" and target.get("type"):
                 # Entity reference: apply the SAME per-type sheet rule as quick-gen so a
                 # node-built reference matches (e.g. a location comes out as the 2x2 grid,
-                # not a single plain view).
+                # not a single plain view). Ảnh đã nối vào node được GỌI TÊN trong prompt —
+                # khối sheet ("photoreal, cinematic, 2x2…") nói rất kỹ cách dựng khung, nên
+                # nếu không nói thẳng "bám theo ảnh này" thì model dễ vẽ ra một nơi khác hẳn.
                 img_prompt = brain.compose_prompt(project, brain.ref_image_prompt(
-                    target["type"], target.get("name") or "", body))
+                    target["type"], target.get("name") or "", body,
+                    ref_handles=[r.get("handle") for r in inp["references"]]))
             else:
                 # Shot frame: single-frame guard (don't copy the location grid layout) so a
                 # node-built frame matches the storyboard table.

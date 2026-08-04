@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   api,
   thumbUrl,
+  parseRefMedia,
   type Entity,
   type FlowMedia,
   type FlowProject,
@@ -40,7 +41,7 @@ export default function AssetsTab({
   const [candidate, setCandidate] = useState<Entity | null>(null);
   const [history, setHistory] = useState<Entity | null>(null);
   const [picker, setPicker] = useState<
-    { mode: "import" } | { mode: "link"; entity: Entity } | null
+    { mode: "import" } | { mode: "link"; entity: Entity } | { mode: "ref"; entity: Entity } | null
   >(null);
   const [err, setErr] = useState<string | null>(null);
   const confirm = useConfirm();
@@ -48,6 +49,26 @@ export default function AssetsTab({
 
   const load = () =>
     api.listEntities(project.id).then((r) => setEntities(r.entities)).catch(() => {});
+
+  // Đính một ảnh làm MẪU cho asset: ✦ sẽ bám theo nó thay vì vẽ lại từ mô tả. Tên ảnh thành
+  // handle `{tên}` trong prompt — đó là thứ Flow bind, nên đặt tên có nghĩa sẽ ăn hơn.
+  const addRefMedia = async (e: Entity, mediaId?: string | null, name?: string | null) => {
+    if (!mediaId) {
+      setErr("Ảnh này chưa có media_id trên Flow — không dùng làm mẫu được.");
+      return;
+    }
+    const cur = parseRefMedia(e.ref_media);
+    if (cur.some((m) => m.media_id === mediaId)) return;
+    await api.updateEntity(e.id, {
+      ref_media: [...cur, { media_id: mediaId, name: name || `ảnh mẫu ${cur.length + 1}` }],
+    });
+  };
+
+  // Gọi qua `wrap` (nó tự load lại) nên ở đây không reload.
+  const removeRefMedia = (e: Entity, mediaId: string) =>
+    api.updateEntity(e.id, {
+      ref_media: parseRefMedia(e.ref_media).filter((m) => m.media_id !== mediaId),
+    });
   useEffect(() => {
     load();
   }, [project.id]);
@@ -232,6 +253,8 @@ export default function AssetsTab({
                       : undefined
                   }
                   onDelete={() => wrap("del", () => api.deleteEntity(e.id))}
+                  onAddRef={() => setPicker({ mode: "ref", entity: e })}
+                  onRemoveRef={(mid) => wrap("ref", () => removeRefMedia(e, mid))}
                   onEdit={
                     onEdit
                       ? () =>
@@ -291,17 +314,23 @@ export default function AssetsTab({
           title={
             picker.mode === "link"
               ? `🔗 Tham chiếu vào "${picker.entity.name}"`
-              : "📚 Asset từ dự án khác"
+              : picker.mode === "ref"
+                ? `🖼 Ảnh mẫu cho "${picker.entity.name}"`
+                : "📚 Asset từ dự án khác"
           }
-          actionLabel={picker.mode === "link" ? "Tham chiếu" : "+ Dùng"}
+          actionLabel={
+            picker.mode === "link" ? "Tham chiếu" : picker.mode === "ref" ? "+ Làm mẫu" : "+ Dùng"
+          }
           onClose={() => setPicker(null)}
           onPickEntity={async (e) => {
             if (picker.mode === "link") await api.linkEntity(picker.entity.id, e.id);
+            else if (picker.mode === "ref") await addRefMedia(picker.entity, e.media_id, e.name);
             else await api.importEntity(project.id, e.id);
             await load();
           }}
           onPickMedia={async (m) => {
             if (picker.mode === "link") await api.setEntityImage(picker.entity.id, m.media_id);
+            else if (picker.mode === "ref") await addRefMedia(picker.entity, m.media_id, m.name);
             else await api.importMedia(project.id, { media_id: m.media_id, name: m.name || "Flow asset" });
             await load();
           }}
@@ -322,6 +351,8 @@ function AssetCard({
   onCover,
   onDelete,
   onEdit,
+  onAddRef,
+  onRemoveRef,
 }: {
   entity: Entity;
   generating: boolean;
@@ -333,7 +364,10 @@ function AssetCard({
   onCover?: () => void;
   onDelete: () => void;
   onEdit?: () => void;
+  onAddRef?: () => void;
+  onRemoveRef?: (mediaId: string) => void;
 }) {
+  const refs = parseRefMedia(entity.ref_media);
   return (
     <div className="group overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/50">
       <div className="relative">
@@ -399,6 +433,15 @@ function AssetCard({
               🔗
             </button>
           )}
+          {onAddRef && (
+            <button
+              onClick={onAddRef}
+              title="Thêm ẢNH MẪU — ⚡ sẽ vẽ bám theo ảnh này thay vì chỉ theo mô tả"
+              className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900/80 text-sm hover:bg-emerald-600"
+            >
+              🖼
+            </button>
+          )}
           {onEdit && (
             <button
               onClick={onEdit}
@@ -430,6 +473,29 @@ function AssetCard({
         <div className="truncate text-sm font-medium">{entity.name}</div>
         {entity.description && (
           <p className="mt-0.5 line-clamp-2 text-xs text-neutral-500">{entity.description}</p>
+        )}
+        {refs.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-neutral-600">Ảnh mẫu</span>
+            {refs.map((m) => (
+              <span
+                key={m.media_id}
+                title={`Prompt gọi ảnh này bằng token {${m.name || m.media_id}}`}
+                className="flex max-w-[9rem] items-center gap-1 rounded bg-emerald-950/50 px-1.5 py-0.5 text-[11px] text-emerald-300"
+              >
+                <span className="truncate">{m.name || m.media_id.slice(0, 8)}</span>
+                {onRemoveRef && (
+                  <button
+                    onClick={() => onRemoveRef(m.media_id)}
+                    title="Bỏ ảnh mẫu này"
+                    className="shrink-0 text-emerald-500 hover:text-rose-300"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
         )}
       </div>
     </div>

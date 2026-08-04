@@ -134,7 +134,7 @@ Toàn bộ endpoint nằm dưới `/api/studio/*`. Nhóm chính (chi tiết tron
 | Bảo trì | `POST /maintenance/purge-orphans?dry_run=false` (dọn dòng mồ côi trong DB) |
 | Dự án | `GET/POST /projects`, `GET/PATCH/DELETE /projects/{pid}`, `PUT /projects/{pid}/cover` |
 | Kịch bản | `POST /projects/{pid}/script/generate`, `PUT /projects/{pid}/script`, `POST …/script/chat`, `GET …/scenes` |
-| Nhân vật/Bối cảnh | `GET/POST /projects/{pid}/entities`, `…/entities/extract`, `…/assets/generate-all`, `PATCH/DELETE /entities/{eid}`, `…/entities/{eid}/generate` |
+| Nhân vật/Bối cảnh | `GET/POST /projects/{pid}/entities`, `…/entities/extract`, `…/assets/generate-all`, `PATCH/DELETE /entities/{eid}` (kèm `ref_media` = ảnh mẫu), `…/entities/{eid}/generate?use_graph=true` (có graph thì chạy graph) |
 | Thư viện asset | `GET /library/entities`, `GET /library/all-media`, `…/entities/import`, `…/entities/import-media` |
 | Storyboard | `POST /projects/{pid}/storyboard/generate-all`, `…/storyboard/autofill-all`, `POST /scenes/{sid}/storyboard/autofill`, `GET /projects/{pid}/storyboard/export` |
 | Shot | `GET/POST /scenes/{sid}/shots`, `PATCH/DELETE /shots/{sid}`, `…/shots/{sid}/image`, `…/video`, `…/video/resume`, `…/prompts`, `…/upscale`, `…/insert`, `POST /projects/{pid}/shots/generate-all` |

@@ -323,7 +323,8 @@ _SHEET = {
 LOCATION_GRID_LABELS = ["Toàn cảnh", "Góc ngược", "Trên cao", "Cận cảnh"]
 
 
-def ref_image_prompt(entity_type: str, name: str, description: str) -> str:
+def ref_image_prompt(entity_type: str, name: str, description: str,
+                     ref_handles: list[str] | None = None) -> str:
     """Build the (style-less) body of an entity's reference-art prompt.
 
     The entity NAME is a LIBRARY LABEL, not art direction, so it is no longer prefixed onto
@@ -332,10 +333,23 @@ def ref_image_prompt(entity_type: str, name: str, description: str) -> str:
     with a clothesline hung across the street even when the description said nothing of the
     sort. The name is only used as the body when there is no description at all.
     Trailing dots are trimmed so the rule doesn't get glued on after ".." either.
+
+    `ref_handles`: ảnh mẫu người dùng đính vào entity. Tên chúng được gọi bằng token `{…}` —
+    cú pháp DUY NHẤT Flow bind thành reference part; nói suông "the attached photo" thì ảnh đi
+    kèm request nhưng model không bám vào (xem CLAUDE.md).
     """
     base = ((description or "").strip() or (name or "").strip()).rstrip(" .")
     rule = _SHEET.get(entity_type) or "clean reference image"
-    return f"{base}. {rule}" if base else rule
+    out = f"{base}. {rule}" if base else rule
+    handles = [h for h in (ref_handles or []) if h]
+    if handles:
+        toks = ", ".join("{" + h + "}" for h in handles)
+        out += (f". Reproduce the SUBJECT SHOWN IN {toks} — this is the same place/person/"
+                "object, not merely an inspiration. Keep its architecture, materials, layout, "
+                "proportions, colours and distinguishing details exactly as they appear there; "
+                "the text above only says how to FRAME and light it. Where the text and the "
+                "reference disagree about what the subject looks like, the reference wins.")
+    return out
 
 
 # Cinematography spec injected into every shot-creating prompt so each frame's

@@ -69,6 +69,11 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   dùng nối ảnh vào là có chủ đích). ĐỪNG bật ở chỗ references chỉ là kho ứng viên để prompt tự
   chọn theo tên (ảnh storyboard, candidates): bind một entity mà shot không nhắc tới là mời
   model vẽ nhân vật đó vào khung hình.
+- **Asset có hai đầu vào ảnh, đừng lẫn.** `entity.ref_media` = ảnh MẪU người dùng đính vào để
+  ✦ vẽ bám theo (đầu VÀO); `entity.media_id` là ảnh KẾT QUẢ; `entity.extra_media` là các góc
+  phụ sinh thêm của location (đầu RA). Nút ✦ (`/entities/{eid}/generate`) chạy `graph_json`
+  nếu entity đã có graph — trước đây nó luôn sinh lại từ chữ nên ai dựng sẵn tham chiếu trong
+  Node Editor rồi bấm ✦ sẽ mất sạch mà không báo gì.
 - **Đừng kê sẵn chuyển động cho model.** `brain.clip_timeline_prompt` cố ý KHÔNG liệt kê nước
   máy ("lùi dần", "đẩy vào"): đưa menu vào thì mọi clip ra cùng một khuôn và các frame biến
   thành checklist để tick. Token chỉ đánh dấu khoảnh khắc TRÔNG ra sao, không phải lệnh cắt

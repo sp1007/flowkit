@@ -210,6 +210,10 @@ _MIGRATIONS = [
     # clips.HARD_MAX_CLIP_FRAMES = 6 vì clip dài nhất chỉ 10s; hạ xuống 2–3 khi hành động dày
     # và model không kịp chạm tới frame cuối. 0/NULL = mặc định.
     ("project", "clip_frames", "INTEGER DEFAULT 6"),
+    # Ảnh MẪU của entity: JSON list [{media_id, path, name}] người dùng đính vào để ✦ sinh ảnh
+    # BÁM THEO chúng (ảnh thật của địa điểm, ảnh diễn viên…). Khác `media_id` (ảnh KẾT QUẢ) và
+    # `extra_media` (các góc phụ sinh thêm của location) — đây là đầu VÀO, không phải đầu ra.
+    ("entity", "ref_media", "TEXT"),
 ]
 
 
