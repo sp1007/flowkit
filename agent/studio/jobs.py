@@ -126,6 +126,7 @@ class JobManager:
         finalize: Optional[Callable[[], Awaitable[None]]] = None,
         batch_size: int = 1,
         stagger: tuple[float, float] = (0.0, 0.0),
+        group_key: Optional[Callable[[object], object]] = None,
     ) -> Job:
         """Run `worker` over `items`. batch_size=1 → one at a time with `throttle` between
         items. batch_size>1 → process items in groups of that many CONCURRENTLY, each group
@@ -134,12 +135,18 @@ class JobManager:
 
         `stagger` (batch mode): spread each group's submits by up to index*random(stagger)
         seconds so they don't hit Flow at the exact same instant — enough to dodge the
-        anti-abuse 'unusual activity' heuristic while keeping most of the concurrency."""
+        anti-abuse 'unusual activity' heuristic while keeping most of the concurrency.
+
+        `group_key` (batch mode): một lô KHÔNG BAO GIỜ trộn hai item khác key — key đổi là cắt lô
+        mới. Dùng khi một nhóm item phải chạy xong trước nhóm sau (frame dẫn của scene phải có
+        ảnh trước, các frame còn lại mới neo vào nó được); sắp lại thứ tự `items` thôi không đủ
+        vì lô cắt cứng theo batch_size sẽ ôm cả item của nhóm sau vào cùng lô đầu."""
         job = Job(db.new_id(), project_id, type_, len(items), label)
         self._jobs[job.id] = job
         runner = self._run_batched if batch_size > 1 else self._run
         job.task = asyncio.create_task(
-            runner(job, items, worker, throttle, item_label, finalize, batch_size, stagger))
+            runner(job, items, worker, throttle, item_label, finalize, batch_size, stagger,
+                   group_key))
         return job
 
     async def _cooldown(self, job, throttle) -> None:
@@ -151,14 +158,30 @@ class JobManager:
 
     async def _run_batched(self, job, items, worker, throttle, item_label,
                            finalize=None, batch_size: int = 4,
-                           stagger: tuple[float, float] = (0.0, 0.0)) -> None:
+                           stagger: tuple[float, float] = (0.0, 0.0),
+                           group_key=None) -> None:
         """Fire items in concurrent groups of `batch_size`, each group sharing one Flow batch
         id, with a cooldown between groups — like the web UI's 4-image batch. Cuts wall-clock
-        time for large storyboards (400+ frames) roughly by the batch size."""
+        time for large storyboards (400+ frames) roughly by the batch size.
+
+        `group_key`: xem `start` — lô bị cắt thêm mỗi khi key đổi, nên hai nhóm không bao giờ
+        chạy chung một lô."""
         import uuid
         await self._broadcast(job)
         await self._persist(job)
-        groups = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+        if group_key is None:
+            groups = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+        else:
+            groups, cur, cur_key = [], [], None
+            for it in items:
+                k = group_key(it)
+                if cur and (k != cur_key or len(cur) >= batch_size):
+                    groups.append(cur)
+                    cur = []
+                cur_key = k
+                cur.append(it)
+            if cur:
+                groups.append(cur)
         for gi, group in enumerate(groups):
             if job.cancel.is_set():
                 job.status = "cancelled"
@@ -224,7 +247,8 @@ class JobManager:
 
     async def _run(self, job, items, worker, throttle, item_label,
                    finalize=None, batch_size: int = 1,
-                   stagger: tuple[float, float] = (0.0, 0.0)) -> None:
+                   stagger: tuple[float, float] = (0.0, 0.0),
+                   group_key=None) -> None:   # tuần tự thì không cần cắt lô
         await self._broadcast(job)
         await self._persist(job)
         for i, item in enumerate(items):

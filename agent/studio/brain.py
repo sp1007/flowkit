@@ -217,8 +217,32 @@ def cast_clause(names: list[str]) -> str:
             "background crowd or bystanders unless the text above explicitly asks for them")
 
 
+def scene_anchor_clause(handle: str) -> str:
+    """Neo frame này vào một frame ĐÃ VẼ của cùng scene.
+
+    Lưới location 2x2 là bốn ô nhỏ và model tự chọn một ô, nên mỗi frame vẫn là một lượt sinh
+    độc lập — không frame nào thấy pixel của frame khác, và chỉ cần chữ nghiêng đi một chút là
+    ra chỗ khác hẳn. Một frame THẬT của đúng scene này là neo mạnh hơn nhiều: nó đã chốt sẵn
+    con phố nào, ánh sáng nào, áo quần nào.
+
+    Handle phải là `shot.media_name` và phải được gọi bằng token `{…}` trong prompt — cú pháp
+    DUY NHẤT Flow bind thành reference part (xem CLAUDE.md)."""
+    if not handle:
+        return ""
+    return (
+        f"ANCHOR — {{{handle}}} is an already-rendered still of THIS VERY scene, a moment from "
+        "the same continuous take. IT, not the wording above, defines what this place and these "
+        "people look like: reuse its exact architecture, shopfronts, signage, street furniture, "
+        "materials and surfaces, its colour palette, time of day, weather and light direction, "
+        "and every character's exact costume, hair and accessories as seen there. This frame "
+        "shows the SAME place and the SAME moment-chain from THIS shot's own camera position — "
+        "so do NOT copy its framing, camera angle, shot size or poses, and never paste it in as "
+        "an inset, panel, split screen or picture-in-picture")
+
+
 def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
-                   single_frame: bool = False, cast: list[str] | None = None) -> str:
+                   single_frame: bool = False, cast: list[str] | None = None,
+                   anchor: str | None = None) -> str:
     """Assemble the final image/video prompt for a project.
 
     Order: [prompt_header] → style (always first of the visual terms) + culture_hint →
@@ -230,6 +254,9 @@ def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
     `single_frame=True` (shot frames only) appends a guard so the model renders one coherent
     photograph instead of copying the entity reference SHEETS (incl. the 2x2 location grid).
     `cast`: tên các nhân vật frame này thật sự có — xem `cast_clause`.
+    `anchor`: media_name của một frame đã vẽ trong cùng scene — xem `scene_anchor_clause`.
+    Khối ANCHOR đứng NGAY SAU body và TRƯỚC single-frame guard: guard nói "chữ lệch ảnh thì ảnh
+    thắng", nên neo phải có mặt trước đó để câu ấy trỏ được vào nó.
     """
     style = (project.get("style") or "").strip()
     header = (project.get("prompt_header") or "").strip()
@@ -237,8 +264,8 @@ def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
     culture = (project.get("culture_hint") or "").strip() if include_culture else ""
     lead = ", ".join(p for p in (style, culture) if p)
     guard = _SINGLE_FRAME if single_frame else ""
-    parts = [header, lead, (body or "").strip(), guard, cast_clause(cast or []),
-             footer, _image_text_clause(project)]
+    parts = [header, lead, (body or "").strip(), scene_anchor_clause(anchor or ""), guard,
+             cast_clause(cast or []), footer, _image_text_clause(project)]
     return ". ".join(p for p in parts if p)
 
 

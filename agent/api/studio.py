@@ -1475,10 +1475,13 @@ async def _next_shot_idx(scene_id: str) -> int:
     return (row["m"] + 1) if row and row["m"] is not None else 0
 
 
-async def _build_frame_references(shot: dict, scene: dict) -> list[dict]:
+async def _build_frame_references(shot: dict, scene: dict, reserve: int = 0) -> list[dict]:
     """Resolve shot ref entities (+ scene location) → references list, location first, capped at
     MAX_FRAME_REFS. Flow rejects a generate request with more than 8 reference images (HTTP 400),
-    so we keep the location + the most relevant characters/props and drop the overflow."""
+    so we keep the location + the most relevant characters/props and drop the overflow.
+
+    `reserve`: số chỗ chừa lại trong trần 8 cho reference không phải entity (frame neo của
+    scene) — không chừa thì một shot đủ 8 entity sẽ đẩy request lên 9 ảnh và Flow trả 400."""
     try:
         ids = json.loads(shot.get("ref_entity_ids") or "[]")
     except (json.JSONDecodeError, TypeError):
@@ -1497,9 +1500,30 @@ async def _build_frame_references(shot: dict, scene: dict) -> list[dict]:
         if e and e.get("media_id") and e["media_id"] not in seen:
             refs.append({"handle": e["name"], "media_id": e["media_id"]})
             seen.add(e["media_id"])
-        if len(refs) >= MAX_FRAME_REFS:
+        if len(refs) >= max(1, MAX_FRAME_REFS - reserve):
             break
     return refs
+
+
+async def _scene_anchor(shot: dict, scene: dict) -> dict | None:
+    """Frame đã vẽ SỚM NHẤT của scene → reference neo cho các frame sau nó.
+
+    Mỗi frame vốn là một lượt sinh độc lập, neo duy nhất là lưới location 2x2 (bốn ô nhỏ, model
+    tự chọn một ô) — nên hai frame liền nhau vẫn có thể ra hai nơi khác hẳn. Neo cả scene vào
+    MỘT frame thật giữ được phần lớn tốc độ (các frame sau vẫn chạy song song, chỉ cần frame
+    dẫn xong trước) mà vẫn cho mọi frame chung một con phố, một ánh sáng, một bộ đồ.
+
+    Trả None cho chính frame dẫn, và cho frame nào đứng TRƯỚC nó (neo phải là ảnh đã tồn tại,
+    không phải một frame sau này mới vẽ)."""
+    lead = await db.query_one(
+        "SELECT id, idx, media_name, image_media_id FROM shot WHERE scene_id=? "
+        "AND image_media_id IS NOT NULL ORDER BY idx LIMIT 1", (scene["id"],))
+    if not lead or lead["id"] == shot["id"] or lead["idx"] >= shot.get("idx", 0):
+        return None
+    handle = (lead.get("media_name") or "").strip()
+    if not handle:
+        return None
+    return {"handle": handle, "media_id": lead["image_media_id"]}
 
 
 async def _frame_cast(scene: dict, text: str) -> list[str]:
@@ -1568,10 +1592,14 @@ async def _generate_frame_image(shot: dict, batch_id: str = None) -> dict:
     scene = await _scene_or_404(shot["scene_id"])
     project = await _project_or_404(scene["project_id"])
     client = _require_extension()
-    refs = await _build_frame_references(shot, scene)
+    anchor = await _scene_anchor(shot, scene)
+    refs = await _build_frame_references(shot, scene, reserve=1 if anchor else 0)
+    if anchor and all(r["media_id"] != anchor["media_id"] for r in refs):
+        refs.append(anchor)
     body = shot.get("description") or shot.get("title") or ""
     prompt = brain.compose_prompt(project, body, single_frame=True,
-                                  cast=await _frame_cast(scene, body))
+                                  cast=await _frame_cast(scene, body),
+                                  anchor=anchor["handle"] if anchor else None)
     aspect = _to_image_aspect(project["aspect_ratio"])
     model = await _resolve_image_model(project)
     tier = await _current_tier()
@@ -3075,8 +3103,20 @@ async def generate_project_images(pid: str, force: bool = False):
 def _start_image_job(pid: str, shots: list[dict], force: bool, type_: str) -> dict:
     """Enqueue a background job that generates storyboard frame images (§9). Frames are
     generated in concurrent batches (IMAGE_BATCH_SIZE sharing one Flow batch id) with a cooldown
-    between batches, so a 400-frame storyboard finishes ~batch-fold faster than one-at-a-time."""
+    between batches, so a 400-frame storyboard finishes ~batch-fold faster than one-at-a-time.
+
+    Frame DẪN của mỗi scene (idx nhỏ nhất) được đẩy lên chạy trước tất cả các frame còn lại: các
+    frame sau neo vào nó qua `_scene_anchor`, mà neo chỉ tồn tại khi ảnh dẫn đã có trong DB. Đây
+    là lý do thứ tự chạy không còn khớp thứ tự bảng — vẫn song song như cũ, chỉ là hai đợt."""
     todo = [s for s in shots if force or not s.get("image_path")]
+    lead_ids = set()
+    seen_scenes = set()
+    for s in shots:                       # `shots` đã sắp theo scene.idx, shot.idx
+        if s["scene_id"] not in seen_scenes:
+            seen_scenes.add(s["scene_id"])
+            lead_ids.add(s["id"])
+    todo = ([s for s in todo if s["id"] in lead_ids]
+            + [s for s in todo if s["id"] not in lead_ids])
 
     async def _worker(s, batch_id):
         await _generate_frame_image(s, batch_id=batch_id)
@@ -3086,6 +3126,9 @@ def _start_image_job(pid: str, shots: list[dict], force: bool, type_: str) -> di
         label=f"Sinh ảnh storyboard ({len(todo)})",
         throttle=IMAGE_BATCH_COOLDOWN, batch_size=IMAGE_BATCH_SIZE,
         stagger=IMAGE_BATCH_STAGGER,
+        # Lô không được trộn frame dẫn với frame thường: một scene 4 frame mà cả bốn vào chung
+        # một lô thì ba frame sau chạy lúc frame dẫn còn chưa có ảnh, và neo mất tác dụng.
+        group_key=lambda s: 0 if s["id"] in lead_ids else 1,
         item_label=lambda s: s.get("title") or s["id"])
     return {"job_id": job.id, "total": len(todo)}
 
@@ -4165,10 +4208,14 @@ async def shot_candidates(sid: str, body: CandidatesRequest):
     scene = await _scene_or_404(shot["scene_id"])
     project = await _project_or_404(scene["project_id"])
     client = _require_extension()
-    refs = await _build_frame_references(shot, scene)
+    anchor = await _scene_anchor(shot, scene)
+    refs = await _build_frame_references(shot, scene, reserve=1 if anchor else 0)
+    if anchor and all(r["media_id"] != anchor["media_id"] for r in refs):
+        refs.append(anchor)
     frame_body = shot.get("description") or shot.get("title") or ""
     prompt = brain.compose_prompt(project, frame_body, single_frame=True,
-                                  cast=await _frame_cast(scene, frame_body))
+                                  cast=await _frame_cast(scene, frame_body),
+                                  anchor=anchor["handle"] if anchor else None)
     aspect = _to_image_aspect(project["aspect_ratio"])
     model = await _resolve_image_model(project)
     tier = await _current_tier()

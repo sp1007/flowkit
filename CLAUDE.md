@@ -69,6 +69,16 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   dùng nối ảnh vào là có chủ đích). ĐỪNG bật ở chỗ references chỉ là kho ứng viên để prompt tự
   chọn theo tên (ảnh storyboard, candidates): bind một entity mà shot không nhắc tới là mời
   model vẽ nhân vật đó vào khung hình.
+- **Frame của một scene neo vào frame DẪN, và ảnh thắng chữ.** Mỗi frame là một lượt sinh độc
+  lập; neo duy nhất từng có là lưới location 2x2 (bốn ô nhỏ, model tự chọn một ô), nên hai frame
+  liền nhau ra hai nơi khác hẳn là chuyện đã xảy ra. Nay `_scene_anchor` đính frame đã vẽ sớm
+  nhất của scene làm reference cho các frame sau và `brain.scene_anchor_clause` gọi tên nó bằng
+  token — vì thế `_start_image_job` phải chạy frame dẫn của MỌI scene xong trước (`group_key`
+  của job manager cắt lô theo pha; sắp lại thứ tự thôi không đủ vì lô cắt cứng theo
+  `batch_size`). Kèm theo: `_SINGLE_FRAME` tuyên bố chữ lệch ảnh thì ẢNH THẮNG — mô tả frame do
+  LLM viết từ `entity.description` còn ảnh location là do model vẽ, hai bên lệch nhau là thường,
+  không phân xử thì model theo chữ và dựng lại cả con phố. Trần 8 reference của Flow là cứng nên
+  `_build_frame_references(reserve=1)` phải chừa chỗ cho neo.
 - **Asset có hai đầu vào ảnh, đừng lẫn.** `entity.ref_media` = ảnh MẪU người dùng đính vào để
   ✦ vẽ bám theo (đầu VÀO); `entity.media_id` là ảnh KẾT QUẢ; `entity.extra_media` là các góc
   phụ sinh thêm của location (đầu RA). Nút ✦ (`/entities/{eid}/generate`) chạy `graph_json`
