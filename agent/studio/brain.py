@@ -179,22 +179,57 @@ _SINGLE_FRAME = (
     "2x2 grid of FOUR angles of the place for identity only — PICK the ONE angle that suits "
     "this shot and render it as a single full-frame scene; do NOT reproduce the grid, the four "
     "panels, the split layout or any position labels from it, and compose THIS shot at its own "
-    "specified shot size and camera angle. Render NO text, labels, captions, annotations, "
+    "specified shot size and camera angle. "
+    # Chỗ chết người: mô tả frame do LLM viết từ CHỮ (description của entity), còn ảnh location
+    # là do model vẽ ra — hai bên lệch nhau là chuyện thường ("mái ngói rêu phong" trong chữ,
+    # nhưng ảnh lại ra dãy hàng khô mái bằng). Không nói rõ bên nào thắng thì model theo CHỮ và
+    # dựng hẳn một con phố khác, kéo theo trang phục lẫn nét vẽ trôi luôn — hai frame liền nhau
+    # thành hai nơi khác hẳn. Ảnh phải thắng, đúng như ref_image_prompt đã làm với ảnh mẫu.
+    "WHERE THE TEXT ABOVE AND THE REFERENCE IMAGES DISAGREE ABOUT WHAT SOMETHING LOOKS LIKE, "
+    "THE REFERENCE WINS. This is THE place and THESE are the people from the references, not a "
+    "similar-sounding one: keep the location's real architecture, roof and wall materials, "
+    "shopfronts, signage, street furniture, era and colour exactly as the reference shows them, "
+    "and keep each character's costume exactly as their sheet shows it. Wording in the text "
+    "(e.g. 'ancient', 'century-old', 'mossy tiled roofs', 'modern') only says what to POINT THE "
+    "CAMERA AT and how to light it — never a licence to rebuild the place in another style, "
+    "another town or another period. If the text calls for a detail the reference does not show, "
+    "render the nearest equivalent that already exists in the reference instead of inventing new "
+    "surroundings. Render NO text, labels, captions, annotations, "
     "callouts or watermarks, and do not reproduce any text/labels that appear in the references"
 )
 
 
+def cast_clause(names: list[str]) -> str:
+    """Chốt SỐ NGƯỜI có trong khung, dựng từ các nhân vật mà prompt thật sự gọi tên.
+
+    Sheet nhân vật có nhiều view (bust + turnaround + dãy biểu cảm), nên ở cỡ cận model hay
+    vẽ thành hai bản sao của cùng một người đứng cạnh nhau. Câu "không thêm người lạ" trong
+    _SINGLE_FRAME không chặn được vì bản sao KHÔNG phải người lạ — phải nói thẳng tổng số."""
+    names = [n for n in dict.fromkeys(n for n in names if n)]
+    if not names:
+        return ""
+    who = ", ".join(names)
+    n = len(names)
+    return (f"CAST — exactly {n} person{'' if n == 1 else 's'} appear{'s' if n == 1 else ''} in "
+            f"this frame: {who}. Each appears ONCE and only once. Never draw a second copy, twin, "
+            "mirrored duplicate or reflection-as-a-person of the same character, and never split "
+            "one character's reference views into several people standing together. Add no "
+            "background crowd or bystanders unless the text above explicitly asks for them")
+
+
 def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
-                   single_frame: bool = False) -> str:
+                   single_frame: bool = False, cast: list[str] | None = None) -> str:
     """Assemble the final image/video prompt for a project.
 
     Order: [prompt_header] → style (always first of the visual terms) + culture_hint →
-    body → [single-frame guard] → [prompt_footer]. `style` leads so the model anchors on it;
-    the culture hint (e.g. "Vietnamese folk tale, traditional Vietnamese architecture") keeps
-    imagery faithful to the story's origin instead of defaulting to the style's home culture.
+    body → [single-frame guard] → [cast] → [prompt_footer]. `style` leads so the model anchors
+    on it; the culture hint (e.g. "Vietnamese folk tale, traditional Vietnamese architecture")
+    keeps imagery faithful to the story's origin instead of defaulting to the style's home
+    culture.
 
     `single_frame=True` (shot frames only) appends a guard so the model renders one coherent
     photograph instead of copying the entity reference SHEETS (incl. the 2x2 location grid).
+    `cast`: tên các nhân vật frame này thật sự có — xem `cast_clause`.
     """
     style = (project.get("style") or "").strip()
     header = (project.get("prompt_header") or "").strip()
@@ -202,7 +237,8 @@ def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
     culture = (project.get("culture_hint") or "").strip() if include_culture else ""
     lead = ", ".join(p for p in (style, culture) if p)
     guard = _SINGLE_FRAME if single_frame else ""
-    parts = [header, lead, (body or "").strip(), guard, footer, _image_text_clause(project)]
+    parts = [header, lead, (body or "").strip(), guard, cast_clause(cast or []),
+             footer, _image_text_clause(project)]
     return ". ".join(p for p in parts if p)
 
 

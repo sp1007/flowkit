@@ -526,8 +526,17 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                     ref_handles=[r.get("handle") for r in inp["references"]]))
             else:
                 # Shot frame: single-frame guard (don't copy the location grid layout) so a
-                # node-built frame matches the storyboard table.
-                img_prompt = brain.compose_prompt(project, body, single_frame=(kind == "shot"))
+                # node-built frame matches the storyboard table — kể cả khối CAST chốt số người,
+                # không thì cận cảnh dựng trong node editor vẫn ra nhân vật nhân đôi.
+                cast = []
+                if kind == "shot":
+                    rows = await db.query_all(
+                        "SELECT name FROM entity WHERE project_id=? AND type='character'",
+                        (pid,))
+                    cast = [r["name"] for r in rows
+                            if r["name"] and "{" + r["name"] + "}" in body]
+                img_prompt = brain.compose_prompt(project, body,
+                                                  single_frame=(kind == "shot"), cast=cast)
             # Ảnh nối vào node này là ảnh người dùng CỐ Ý đưa vào, nên phải được bind vào
             # structuredPrompt kể cả khi prompt không gọi tên nó — không thì Flow chỉ nhận nó
             # như một imageInput vô danh và trả về ảnh chẳng liên quan gì tới ảnh tham chiếu.

@@ -1502,6 +1502,19 @@ async def _build_frame_references(shot: dict, scene: dict) -> list[dict]:
     return refs
 
 
+async def _frame_cast(scene: dict, text: str) -> list[str]:
+    """Tên các nhân vật mà prompt của frame THẬT SỰ gọi bằng token `{…}`.
+
+    Dùng để chốt tổng số người trong khung (`brain.cast_clause`): sheet nhân vật có nhiều view
+    nên ở cỡ cận model hay nhân đôi cùng một người. Chỉ đếm `{tên}` — đúng thứ Flow bind, và
+    cũng là thứ quyết định nhân vật nào thật sự có mặt."""
+    rows = await db.query_all(
+        "SELECT name FROM entity WHERE project_id=? AND type='character'",
+        (scene["project_id"],))
+    body = text or ""
+    return [r["name"] for r in rows if r["name"] and "{" + r["name"] + "}" in body]
+
+
 async def _ensure_media_name(shot: dict, scene: dict) -> str:
     """Tên chuẩn của shot, tạo và ghi vào DB nếu chưa có.
 
@@ -1556,8 +1569,9 @@ async def _generate_frame_image(shot: dict, batch_id: str = None) -> dict:
     project = await _project_or_404(scene["project_id"])
     client = _require_extension()
     refs = await _build_frame_references(shot, scene)
-    prompt = brain.compose_prompt(
-        project, shot.get("description") or shot.get("title") or "", single_frame=True)
+    body = shot.get("description") or shot.get("title") or ""
+    prompt = brain.compose_prompt(project, body, single_frame=True,
+                                  cast=await _frame_cast(scene, body))
     aspect = _to_image_aspect(project["aspect_ratio"])
     model = await _resolve_image_model(project)
     tier = await _current_tier()
@@ -4152,8 +4166,9 @@ async def shot_candidates(sid: str, body: CandidatesRequest):
     project = await _project_or_404(scene["project_id"])
     client = _require_extension()
     refs = await _build_frame_references(shot, scene)
-    prompt = brain.compose_prompt(
-        project, shot.get("description") or shot.get("title") or "", single_frame=True)
+    frame_body = shot.get("description") or shot.get("title") or ""
+    prompt = brain.compose_prompt(project, frame_body, single_frame=True,
+                                  cast=await _frame_cast(scene, frame_body))
     aspect = _to_image_aspect(project["aspect_ratio"])
     model = await _resolve_image_model(project)
     tier = await _current_tier()
