@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, type Entity, type Project } from "../api/client";
 import ScriptTab from "./script/ScriptTab";
 import AssetsTab from "./assets/AssetsTab";
-import StoryboardTab from "./storyboard/StoryboardTab";
+import IllustratorsTab from "./illustrators/IllustratorsTab";
+import BoardTab from "./board/BoardTab";
 import ShotsTab from "./shots/ShotsTab";
 import AssembleTab from "./assemble/AssembleTab";
 import MusicTab from "./music/MusicTab";
@@ -12,7 +13,10 @@ import ProjectSettings from "./settings/ProjectSettings";
 import { JobsProvider } from "../jobs/JobsContext";
 import JobProgress from "./common/JobProgress";
 
-const TABS = ["Script", "Assets", "Storyboard", "Shots", "Nhạc", "Assemble", "Ảnh"] as const;
+// "Illustrators" = tab Storyboard cũ: sinh từng ảnh rời, chỉ để minh hoạ (hành vi giữ nguyên).
+// "Storyboard" giờ là tab TRANG 4/6 panel — tất cả vẽ chung MỘT lượt nên không lệch bối cảnh —
+// và đây mới là nguồn của tab Shots.
+const TABS = ["Script", "Assets", "Illustrators", "Storyboard", "Shots", "Nhạc", "Assemble", "Ảnh"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function ProjectWorkspace({
@@ -128,14 +132,15 @@ export default function ProjectWorkspace({
         )}
         {pane("Assets", <AssetsTab key={project.id + reload} project={project} onEdit={openEditor} />)}
         {pane(
-          "Storyboard",
-          <StoryboardTab
+          "Illustrators",
+          <IllustratorsTab
             key={project.id + reload}
             project={project}
             onEdit={openEditor}
             onCoverSet={(key) => setProject((p) => ({ ...p, thumb_media_key: key }))}
           />
         )}
+        {pane("Storyboard", <BoardTab key={project.id + reload} project={project} onEdit={openEditor} />)}
         {pane("Shots", <ShotsTab key={project.id + reload} project={project} onEdit={openEditor} />)}
         {pane("Nhạc", <MusicTab key={project.id} project={project} />)}
         {pane("Assemble", <AssembleTab key={project.id + reload} project={project} />)}

@@ -45,6 +45,21 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   (`project.music_mode`): nhạc là tiếng duy nhất, các bài cách nhau `music_gap` giây, và tổng
   thời lượng playlist quyết định độ dài video — hình được lặp cho phủ kín, thừa thì cắt.
   Xem [agent/studio/music.py](agent/studio/music.py) + tab "Nhạc" trong workspace.
+- **Hai tab vẽ hình, đừng lẫn.** Tab **Illustrators** (bảng `shot`) là tab Storyboard cũ: sinh
+  TỪNG ảnh rời, giờ chỉ để minh hoạ và làm nguồn cho `Export to DaVinci (images)` — hành vi giữ
+  nguyên, đừng sửa. Tab **Storyboard** mới (`board_sheet` + `board_panel`) vẽ MỘT TRANG 4/6 panel
+  trong MỘT lượt: cùng một bức tranh thì bối cảnh/ánh sáng/trang phục không thể lệch, đó là lý do
+  nó tồn tại. **Trang KHÔNG bị cắt** — chính bức ảnh nguyên vẹn đi thẳng sang tab Shots làm
+  reference DUY NHẤT cho một clip, và badge số tròn vẽ sẵn trong ảnh là thứ chỉ panel nào là
+  panel nào (thay cho token `{handle}` mà clip nhiều-ảnh phải dùng). Vì vậy `board_panel` chỉ giữ
+  CHỮ: không media_id, không cột video. `Export to DaVinci (video)` chỉ lấy video của trang, không
+  fallback ảnh. Xem [agent/api/board.py](agent/api/board.py).
+- **`_SHEET_PAGE` và `_SINGLE_FRAME` phủ định nhau.** Một khối bắt vẽ lưới nhiều panel kèm badge
+  và caption, khối kia cấm lưới và cấm MỌI chữ trong ảnh. `compose_prompt` chọn đúng một trong
+  hai (`sheet_page=(cols,rows)` thắng `single_frame`) — ghép cả hai là prompt tự mâu thuẫn và kết
+  quả thành hên xui. Prompt video của trang cũng phải nói rõ trang là BẢN VẼ KẾ HOẠCH: không dặn
+  thì model cho chính cái lưới chuyển động. Và đừng kê sẵn nước máy cho nó — chuyển cảnh giữa các
+  panel là việc của AI, ràng buộc duy nhất là hợp lý về vật lý.
 - **Frame ≠ clip — số shot hai tab KHÔNG bằng nhau.** Tab Storyboard cắt scene thành FRAME:
   các khoảnh khắc chính của MỘT cú máy liên tục, nên frame liền nhau phải nối được vào nhau
   (`shot.continuity` + khối `brain._CONTINUITY` trong prompt autofill). Tab Shots gom

@@ -30,7 +30,7 @@ const parseRefs = (s: string | null): string[] => {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export default function StoryboardTab({
+export default function IllustratorsTab({
   project,
   onEdit,
   onCoverSet,

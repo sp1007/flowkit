@@ -135,6 +135,8 @@ class UpdateProjectRequest(BaseModel):
     storytelling: Optional[bool] = None
     # Số frame storyboard tối đa gộp vào MỘT clip video (trần cứng 6 — clip dài nhất chỉ 10s).
     clip_frames: Optional[int] = None
+    # Số panel trên MỘT trang storyboard (tab Storyboard) — 4 hoặc 6.
+    sheet_panels: Optional[int] = None
     auto_hires: Optional[bool] = None
     auto_upscale_video: Optional[bool] = None
     upscale_res: Optional[str] = None
@@ -629,6 +631,10 @@ async def update_project(pid: str, body: UpdateProjectRequest):
     if "clip_frames" in data:
         # Kẹp ngay lúc ghi: trần là giới hạn của model, không phải gợi ý.
         data["clip_frames"] = clips.frames_per_clip({"clip_frames": data["clip_frames"]})
+    if "sheet_panels" in data:
+        # Chỉ 4 hoặc 6 — giá trị khác làm lưới không khớp prompt lẫn UI.
+        if data["sheet_panels"] not in brain.SHEET_PANEL_CHOICES:
+            data["sheet_panels"] = brain.SHEET_PANELS_DEFAULT
     data["updated_at"] = db.now()
     await db.update("project", pid, data)
     return await db.query_one("SELECT * FROM project WHERE id=?", (pid,))
@@ -3280,9 +3286,14 @@ def _clip_submit(client, project: dict, shot_id: str, prompt: str,
         aspect_ratio=project["aspect_ratio"], user_paygate_tier=tier)
 
 
-async def _render_clip(client, project: dict, shot_id: str, submit, name: str) -> dict:
+async def _render_clip(client, project: dict, shot_id: str, submit, name: str,
+                       table: str = "shot") -> dict:
     """Submit one clip via `submit()`, poll, download to media/<pid>/<media_id>.mp4. Retries
-    on block/transient. Returns {media_id, primary_media_id, workflow_id, web, local}."""
+    on block/transient. Returns {media_id, primary_media_id, workflow_id, web, local}.
+
+    `table`: bảng giữ `operation_json` khi hết giờ chờ — "shot" (tab Shots cũ) hoặc
+    "board_sheet" (một trang storyboard là một clip). Ghi nhầm bảng thì nút 'Lấy lại video'
+    không tìm ra lượt render đang chạy và người dùng mất bản đã trả tiền."""
     last = ""
     attempt = 0
     max_attempts = VIDEO_GEN_RETRIES
@@ -3303,7 +3314,7 @@ async def _render_clip(client, project: dict, shot_id: str, submit, name: str) -
                     # KHÔNG re-submit: hết giờ chờ nghĩa là Flow VẪN ĐANG render bản đã tính
                     # tiền, không phải nó hỏng. Submit lại chỉ tốn thêm credit cho một bản
                     # thứ hai rồi lại bỏ rơi cả hai. Ghi operation lại để hồi phục sau.
-                    await db.update("shot", shot_id, {
+                    await db.update(table, shot_id, {
                         "operation_json": json.dumps({**info, "name": name,
                                                       "submitted_at": db.now()}),
                         "updated_at": db.now()})
@@ -4673,10 +4684,14 @@ async def delete_track(tid: str):
 
 
 @router.post("/projects/{pid}/export/davinci-xml")
-async def export_davinci(pid: str):
+async def export_davinci(pid: str, mode: str = "images"):
+    """`mode=images` (mặc định, y như trước): timeline từ shot của tab Illustrators.
+    `mode=video`: timeline chỉ gồm video của các trang storyboard + audio."""
     await _project_or_404(pid)
+    if mode not in ("images", "video"):
+        raise HTTPException(400, "mode phải là 'images' hoặc 'video'")
     try:
-        return await davinci_xml.build(pid)
+        return await davinci_xml.build(pid, mode)
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001 — surface a clear message instead of a bare 500

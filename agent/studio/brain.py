@@ -199,22 +199,119 @@ _SINGLE_FRAME = (
 )
 
 
-def cast_clause(names: list[str]) -> str:
+# Nhãn cỡ cảnh tiếng Việt cho dòng caption dưới mỗi panel — cùng bộ từ người dùng đang gõ tay.
+PANEL_SHOT_SIZES = ["toàn cảnh", "cận trung", "cận cảnh", "toàn thân", "cận sau",
+                    "trung cảnh", "đại toàn cảnh", "qua vai"]
+
+# Guard cho TRANG STORYBOARD (tab Storyboard) — nghịch đảo của `_SINGLE_FRAME`.
+#
+# `_SINGLE_FRAME` cấm lưới, cấm nhiều panel, cấm MỌI chữ trong ảnh. Ở đây cả ba thứ đó đều là
+# thứ ta MUỐN: một trang gồm nhiều panel, mỗi panel có badge số và một dòng caption. Nối nhầm
+# hai khối vào cùng một prompt là tự mâu thuẫn — model nhận "vẽ trang 6 panel" rồi ngay sau đó
+# nhận "không được có grid, không được có chữ" và kết quả là hên xui.
+#
+# Những gì GIỮ LẠI từ `_SINGLE_FRAME` vì vẫn đúng: danh tính nhân vật bám sheet (chỉ danh tính,
+# không bám dáng), không thêm người lạ, không chép layout của sheet tham chiếu vào trong panel,
+# và câu "ảnh thắng chữ" (xem lịch sử: mô tả do LLM viết từ entity.description hay lệch với ảnh
+# location model đã vẽ, không phân xử thì model dựng lại cả con phố).
+_SHEET_PAGE = (
+    "LAYOUT — render ONE storyboard PAGE: {n} cinematic panels arranged in a clean {cols}x{rows} "
+    "grid, read left to right, top to bottom, panel 1 first. "
+    "Leave a {margin}px margin around the page and a {gap}px gap between panels horizontally. "
+    "Directly under EACH panel put ONE short line of small-type caption text naming that "
+    "panel's shot size (e.g. {sizes}); the next row of panels starts about {caption_gap}px below "
+    "that caption line. "
+    "Number every panel with a small round badge in its TOP-LEFT corner: black digits on a "
+    "white/cream circle. "
+    "Every panel is a full cinematic frame in its own right, edge to edge inside its cell — no "
+    "inner borders, no drop shadows, no rounded corners, no letterboxing, no picture-in-picture. "
+    "The badges and the one-line captions are the ONLY text on the page: no titles, no headers, "
+    "no arrows, no annotations, no watermarks, and never reproduce text or labels that appear in "
+    "the reference images. "
+    "CONSISTENT ACROSS EVERY PANEL — the panels are consecutive moments of one scene, drawn in "
+    "the same pass: the location and its architecture, materials, signage and street furniture; "
+    "the time of day, weather, light direction and colour temperature; every character's face, "
+    "hair, costume and accessories; and the drawing style, line weight and colour palette. Only "
+    "the camera and the action change between panels — each panel uses its OWN stated shot size, "
+    "lens and movement, and neighbouring panels must differ in framing and in the characters' "
+    "pose and gaze, so the page reads as a scene playing out rather than one picture repeated. "
+    "Each named character must match its OWN reference image in IDENTITY ONLY — face, hair, "
+    "skin, build, age and costume — never swap or blend faces, hair or costumes between "
+    "characters, and add no extra people who are not named. The reference does NOT dictate POSE: "
+    "ignore its A-pose, expression, gaze and framing; invent pose and framing fresh for each "
+    "panel. Never reproduce a reference SHEET layout inside a panel — no turnaround row, no "
+    "expression row, and the location reference's own 2x2 angle grid must not appear; pick "
+    "whichever of its angles suits each panel and render that as a full scene. "
+    "WHERE THE TEXT ABOVE AND THE REFERENCE IMAGES DISAGREE ABOUT WHAT SOMETHING LOOKS LIKE, "
+    "THE REFERENCE WINS. This is THE place and THESE are the people from the references, not a "
+    "similar-sounding one: keep the location's real architecture, materials, shopfronts, "
+    "signage, era and colour, and each character's costume, exactly as the references show them. "
+    "Wording such as 'ancient', 'century-old' or 'modern' only says what to point the camera at, "
+    "never a licence to rebuild the place in another style, town or period. If the text calls "
+    "for a detail the reference does not show, render the nearest equivalent that already exists "
+    "in the reference instead of inventing new surroundings"
+)
+
+
+# Chỉ 4 hoặc 6 panel. Không phải hạn chế tuỳ tiện: trên khung 16:9, 2x2 và 3x2 là hai lưới cho
+# ô đủ rộng để còn ra hình; 3x3 thì mỗi ô bé tới mức cận cảnh mặt người thành nhòe, mà cả trang
+# vẫn chỉ là MỘT lượt sinh với ngần ấy chi tiết.
+SHEET_PANEL_CHOICES = (4, 6)
+SHEET_PANELS_DEFAULT = 6
+
+
+def sheet_grid(panels: int | None) -> tuple[int, int]:
+    """Số panel → (cols, rows). 4 → 2x2, 6 → 3x2; giá trị lạ rơi về mặc định."""
+    n = int(panels or 0)
+    if n not in SHEET_PANEL_CHOICES:
+        n = SHEET_PANELS_DEFAULT
+    return (2, 2) if n == 4 else (3, 2)
+
+
+def sheet_page_guard(cols: int, rows: int, *, margin: int = 5, gap: int = 5,
+                     caption_gap: int = 2) -> str:
+    """`_SHEET_PAGE` điền theo kích thước lưới của dự án (⚙ Cấu hình dự án)."""
+    return _SHEET_PAGE.format(
+        n=cols * rows, cols=cols, rows=rows, margin=margin, gap=gap,
+        caption_gap=caption_gap, sizes="/".join(PANEL_SHOT_SIZES[:5]))
+
+
+def sheet_page_prompt(panels: list[dict]) -> str:
+    """Phần THÂN của prompt trang storyboard: một dòng `Panel N [cỡ, ống kính, máy]: mô tả`.
+
+    Đúng dạng người dùng đã gõ tay khi test trên Flow. Ngoặc vuông giữ nguyên vì nó tách bạch
+    thông số máy khỏi hành động; entity vẫn gọi bằng `{Tên}` để Flow bind reference part."""
+    out = []
+    for i, p in enumerate(panels):
+        spec = ", ".join(str(p.get(k) or "").strip()
+                         for k in ("shot_size", "lens", "movement") if (p.get(k) or "").strip())
+        body = str(p.get("description") or p.get("title") or "").strip().rstrip(".")
+        head = f"Panel {i + 1}" + (f" [{spec}]" if spec else "")
+        out.append(f"{head}: {body}." if body else f"{head}.")
+    return "\n".join(out)
+
+
+def cast_clause(names: list[str], *, panels: int = 0) -> str:
     """Chốt SỐ NGƯỜI có trong khung, dựng từ các nhân vật mà prompt thật sự gọi tên.
 
     Sheet nhân vật có nhiều view (bust + turnaround + dãy biểu cảm), nên ở cỡ cận model hay
     vẽ thành hai bản sao của cùng một người đứng cạnh nhau. Câu "không thêm người lạ" trong
-    _SINGLE_FRAME không chặn được vì bản sao KHÔNG phải người lạ — phải nói thẳng tổng số."""
+    _SINGLE_FRAME không chặn được vì bản sao KHÔNG phải người lạ — phải nói thẳng tổng số.
+
+    `panels > 0` (trang storyboard): đếm theo MỖI PANEL. Nói "cả trang chỉ có 1 người" thì model
+    vẽ nhân vật vào một panel rồi bỏ trống các panel còn lại."""
     names = [n for n in dict.fromkeys(n for n in names if n)]
     if not names:
         return ""
     who = ", ".join(names)
     n = len(names)
+    where = f"EACH of the {panels} panels" if panels else "this frame"
     return (f"CAST — exactly {n} person{'' if n == 1 else 's'} appear{'s' if n == 1 else ''} in "
-            f"this frame: {who}. Each appears ONCE and only once. Never draw a second copy, twin, "
-            "mirrored duplicate or reflection-as-a-person of the same character, and never split "
-            "one character's reference views into several people standing together. Add no "
-            "background crowd or bystanders unless the text above explicitly asks for them")
+            f"{where}: {who}. Each appears ONCE and only once{' per panel' if panels else ''}. "
+            "Never draw a second copy, twin, mirrored duplicate or reflection-as-a-person of the "
+            "same character, and never split one character's reference views into several people "
+            "standing together. Add no background crowd or bystanders unless the text above "
+            "explicitly asks for them")
 
 
 def scene_anchor_clause(handle: str) -> str:
@@ -242,7 +339,8 @@ def scene_anchor_clause(handle: str) -> str:
 
 def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
                    single_frame: bool = False, cast: list[str] | None = None,
-                   anchor: str | None = None) -> str:
+                   anchor: str | None = None,
+                   sheet_page: tuple[int, int] | None = None) -> str:
     """Assemble the final image/video prompt for a project.
 
     Order: [prompt_header] → style (always first of the visual terms) + culture_hint →
@@ -257,15 +355,26 @@ def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
     `anchor`: media_name của một frame đã vẽ trong cùng scene — xem `scene_anchor_clause`.
     Khối ANCHOR đứng NGAY SAU body và TRƯỚC single-frame guard: guard nói "chữ lệch ảnh thì ảnh
     thắng", nên neo phải có mặt trước đó để câu ấy trỏ được vào nó.
+
+    `sheet_page=(cols, rows)` (tab Storyboard): dùng guard TRANG `_SHEET_PAGE` THAY CHO
+    `_SINGLE_FRAME`. Hai khối phủ định nhau — một bên bắt vẽ lưới nhiều panel kèm badge số và
+    caption, một bên cấm lưới và cấm mọi chữ — nên không bao giờ được đi cùng một prompt. Ghép
+    cả hai chính là lỗi thấy trong bản gõ tay: "6 panels 3x2" ở đầu, "no grid, no multi-panel,
+    render NO text" ở cuối.
     """
     style = (project.get("style") or "").strip()
     header = (project.get("prompt_header") or "").strip()
     footer = (project.get("prompt_footer") or "").strip()
     culture = (project.get("culture_hint") or "").strip() if include_culture else ""
     lead = ", ".join(p for p in (style, culture) if p)
-    guard = _SINGLE_FRAME if single_frame else ""
+    if sheet_page:
+        guard = sheet_page_guard(*sheet_page)
+        n_panels = sheet_page[0] * sheet_page[1]
+    else:
+        guard = _SINGLE_FRAME if single_frame else ""
+        n_panels = 0
     parts = [header, lead, (body or "").strip(), scene_anchor_clause(anchor or ""), guard,
-             cast_clause(cast or []), footer, _image_text_clause(project)]
+             cast_clause(cast or [], panels=n_panels), footer, _image_text_clause(project)]
     return ". ".join(p for p in parts if p)
 
 
@@ -655,6 +764,147 @@ def clip_timeline_prompt(frames: list[dict], clip_s: int, scene_heading: str = "
         + f"\nFRAMES:\n{listing}\n\n"
         "Return ONLY JSON: {\"motion_prompt\":\"[00:00] ... "
         + "{" + names[0] + "} ... " + "{" + names[-1] + "} ...\"}"
+    )
+
+
+def sheet_autofill_prompt(scene_heading: str, scene_body: str, entities: list[dict],
+                          style: str, panels: int = 6, n_sheets: int | None = None,
+                          location: str | None = None) -> str:
+    """Chia scene thành các TRANG storyboard, mỗi trang đúng `panels` panel (tab Storyboard).
+
+    Khác `storyboard_autofill_prompt` ở hai chỗ. Một, số panel KHÔNG tự do: lưới đã cố định nên
+    thiếu panel là trang có ô trống, thừa là mất khoảnh khắc. Hai, các panel của MỘT trang được
+    vẽ trong cùng một lượt và sau đó thành MỘT clip, nên chúng phải là một cú máy liên tục;
+    ranh giới giữa hai TRANG mới là chỗ được đổi chỗ đứng, đổi nhịp.
+
+    `caption` là dòng chữ NHỎ in dưới panel trong chính bức ảnh — phải là cỡ cảnh tiếng Việt,
+    một dòng, vì đó là thứ người xem storyboard đọc để biết panel này là cú gì."""
+    roster = "\n".join(
+        f"- {{{e['name']}}} ({e['type']}): {e.get('description') or ''}" for e in entities
+    ) or "(none)"
+    locations = [e["name"] for e in entities if e.get("type") == "location"]
+    if location:
+        loc_line = (
+            f"This scene takes place at ONE fixed location: {{{location}}}. EVERY panel of every "
+            f"page is at this SAME place — name {{{location}}} in the panel descriptions, use "
+            f"ONLY it, and put it in ref_entity_names. Do NOT invent or switch to another place.")
+    elif locations:
+        loc_line = ("The location entities available are: "
+                    + ", ".join("{" + n + "}" for n in locations)
+                    + ". Pick the single location this scene happens at and use ONLY it.")
+    else:
+        loc_line = ("No location entity exists yet — invent a consistent place name, wrap it in "
+                    "curly braces and reuse the SAME name everywhere in this scene.")
+    count = (f"exactly {n_sheets} pages" if n_sheets
+             else "as many pages as the action needs (1–3)")
+    sizes = ", ".join(PANEL_SHOT_SIZES[:6])
+    return (
+        f"Break this scene into STORYBOARD PAGES. Each page is ONE drawing laid out as "
+        f"{panels} numbered panels, so each page needs EXACTLY {panels} panels — never fewer, "
+        "never more.\n"
+        f"{loc_line}\n\n"
+        f"The {panels} panels of a page are {panels} consecutive moments of ONE unbroken take. "
+        "They are drawn in the SAME pass and later become ONE continuous video clip, so within a "
+        "page the place, the light, the weather and the costumes cannot change at all — only the "
+        "camera and the action move. A NEW page is where a bigger jump is allowed.\n\n"
+        "For each page return:\n"
+        "- `title`: short label for the whole page.\n"
+        f"- `panels`: a list of exactly {panels} objects, in reading order (left to right, top to "
+        "bottom), each with:\n"
+        f"  · `caption`: the ONE-LINE Vietnamese shot-size label printed under the panel — one of "
+        f"{sizes}, or a similarly short term. This is drawn INSIDE the image, keep it very short.\n"
+        "  · `shot_size`: English shot size for the camera spec, e.g. Wide / Medium / Close-up / "
+        "Full-body / Rear.\n"
+        "  · `lens`: focal length, e.g. 24mm / 35mm / 50mm / 85mm.\n"
+        "  · `movement`: the camera behaviour for THIS moment, e.g. tracking back / low angle / "
+        "rear follow / shallow DOF. Leave \"\" if the moment is a static hold.\n"
+        "  · `description`: ONE sentence of what happens in this panel — the action and the pose. "
+        "Do NOT restate the location's architecture, the weather or the lighting: they are fixed "
+        "for the whole page and stating them again is what makes the model redraw the place. Name "
+        "entities with {braces}.\n"
+        "  · `ref_entity_names`: every entity in that panel (names WITHOUT braces), always "
+        "including the location.\n"
+        f"\n{_CINE}\n\n{_CONTINUITY}\n\n"
+        "IMPORTANT: whenever a known entity (character/location/prop) appears in ANY prompt, "
+        "wrap its name in curly braces exactly as listed (e.g. {Mai}) so it binds to its "
+        "reference image.\n"
+        f"Visual style: {style}. Produce {count}.\n\n"
+        f"AVAILABLE ENTITIES:\n{roster}\n\n"
+        f"SCENE: {scene_heading}\n{scene_body}\n\n"
+        "Return ONLY JSON array: [{\"title\":\"...\",\"panels\":[{\"caption\":\"toàn cảnh\","
+        "\"shot_size\":\"Wide\",\"lens\":\"24mm\",\"movement\":\"tracking back\","
+        "\"description\":\"...\",\"ref_entity_names\":[\"Location\"]}]}]"
+    )
+
+
+def sheet_timeline_prompt(panels: list[dict], clip_s: int, scene_heading: str = "",
+                          style: str = "") -> str:
+    """Prompt cho MỘT clip đi xuyên các panel của một trang storyboard.
+
+    Khác `clip_timeline_prompt` ở chỗ căn bản: ở đó mỗi frame là một ẢNH RIÊNG và được gọi bằng
+    token `{media_name}` để Flow bind thành reference part. Ở đây chỉ có ĐÚNG MỘT ảnh — cả trang
+    — nên không có gì để bind; thứ chỉ ra panel nào là badge số tròn VẼ SẴN TRONG ẢNH. Vì vậy
+    prompt phải gọi "panel 1..N" chứ không phải `{token}`, và tuyệt đối không được viết `{}`
+    quanh chúng (Flow sẽ đi tìm một reference không tồn tại rồi bỏ token đó thành chữ trơ).
+
+    Nguy hiểm lớn nhất của cách này: đưa một TRANG storyboard cho model video thì nó rất dễ làm
+    đúng nghĩa đen — cho cái trang đó chuyển động, lưới và caption và tất cả. Nên câu đầu tiên
+    phải nói rõ trang là BẢN VẼ KẾ HOẠCH, không phải khung hình cần dựng lại."""
+    n = len(panels)
+    listing = "\n".join(
+        f"  Panel {i + 1}"
+        + (f" [{p.get('shot_size') or ''}"
+           + (f", {p['lens']}" if p.get("lens") else "")
+           + (f", {p['movement']}" if p.get("movement") else "") + "]"
+           if p.get("shot_size") else "")
+        + f": {(p.get('description') or p.get('caption') or '').strip()}"
+        for i, p in enumerate(panels))
+    timeline = _OMNI_TIMELINE_HEAD.format(clip_s=clip_s, n_beats=max(n, round(clip_s / 2)))
+    return (
+        f"You are the cinematographer for ONE {clip_s}-second continuous take.\n\n"
+        "THE REFERENCE IMAGE IS A STORYBOARD PAGE, NOT A SHOT. It shows this take drawn as "
+        f"{n} numbered panels laid out in a grid, each with a small round number badge and a "
+        "one-line caption. It is a PLAN of the take. The video must be the take itself: one "
+        "full-frame continuous shot that passes through what panel 1, then panel 2, and so on "
+        f"up to panel {n} depict. NEVER animate the page: no grid, no panel borders, no split "
+        "screen, no badges, no caption text, no page margins anywhere in the video, and never "
+        "show two panels at once.\n\n"
+        f"{timeline}\n\n"
+        "USING THE PANELS:\n"
+        f"  • Work through the panels IN ORDER, 1 to {n}, and reach panel {n} before the take "
+        "ends. Each panel is what the shot LOOKS LIKE at one moment — its framing, its pose, its "
+        "moment of the action.\n"
+        "  • Refer to a panel as `panel 3` in plain words if you must, but prefer writing the "
+        "MOMENT itself. Never wrap a panel number in curly braces, never write 'cut to panel 4', "
+        "'transition', or any stage direction about the storyboard — the viewer must not be able "
+        "to tell the take was planned on a page.\n"
+        # Không kê sẵn nước máy — cùng lý do với clip_timeline_prompt (xem CLAUDE.md): đưa menu
+        # vào thì mọi clip ra một khuôn và các panel biến thành checklist để tick. Thông số máy
+        # ghi trên panel là mô tả KHOẢNH KHẮC ĐÓ TRÔNG RA SAO, không phải lệnh điều khiển.
+        "  • A panel's shot size and lens say what that MOMENT looks like. How the camera gets "
+        "from one moment to the next is entirely YOUR call: read what actually happens between "
+        "them — the action, the emotion, the space — and choose the movement that passage "
+        "deserves, including holding still when stillness is what it deserves. Do not reach for "
+        "a stock move, do not apply the same move to every clip, and do not invent motion merely "
+        "to fill seconds.\n"
+        "  • The one thing that is NOT negotiable is that it must make physical sense: the "
+        "subject cannot teleport, turn around or change hands between two moments without the "
+        "movement being shown, and the camera cannot jump to a position it had no way of "
+        "reaching. Every transition has to be something a real operator and a real actor could "
+        "actually have done in the time it is given.\n"
+        # Chia đều thời lượng cho các panel là cách chắc chắn giết nhịp: một cái liếc mắt xong
+        # trong 0.6s, một cú đi bộ qua cổng cần 3s. Cue phải bám hành động, không bám số học.
+        f"  • The panels do NOT get equal time. Give each one exactly as long as its action "
+        f"physically needs — a glance may take under a second, walking through a gateway may "
+        f"take three — so the gaps between cues are uneven by design. Never space the cues "
+        f"evenly just to divide {clip_s}s by {n}. A panel may also earn more than one cue if "
+        "something distinct happens inside it.\n"
+        "  • The page already fixes costume, light, weather and place. Do NOT restate the style "
+        "or re-invent the setting — write only what MOVES.\n"
+        + (f"\nVisual style (context only, do not restate): {style}.\n" if style else "")
+        + (f"\nSCENE: {scene_heading}\n" if scene_heading else "")
+        + f"\nPANELS:\n{listing}\n\n"
+        "Return ONLY JSON: {\"motion_prompt\":\"[00:00] ... [00:0X] ...\"}"
     )
 
 

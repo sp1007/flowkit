@@ -529,14 +529,21 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                 # node-built frame matches the storyboard table — kể cả khối CAST chốt số người,
                 # không thì cận cảnh dựng trong node editor vẫn ra nhân vật nhân đôi.
                 cast = []
-                if kind == "shot":
+                if kind in ("shot", "sheet"):
                     rows = await db.query_all(
                         "SELECT name FROM entity WHERE project_id=? AND type='character'",
                         (pid,))
                     cast = [r["name"] for r in rows
                             if r["name"] and "{" + r["name"] + "}" in body]
-                img_prompt = brain.compose_prompt(project, body,
-                                                  single_frame=(kind == "shot"), cast=cast)
+                # kind="sheet" (tab Storyboard) dùng guard TRANG thay cho single-frame: hai khối
+                # phủ định nhau (một bên bắt vẽ lưới nhiều panel kèm badge + caption, một bên cấm
+                # lưới và cấm mọi chữ), nên node editor của trang mà chạy guard single-frame thì
+                # ra đúng một khung hình và cả trang biến mất.
+                page = None
+                if kind == "sheet":
+                    page = (int(target.get("cols") or 3), int(target.get("rows") or 2))
+                img_prompt = brain.compose_prompt(
+                    project, body, single_frame=(kind == "shot"), cast=cast, sheet_page=page)
             # Ảnh nối vào node này là ảnh người dùng CỐ Ý đưa vào, nên phải được bind vào
             # structuredPrompt kể cả khi prompt không gọi tên nó — không thì Flow chỉ nhận nó
             # như một imageInput vô danh và trả về ảnh chẳng liên quan gì tới ảnh tham chiếu.
@@ -738,6 +745,17 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                 if ok:
                     display_path = f"/media/{out_rel}"
                     await db.update("entity", target["id"], {"image_path": display_path})
+    elif kind == "sheet":
+        # Tab Storyboard: target là board_sheet. Trang không bị cắt nên chỉ có một ảnh để ghi —
+        # không có hàng panel nào mang media riêng.
+        if final.get("ext") == "mp4":
+            await db.update("board_sheet", target["id"], {
+                "video_media_id": final["media_id"], "video_primary_id": final["media_id"],
+                "video_path": web, "updated_at": db.now()})
+        else:
+            await db.update("board_sheet", target["id"], {
+                "media_id": final["media_id"], "primary_media_id": final["media_id"],
+                "path": web, "status": "done", "updated_at": db.now()})
     else:
         col = "video" if final.get("ext") == "mp4" else "image"
         await db.update("shot", target["id"], {

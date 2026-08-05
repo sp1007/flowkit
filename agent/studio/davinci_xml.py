@@ -177,11 +177,21 @@ def _audio_item(idx: int, name: str, path: Path, start_f: int, dur_f: int,
 DEFAULT_IMG_S = 4.0
 
 
-async def build(project_id: str) -> dict:
+async def build(project_id: str, mode: str = "images") -> dict:
     """Resolve timeline from each shot's VIDEO, or its IMAGE as a still when no video exists
     yet (storytelling: review storyboard images, then edit in Resolve without rendering Flow
     videos). Per scene: video shots use their probed length; image-only scenes scale their
-    stills to fill the scene's continuous narration — same timing as 'Tạo video từ ảnh'."""
+    stills to fill the scene's continuous narration — same timing as 'Tạo video từ ảnh'.
+
+    `mode`:
+    - `"images"` — hành vi cũ, nguồn là `shot` (tab Illustrators): video nếu có, không thì ảnh.
+    - `"video"` — nguồn là `board_sheet` (tab Storyboard): CHỈ video, mỗi trang là một clip.
+      Trang chưa render bị bỏ qua và đếm vào `missing`; thay bằng still ở đây sẽ cho ra một
+      timeline nửa video nửa ảnh mà người dùng không hề yêu cầu.
+
+    `board_sheet` cố ý dùng chung tên cột với `shot` (`video_path`, `upscale_*`) nên
+    `assembler.shot_video_path` và `timeline_short_side` chạy được cho cả hai."""
+    video_mode = mode == "video"
     project = await db.query_one("SELECT * FROM project WHERE id=?", (project_id,))
     if not project:
         raise RuntimeError("project not found")
@@ -192,6 +202,8 @@ async def build(project_id: str) -> dict:
     # upscaled videos) → 1080p or 4K, any HD leftover → 720p. Dropping 2K stills or a 1080p
     # upscale into a 720p sequence would throw away exactly what was paid for.
     all_shots = await db.query_all(
+        "SELECT bs.* FROM board_sheet bs JOIN scene sc ON bs.scene_id=sc.id "
+        "WHERE sc.project_id=?" if video_mode else
         "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id WHERE sc.project_id=?",
         (project_id,))
     w, h = assembler._res(project["aspect_ratio"], assembler.timeline_short_side(all_shots))
@@ -206,12 +218,25 @@ async def build(project_id: str) -> dict:
     skipped = []      # shots with media in the DB but no usable file (even after re-download)
     i = 0
     for sc in scenes:
-        rows = await db.query_all(
-            "SELECT * FROM shot WHERE scene_id=? AND "
-            "(video_path IS NOT NULL OR image_path IS NOT NULL) ORDER BY idx", (sc["id"],))
+        if video_mode:
+            rows = await db.query_all(
+                "SELECT * FROM board_sheet WHERE scene_id=? AND video_path IS NOT NULL "
+                "ORDER BY idx", (sc["id"],))
+        else:
+            rows = await db.query_all(
+                "SELECT * FROM shot WHERE scene_id=? AND "
+                "(video_path IS NOT NULL OR image_path IS NOT NULL) ORDER BY idx", (sc["id"],))
         # Resolve each shot to a usable media file: prefer video, else the still image.
         usable = []   # (shot, path, is_image)
         for sh in rows:
+            if video_mode:
+                vp = assembler.shot_video_path(sh) or await _resolve_local(
+                    sh.get("video_path"), sh.get("video_media_id"), "mp4", project_id)
+                if vp:
+                    usable.append((sh, vp, False))
+                else:
+                    skipped.append(sh.get("title") or sh["id"])
+                continue
             # Prefer the 1080p/4K upscale over the HD render (falls back to re-downloading
             # the HD one by media_id if the local file went missing).
             vp = assembler.shot_video_path(sh) or await _resolve_local(
@@ -308,7 +333,8 @@ async def build(project_id: str) -> dict:
                 tnum += 1
 
     if not items:
-        raise RuntimeError("Chưa có shot nào có ảnh hoặc video để export")
+        raise RuntimeError("Chưa có trang storyboard nào đã render video để export" if video_mode
+                           else "Chưa có shot nào có ảnh hoặc video để export")
 
     # narration audio track — ONE fully-defined clip per scene (see the scene loop above for why
     # per-beat slicing was dropped).
@@ -384,7 +410,10 @@ async def build(project_id: str) -> dict:
 """
     out_dir = STUDIO_MEDIA_DIR / project_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / "timeline.xml"
+    # Hai chế độ ghi ra HAI file: export video xong rồi export ảnh mà cùng tên thì bản sau đè
+    # mất bản trước, và link vừa tải về trỏ sang timeline khác.
+    stem = "timeline-video" if video_mode else "timeline"
+    out = out_dir / f"{stem}.xml"
     out.write_text(xml, encoding="utf-8")
 
     # Sibling SRT of the keyword captions — Resolve (incl. Free) imports subtitles reliably,
@@ -394,14 +423,18 @@ async def build(project_id: str) -> dict:
         lines = []
         for n, (a, b, txt) in enumerate(srt, 1):
             lines.append(f"{n}\n{_srt_ts(a)} --> {_srt_ts(b)}\n{txt}\n")
-        (out_dir / "captions.srt").write_text("\n".join(lines), encoding="utf-8")
-        srt_web = f"/studio-media/{project_id}/captions.srt"
+        # Chế độ ảnh giữ nguyên tên `captions.srt` như trước — link cũ không việc gì phải đổi.
+        srt_name = "timeline-video.srt" if video_mode else "captions.srt"
+        (out_dir / srt_name).write_text("\n".join(lines), encoding="utf-8")
+        srt_web = f"/studio-media/{project_id}/{srt_name}"
 
-    await db.execute("DELETE FROM asset WHERE project_id=? AND kind='davinci_xml'", (project_id,))
+    kind = "davinci_xml_video" if video_mode else "davinci_xml"
+    await db.execute("DELETE FROM asset WHERE project_id=? AND kind=?", (project_id, kind))
     await db.insert("asset", {
-        "id": db.new_id(), "project_id": project_id, "kind": "davinci_xml",
+        "id": db.new_id(), "project_id": project_id, "kind": kind,
         "path": str(out), "meta_json": None, "created_at": db.now()})
-    return {"path": str(out), "web_path": f"/studio-media/{project_id}/timeline.xml",
+    return {"path": str(out), "web_path": f"/studio-media/{project_id}/{stem}.xml",
+            "mode": "video" if video_mode else "images",
             "clips": len(items), "captions_srt": srt_web, "captions": len(srt),
             "audio_tracks": len(audio_items), "bgm": bool(bgm_items),
             "missing": len(skipped), "missing_titles": skipped[:20]}

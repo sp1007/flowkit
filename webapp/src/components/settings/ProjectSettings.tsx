@@ -40,6 +40,8 @@ export default function ProjectSettings({
   });
   const [shotDuration, setShotDuration] = useState<number>(project.shot_duration ?? 8);
   const [clipFrames, setClipFrames] = useState<number>(framesPerClip(project));
+  // Số panel mỗi trang storyboard — chỉ 4 hoặc 6 (xem brain.SHEET_PANEL_CHOICES).
+  const [sheetPanels, setSheetPanels] = useState<number>(project.sheet_panels === 4 ? 4 : 6);
   const [storytelling, setStorytelling] = useState<boolean>(!!project.storytelling);
   const [autoHires, setAutoHires] = useState<boolean>(!!project.auto_hires);
   const [hiresInfo, setHiresInfo] = useState<{ label: string; done: number; total: number; missing: number } | null>(null);
@@ -199,12 +201,13 @@ export default function ProjectSettings({
   // loading a preset still left you hunting for the same music file by hand every time.
   const STR_KEYS = ["style", "script_lang", "image_text_lang", "culture_hint",
     "prompt_header", "prompt_footer", "image_model", "aspect_ratio", "video_model", "upscale_res"] as const;
-  const NUM_KEYS = ["shot_duration", "clip_frames", "seed", "bgm_volume", "voice_id",
-    "tts_speed", "tts_gap", "tts_sentence_gap", "tts_edge_pad"] as const;
+  const NUM_KEYS = ["shot_duration", "clip_frames", "sheet_panels", "seed", "bgm_volume",
+    "voice_id", "tts_speed", "tts_gap", "tts_sentence_gap", "tts_edge_pad"] as const;
   const BOOL_KEYS = ["storytelling", "auto_hires", "auto_upscale_video", "bgm_duck"] as const;
 
   const collectSettings = () => ({
-    ...s, shot_duration: shotDuration, clip_frames: clipFrames, storytelling, auto_hires: autoHires,
+    ...s, shot_duration: shotDuration, clip_frames: clipFrames, sheet_panels: sheetPanels,
+    storytelling, auto_hires: autoHires,
     auto_upscale_video: autoUpVideo, upscale_res: upscaleRes,
     seed, bgm_volume: bgmVol, bgm_duck: bgmDuck, bgm_path: bgmPath,
     voice_id: voiceId, tts_speed: ttsSpeed, tts_gap: ttsGap, tts_sentence_gap: ttsSentenceGap,
@@ -234,6 +237,7 @@ export default function ProjectSettings({
       }));
       if (u.shot_duration != null) setShotDuration(u.shot_duration);
       if (u.clip_frames != null) setClipFrames(framesPerClip(u));
+      if (u.sheet_panels != null) setSheetPanels(u.sheet_panels === 4 ? 4 : 6);
       if (u.storytelling != null) setStorytelling(!!u.storytelling);
       if (u.auto_hires != null) setAutoHires(!!u.auto_hires);
       if (u.auto_upscale_video != null) setAutoUpVideo(!!u.auto_upscale_video);
@@ -407,6 +411,24 @@ export default function ProjectSettings({
               thì mỗi frame chưa tới 2s và model không kịp chạm tới frame cuối. Hạ số này xuống
               là các clip đang có tự tách ra theo. Frame đã có lời đọc đo thật (kể chuyện) luôn
               tự chiếm trọn một clip, không bị gộp.
+            </p>
+          </Field>
+
+          <Field label="Số panel mỗi trang storyboard">
+            <select
+              value={String(sheetPanels)}
+              onChange={(e) => setSheetPanels(Number(e.target.value) === 4 ? 4 : 6)}
+              className={inp}
+            >
+              <option value="4">4 panel (lưới 2×2)</option>
+              <option value="6">6 panel (lưới 3×2)</option>
+            </select>
+            <p className="mt-1 text-xs text-neutral-600">
+              Tab Storyboard vẽ bấy nhiêu khoảnh khắc trong MỘT bức ảnh, rồi cả trang đó thành
+              MỘT clip ở tab Shots. Vẽ chung một lượt là lý do bối cảnh, ánh sáng và trang phục
+              không thể lệch giữa các panel. Chỉ 4 hoặc 6: lưới dày hơn thì mỗi panel bé tới mức
+              cận cảnh mặt người bị nhòe, vì cả trang vẫn chỉ là một lượt sinh với ngần ấy chi
+              tiết.
             </p>
           </Field>
 

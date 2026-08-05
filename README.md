@@ -136,14 +136,15 @@ Toàn bộ endpoint nằm dưới `/api/studio/*`. Nhóm chính (chi tiết tron
 | Kịch bản | `POST /projects/{pid}/script/generate`, `PUT /projects/{pid}/script`, `POST …/script/chat`, `GET …/scenes` |
 | Nhân vật/Bối cảnh | `GET/POST /projects/{pid}/entities`, `…/entities/extract`, `…/assets/generate-all`, `PATCH/DELETE /entities/{eid}` (kèm `ref_media` = ảnh mẫu), `…/entities/{eid}/generate?use_graph=true` (có graph thì chạy graph) |
 | Thư viện asset | `GET /library/entities`, `GET /library/all-media`, `…/entities/import`, `…/entities/import-media` |
-| Storyboard | `POST /projects/{pid}/storyboard/generate-all`, `…/storyboard/autofill-all`, `POST /scenes/{sid}/storyboard/autofill`, `GET /projects/{pid}/storyboard/export` |
+| Illustrators (tab Storyboard cũ) | `POST /projects/{pid}/storyboard/generate-all`, `…/storyboard/autofill-all`, `POST /scenes/{sid}/storyboard/autofill`, `GET /projects/{pid}/storyboard/export` |
+| Storyboard (trang 4/6 panel) | `GET /projects/{pid}/sheets`, `GET /scenes/{sid}/sheets`, `POST /scenes/{sid}/sheets`, `…/sheets/autofill`, `PATCH /sheets/{id}`, `PATCH /panels/{id}`, `DELETE /sheets/{id}`, `POST /sheets/{id}/generate`, `GET /sheets/{id}/prompt-preview`, `POST /projects/{pid}/sheets/generate-all`, `POST /sheets/{id}/prompt`, `POST /sheets/{id}/video`, `POST /projects/{pid}/sheets/video/generate-all` |
 | Shot | `GET/POST /scenes/{sid}/shots`, `PATCH/DELETE /shots/{sid}`, `…/shots/{sid}/image`, `…/video`, `…/video/resume`, `…/prompts`, `…/upscale`, `…/insert`, `POST /projects/{pid}/shots/generate-all` |
 | Clip (gộp frame) | `POST /projects/{pid}/clips/autogroup`, `POST /scenes/{sid}/clips/autogroup`, `POST /clips/group`, `POST /clips/{lead}/ungroup`, `POST /clips/{lead}/prompt`, `POST /clips/{lead}/video`, `POST /projects/{pid}/clips/generate-all`, `GET /projects/{pid}/clips` |
 | Ảnh 2K/4K | `GET /projects/{pid}/hires/status`, `POST /projects/{pid}/hires/generate-all`, `POST /shots/{sid}/hires` |
 | Video 1080p/4K | `GET /projects/{pid}/upscale/status`, `POST /projects/{pid}/upscale/generate-all`, `POST /shots/{sid}/upscale` |
 | Storytelling | `POST /scenes/{sid}/beats`, `POST /projects/{pid}/voiceover`, `POST /shots/{sid}/narration` |
-| Node graph | `GET/PUT /shots/{sid}/graph`, `POST /shots/{sid}/graph/run` (tương tự cho `/entities/{eid}/graph`) |
-| Ghép & Xuất | `POST /projects/{pid}/assemble`, `…/assemble-images`, `…/export`, `…/export/davinci-xml`, `GET /fonts` |
+| Node graph | `GET/PUT /shots/{sid}/graph`, `POST /shots/{sid}/graph/run` (tương tự cho `/entities/{eid}/graph` và `/sheets/{id}/graph`) |
+| Ghép & Xuất | `POST /projects/{pid}/assemble`, `…/assemble-images`, `…/export`, `…/export/davinci-xml?mode=images\|video`, `GET /fonts` |
 | Playlist nhạc (music video) | `GET /projects/{pid}/music`, `PATCH …/music/settings` (bật chế độ + khoảng cách bài), `POST …/music/upload`, `…/music/generate`, `…/music/add`, `…/music/copy` (chép bài đã tải về), `…/music/reorder`, `PATCH/DELETE /music-tracks/{tid}` |
 | Thư viện nhạc | `GET /library/music` (mọi bài đã tải về của mọi dự án — nguồn cho `music/copy` + `bgm/copy`) |
 | Nhạc nền | `POST /projects/{pid}/bgm` (upload), `POST …/bgm/copy` (chép từ dự án khác), `POST …/bgm/generate` (sinh bằng Flow Music), `POST …/bgm/select` (áp 1 bài đã sinh/có sẵn), `DELETE /projects/{pid}/bgm` |

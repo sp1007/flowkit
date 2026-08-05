@@ -114,6 +114,36 @@ CREATE TABLE IF NOT EXISTS media_history (
   created_at REAL
 );
 
+-- Tab Storyboard: MỘT trang = một lượt sinh ảnh chứa 4 hoặc 6 panel = MỘT clip video.
+--
+-- Trang KHÔNG bị cắt ra. Chính bức ảnh nguyên vẹn (kèm badge số tròn và dòng caption vẽ sẵn
+-- trong ảnh) được đưa thẳng cho Omni Flash r2v làm reference duy nhất; badge số là thứ chỉ cho
+-- model biết panel nào là panel nào, thay cho token `{handle}` mà clip nhiều-ảnh phải dùng.
+--
+-- Tách hẳn khỏi `shot` — `shot` là tab Illustrators, chỉ minh hoạ, hành vi giữ nguyên.
+CREATE TABLE IF NOT EXISTS board_sheet (
+  id TEXT PRIMARY KEY, project_id TEXT, scene_id TEXT, idx INTEGER,
+  title TEXT, prompt TEXT, panels INTEGER DEFAULT 6, cols INTEGER, rows INTEGER,
+  media_id TEXT, primary_media_id TEXT, workflow_id TEXT, path TEXT,
+  hires_path TEXT, hires_media_id TEXT, hires_res TEXT,
+  graph_json TEXT,
+  motion_prompt TEXT, video_model TEXT, duration INTEGER,
+  video_media_id TEXT, video_primary_id TEXT, video_workflow_id TEXT, video_path TEXT,
+  operation_json TEXT, upscale_path TEXT, upscale_media_id TEXT, upscale_res TEXT,
+  status TEXT DEFAULT 'pending', created_at REAL, updated_at REAL
+);
+
+-- Một panel của trang. CHỈ giữ chữ: không có media_id vì trang không bị cắt, và không có cột
+-- video vì cả trang mới là một clip. `caption` là dòng tiếng Việt in dưới panel TRONG ảnh.
+CREATE TABLE IF NOT EXISTS board_panel (
+  id TEXT PRIMARY KEY, sheet_id TEXT, project_id TEXT, scene_id TEXT, idx INTEGER,
+  caption TEXT, shot_size TEXT, lens TEXT, movement TEXT,
+  description TEXT, continuity TEXT, ref_entity_ids TEXT,
+  created_at REAL, updated_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_sheet_scene ON board_sheet(scene_id, idx);
+CREATE INDEX IF NOT EXISTS idx_bpanel_sheet ON board_panel(sheet_id, idx);
+
 CREATE INDEX IF NOT EXISTS idx_entity_project ON entity(project_id);
 CREATE INDEX IF NOT EXISTS idx_scene_project ON scene(project_id);
 CREATE INDEX IF NOT EXISTS idx_mhist_owner ON media_history(owner_id, slot);
@@ -210,6 +240,10 @@ _MIGRATIONS = [
     # clips.HARD_MAX_CLIP_FRAMES = 6 vì clip dài nhất chỉ 10s; hạ xuống 2–3 khi hành động dày
     # và model không kịp chạm tới frame cuối. 0/NULL = mặc định.
     ("project", "clip_frames", "INTEGER DEFAULT 6"),
+    # Số panel trên MỘT trang storyboard (tab Storyboard). Chỉ 4 (lưới 2x2) hoặc 6 (3x2) —
+    # xem brain.SHEET_PANEL_CHOICES. Lưới dày hơn thì mỗi ô bé tới mức cận cảnh mặt người nhòe,
+    # vì cả trang vẫn chỉ là MỘT lượt sinh với ngần ấy chi tiết.
+    ("project", "sheet_panels", "INTEGER DEFAULT 6"),
     # Ảnh MẪU của entity: JSON list [{media_id, path, name}] người dùng đính vào để ✦ sinh ảnh
     # BÁM THEO chúng (ảnh thật của địa điểm, ảnh diễn viên…). Khác `media_id` (ảnh KẾT QUẢ) và
     # `extra_media` (các góc phụ sinh thêm của location) — đây là đầu VÀO, không phải đầu ra.

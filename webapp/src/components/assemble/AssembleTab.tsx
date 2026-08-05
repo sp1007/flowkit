@@ -12,7 +12,7 @@ export default function AssembleTab({ project }: { project: Project }) {
   const [musicInfo, setMusicInfo] = useState<
     { duration: number; target: number; source_duration: number; loops: number } | null
   >(null);
-  const [xmlInfo, setXmlInfo] = useState<{ clips: number; captions: number; bgm: boolean; missing: number; missingTitles: string[] } | null>(null);
+  const [xmlInfo, setXmlInfo] = useState<{ mode: "images" | "video"; clips: number; captions: number; bgm: boolean; missing: number; missingTitles: string[] } | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [kenBurns, setKenBurns] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -75,13 +75,16 @@ export default function AssembleTab({ project }: { project: Project }) {
       setMeta(r);
     });
 
-  const doDavinci = () =>
-    run("xml", async () => {
+  // Hai timeline, hai file:
+  // - images: nguồn là shot của tab Illustrators (video nếu có, không thì ảnh) — hành vi cũ.
+  // - video : nguồn là video của các TRANG storyboard, KHÔNG thay bằng ảnh.
+  const doDavinci = (mode: "images" | "video") =>
+    run(mode === "video" ? "xml-video" : "xml", async () => {
       setProgress("Đang tạo timeline DaVinci… (có thể mất chút thời gian)");
-      const r = await asm.davinci(project.id);
+      const r = await asm.davinci(project.id, mode);
       setXmlUrl(r.web_path + "?t=" + Date.now());
       setSrtUrl(r.captions_srt ? r.captions_srt + "?t=" + Date.now() : null);
-      setXmlInfo({ clips: r.clips, captions: r.captions, bgm: r.bgm, missing: r.missing, missingTitles: r.missing_titles });
+      setXmlInfo({ mode, clips: r.clips, captions: r.captions, bgm: r.bgm, missing: r.missing, missingTitles: r.missing_titles });
     });
 
   return (
@@ -128,10 +131,15 @@ export default function AssembleTab({ project }: { project: Project }) {
           className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
           {busy === "export" ? "…" : "📝 Export SEO + SRT + Thumbnail"}
         </button>
-        <button onClick={doDavinci} disabled={!!busy || (!withVideo.length && !withImage.length)}
-          title="Tạo timeline cho DaVinci Resolve: dùng video shot, hoặc ẢNH shot (still) khi chưa có video. Kèm narration từng scene + caption (.srt)"
+        <button onClick={() => doDavinci("images")} disabled={!!busy || (!withVideo.length && !withImage.length)}
+          title="Timeline từ shot của tab Illustrators: dùng video shot, hoặc ẢNH shot (still) khi chưa có video. Kèm narration từng scene + caption (.srt)"
           className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
-          {busy === "xml" ? "…" : "🎞 Export DaVinci XML"}
+          {busy === "xml" ? "…" : "🎞 Export to DaVinci (images)"}
+        </button>
+        <button onClick={() => doDavinci("video")} disabled={!!busy}
+          title="Timeline CHỈ gồm video của các trang storyboard + audio. Trang chưa render sẽ bị bỏ qua, không thay bằng ảnh."
+          className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800 disabled:opacity-40">
+          {busy === "xml-video" ? "…" : "🎬 Export to DaVinci (video)"}
         </button>
       </div>
 
@@ -157,20 +165,26 @@ export default function AssembleTab({ project }: { project: Project }) {
         <div className="mb-6 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 text-sm">
           {xmlInfo && (
             <div className="mb-1 text-emerald-400">
-              ✓ Đã tạo timeline: {xmlInfo.clips} clip · {xmlInfo.captions} caption
+              ✓ Đã tạo timeline ({xmlInfo.mode === "video" ? "video" : "images"}):{" "}
+              {xmlInfo.clips} clip · {xmlInfo.captions} caption
               {xmlInfo.bgm ? " · có nhạc nền" : ""}
             </div>
           )}
           {xmlInfo && xmlInfo.missing > 0 && (
             <div className="mb-2 text-amber-400">
-              ⚠ {xmlInfo.missing} shot bị bỏ qua (thiếu ảnh/video local, tải lại từ Flow không được):
-              {" "}
-              {xmlInfo.missingTitles.join(" · ")}. Hãy tạo lại ảnh cho các shot này rồi export lại.
+              ⚠ {xmlInfo.missing} {xmlInfo.mode === "video" ? "trang" : "shot"} bị bỏ qua
+              {xmlInfo.mode === "video"
+                ? " (chưa render video, hoặc file local mất)"
+                : " (thiếu ảnh/video local, tải lại từ Flow không được)"}
+              : {xmlInfo.missingTitles.join(" · ")}.
+              {xmlInfo.mode === "video"
+                ? " Render các trang đó ở tab Shots rồi export lại."
+                : " Hãy tạo lại ảnh cho các shot này rồi export lại."}
             </div>
           )}
           DaVinci timeline:{" "}
           <a href={xmlUrl} download className="text-indigo-400 hover:text-indigo-300">
-            ⭳ timeline.xml
+            ⭳ {xmlInfo?.mode === "video" ? "timeline-video.xml" : "timeline.xml"}
           </a>
           <span className="ml-2 text-neutral-500">Import Timeline trong Resolve, media relink từ ./media</span>
           {srtUrl && (

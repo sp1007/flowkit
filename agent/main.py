@@ -18,6 +18,7 @@ from agent.api.flow import router as flow_router
 from agent.api.tts import router as tts_router
 from agent.api.ai_agent import router as agent_router
 from agent.api.studio import router as studio_router
+from agent.api.board import router as board_router
 from agent.api.music import router as music_router
 from agent.services.flow_client import get_flow_client
 from agent.services.music_client import get_music_client
@@ -114,6 +115,9 @@ app.include_router(flow_router, prefix="/api")
 app.include_router(tts_router, prefix="/api")
 app.include_router(agent_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
+# Cùng prefix /studio — tab Storyboard chỉ thêm các route mới (/sheets, /panels), không chồng
+# lên route nào của tab Illustrators.
+app.include_router(board_router, prefix="/api")
 app.include_router(music_router, prefix="/api")
 
 

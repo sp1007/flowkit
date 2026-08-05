@@ -44,7 +44,9 @@ export interface RefImage {
 }
 
 export interface EditorTarget {
-  kind: "shot" | "entity";
+  // "sheet" = một TRANG storyboard 4/6 panel. Chỉ có MỘT graph (ảnh trang), goal luôn là
+  // "image" — trang không sinh video ở đây, tab Shots mới làm việc đó.
+  kind: "shot" | "entity" | "sheet";
   id: string;
   title: string;
   // What this edit produces: an image (storyboard frame / asset art) or a video (shot).

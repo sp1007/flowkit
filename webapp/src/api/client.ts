@@ -17,6 +17,8 @@ export interface Project {
   shot_duration?: number | null;
   // Số frame storyboard tối đa gộp vào MỘT clip video (⚙ Cấu hình dự án, trần HARD_MAX_CLIP_FRAMES).
   clip_frames?: number | null;
+  // Số panel trên MỘT trang storyboard (tab Storyboard). Chỉ 4 (lưới 2x2) hoặc 6 (3x2).
+  sheet_panels?: number | null;
   tts_speed?: number | null;
   tts_gap?: number | null;
   tts_sentence_gap?: number | null;
@@ -675,40 +677,55 @@ export const clips = {
     }),
 };
 
+export type GraphKind = "shot" | "entity" | "sheet";
+
+const graphBase = (kind: GraphKind) =>
+  kind === "shot" ? "shots" : kind === "entity" ? "entities" : "sheets";
+
 // `goal` distinguishes a shot's two graphs: "video" (shots tab) vs "image" (storyboard).
+// Một TRANG storyboard chỉ có MỘT graph (ảnh trang) nên không nhận `goal`.
 const graphUrl = (
-  kind: "shot" | "entity",
+  kind: GraphKind,
   id: string,
   suffix: "" | "/run",
   goal?: "image" | "video"
 ) => {
-  const url = `/${kind === "shot" ? "shots" : "entities"}/${id}/graph${suffix}`;
-  return goal === "video" ? `${url}?goal=video` : url;
+  const url = `/${graphBase(kind)}/${id}/graph${suffix}`;
+  return goal === "video" && kind === "shot" ? `${url}?goal=video` : url;
 };
 
 export const graphApi = {
-  get: (kind: "shot" | "entity", id: string, goal?: "image" | "video") =>
+  get: (kind: GraphKind, id: string, goal?: "image" | "video") =>
     req<{ graph: any }>(graphUrl(kind, id, "", goal)),
   run: (
-    kind: "shot" | "entity",
+    kind: GraphKind,
     id: string,
     graph: any,
     goal?: "image" | "video",
     onlyNode?: string,
     propagate = false
   ) =>
-    req<any>(graphUrl(kind, id, "/run", goal), {
-      method: "POST",
-      body: JSON.stringify({ graph, only_node: onlyNode, propagate }),
-    }),
-  save: (kind: "shot" | "entity", id: string, graph: any, goal?: "image" | "video") =>
+    kind === "sheet"
+      ? // Trang nhận only_node/propagate qua query string (body chỉ có `graph`).
+        req<any>(
+          `/sheets/${id}/graph/run` +
+            (onlyNode
+              ? `?only_node=${encodeURIComponent(onlyNode)}${propagate ? "&propagate=true" : ""}`
+              : ""),
+          { method: "POST", body: JSON.stringify({ graph }) }
+        )
+      : req<any>(graphUrl(kind, id, "/run", goal), {
+          method: "POST",
+          body: JSON.stringify({ graph, only_node: onlyNode, propagate }),
+        }),
+  save: (kind: GraphKind, id: string, graph: any, goal?: "image" | "video") =>
     req<any>(graphUrl(kind, id, "", goal), {
       method: "PUT",
       body: JSON.stringify({ graph }),
     }),
-  // Commit a media (e.g. a per-node quick-gen result) to the shot/entity.
-  applyMedia: (kind: "shot" | "entity", id: string, media_id: string, ext = "png") =>
-    req<any>(`/${kind === "shot" ? "shots" : "entities"}/${id}/apply-media`, {
+  // Commit a media (e.g. a per-node quick-gen result) to the shot/entity/sheet.
+  applyMedia: (kind: GraphKind, id: string, media_id: string, ext = "png") =>
+    req<any>(`/${graphBase(kind)}/${id}/apply-media`, {
       method: "POST",
       body: JSON.stringify({ media_id, ext }),
     }),
@@ -721,6 +738,70 @@ export const graphApi = {
     }),
   deleteTemplate: (id: string) =>
     req<{ templates: GraphTemplate[] }>(`/graph-templates/${id}`, { method: "DELETE" }),
+};
+
+// ─── Tab Storyboard: TRANG 4/6 panel ────────────────────────
+// Một trang = MỘT lượt sinh ảnh = MỘT clip video. Trang KHÔNG bị cắt: chính bức ảnh nguyên vẹn
+// (badge số tròn + caption vẽ sẵn trong ảnh) là reference duy nhất đưa cho Omni Flash r2v.
+
+export interface BoardPanel {
+  id: string;
+  sheet_id: string;
+  idx: number;                  // 0..N-1, trái→phải, trên→dưới
+  caption: string;              // dòng tiếng Việt in DƯỚI panel trong ảnh ("toàn cảnh"…)
+  shot_size: string;
+  lens: string;
+  movement: string;
+  description: string;
+  continuity?: string | null;
+}
+
+export interface BoardSheet {
+  id: string;
+  scene_id: string;
+  idx: number;
+  title: string;
+  prompt?: string | null;
+  panels: number;               // 4 hoặc 6
+  cols: number;
+  rows: number;
+  path?: string | null;         // ảnh trang
+  media_id?: string | null;
+  status?: string | null;
+  motion_prompt?: string | null;
+  video_path?: string | null;
+  video_media_id?: string | null;
+  duration?: number | null;
+  scene_idx?: number;
+  scene_heading?: string;
+  panels_list: BoardPanel[];
+}
+
+export const boardApi = {
+  listProject: (pid: string) => req<{ sheets: BoardSheet[] }>(`/projects/${pid}/sheets`),
+  listScene: (sid: string) => req<{ sheets: BoardSheet[] }>(`/scenes/${sid}/sheets`),
+  add: (sceneId: string) => req<BoardSheet>(`/scenes/${sceneId}/sheets`, { method: "POST" }),
+  autofill: (sceneId: string, nSheets?: number) =>
+    req<{ sheets: BoardSheet[] }>(
+      `/scenes/${sceneId}/sheets/autofill${nSheets ? `?n_sheets=${nSheets}` : ""}`,
+      { method: "POST" }),
+  patchSheet: (id: string, body: { title?: string; prompt?: string; motion_prompt?: string }) =>
+    req<BoardSheet>(`/sheets/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  patchPanel: (id: string, body: Partial<Omit<BoardPanel, "id" | "sheet_id" | "idx">>) =>
+    req<BoardPanel>(`/panels/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  remove: (id: string) => req<{ ok: boolean }>(`/sheets/${id}`, { method: "DELETE" }),
+  generate: (id: string) => req<BoardSheet>(`/sheets/${id}/generate`, { method: "POST" }),
+  generateAll: (pid: string, force = false) =>
+    req<{ job_id: string; total: number }>(
+      `/projects/${pid}/sheets/generate-all?force=${force}`, { method: "POST" }),
+  // Prompt y hệt lúc gửi đi — xem trước để đối chiếu, không tốn credit.
+  promptPreview: (id: string) =>
+    req<{ prompt: string; references: string[]; cast: string[] }>(`/sheets/${id}/prompt-preview`),
+  genPrompt: (id: string) => req<BoardSheet>(`/sheets/${id}/prompt`, { method: "POST" }),
+  genVideo: (id: string) => req<BoardSheet>(`/sheets/${id}/video`, { method: "POST" }),
+  genAllVideos: (pid: string, force = false) =>
+    req<{ job_id: string; total: number }>(
+      `/projects/${pid}/sheets/video/generate-all?force=${force}`, { method: "POST" }),
 };
 
 export interface GraphTemplate {
@@ -760,11 +841,13 @@ export const assemble = {
       `/projects/${pid}/export`,
       { method: "POST" }
     ),
-  davinci: (pid: string) =>
-    req<{ web_path: string; clips: number; captions_srt: string | null; captions: number;
-          bgm: boolean; missing: number; missing_titles: string[] }>(`/projects/${pid}/export/davinci-xml`, {
-      method: "POST",
-    }),
+  // mode "images" = timeline từ shot của tab Illustrators (hành vi cũ, mặc định).
+  // mode "video"  = timeline chỉ gồm video của các trang storyboard + audio.
+  davinci: (pid: string, mode: "images" | "video" = "images") =>
+    req<{ web_path: string; mode: "images" | "video"; clips: number;
+          captions_srt: string | null; captions: number; bgm: boolean;
+          missing: number; missing_titles: string[] }>(
+      `/projects/${pid}/export/davinci-xml?mode=${mode}`, { method: "POST" }),
 };
 
 export interface Scene {
