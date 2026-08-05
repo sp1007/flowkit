@@ -281,7 +281,12 @@ async def _generate_sheet(sheet: dict, batch_id: str | None = None) -> dict:
             gen_call=lambda: client.generate_images(
                 prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
                 user_paygate_tier=tier, references=refs or None, image_model=model,
-                seed=project.get("seed"), batch_id=batch_id, serialize=batch_id is None),
+                seed=project.get("seed"), batch_id=batch_id, serialize=batch_id is None,
+                # BẮT BUỘC ở đây: một trang gọi tên cùng một entity ở MỌI panel, mà mỗi lần gọi
+                # lại sinh thêm một reference part trỏ cùng mediaId trong khi imageInputs chỉ có
+                # một mục → Flow trả 400 INVALID_ARGUMENT. Đã đo: 6 part/1 ảnh hỏng, bind một
+                # lần thì chạy ở đúng độ dài prompt ấy.
+                dedupe_refs=True),
             store_call=_store, label_for_err=f"trang {label}")
     except HTTPException:
         await db.update("board_sheet", sheet["id"], {"status": "error", "updated_at": db.now()})

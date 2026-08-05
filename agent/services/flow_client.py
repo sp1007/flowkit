@@ -328,7 +328,8 @@ class FlowClient:
                                seed: int = None,
                                batch_id: str = None,
                                serialize: bool = True,
-                               bind_unreferenced: bool = False) -> dict:
+                               bind_unreferenced: bool = False,
+                               dedupe_refs: bool = False) -> dict:
         """Generate image(s).
 
         Two ways to attach character/entity references:
@@ -361,6 +362,10 @@ class FlowClient:
         selects from by name — binding an entity the shot never mentions invites the model to
         paint that character into the frame.
 
+        `dedupe_refs=True`: mỗi ảnh chỉ được bind MỘT lần (lần nhắc đầu tiên) — xem
+        `_build_structured_parts`. Bật cho prompt nhắc lại cùng entity nhiều lần (trang
+        storyboard nhiều panel), không thì Flow trả 400 INVALID_ARGUMENT.
+
         Response structure:
             data.media[].name = mediaId (used for video gen)
         """
@@ -369,7 +374,7 @@ class FlowClient:
         model_key = image_model or IMAGE_MODELS["NANO_BANANA_PRO"]
 
         if references:
-            parts = _build_structured_parts(prompt, references)
+            parts = _build_structured_parts(prompt, references, dedupe=dedupe_refs)
             if bind_unreferenced:
                 bound = {p["reference"]["media"]["mediaId"]
                          for p in parts if "reference" in p}
@@ -879,7 +884,8 @@ def _handle_aliases(handle: str) -> list[str]:
     return out
 
 
-def _build_structured_parts(prompt: str, references: list[dict]) -> list[dict]:
+def _build_structured_parts(prompt: str, references: list[dict],
+                            dedupe: bool = False) -> list[dict]:
     """Build Google Flow `structuredPrompt.parts` by splitting `{handle}` tokens.
 
     Each `{handle}` in `prompt` that matches a reference's `handle` becomes a dedicated
@@ -891,6 +897,13 @@ def _build_structured_parts(prompt: str, references: list[dict]) -> list[dict]:
 
     A reference's handle also binds via its aliases (short/full name around a parenthetical),
     so an extracted name like "Hùng (Phạm Trọng Hùng)" binds from {Hùng} too.
+
+    `dedupe=True`: bind mỗi ẢNH đúng MỘT lần, ở lần nhắc đầu tiên; các lần sau thành chữ
+    thường như token lạ. Bắt buộc cho prompt nhắc lại cùng một entity nhiều lần — một trang
+    storyboard 6 panel gọi `{Phố Hàng Mã}` ở cả 6 panel sinh ra 6 reference part trỏ CÙNG một
+    mediaId trong khi `imageInputs` chỉ có một mục, và Flow trả 400 INVALID_ARGUMENT (đã đo:
+    6 part/1 ảnh → 400; bind một lần → chạy, cùng độ dài prompt). Hai reference part cho cùng
+    một ảnh vốn cũng chẳng nói thêm gì cho model: nó chỉ cần biết ảnh này TÊN gì, một lần.
     """
     # exact handles first (priority), then aliases that don't shadow a real handle
     handle_to_id = {r["handle"].strip(): r["media_id"] for r in (references or [])}
@@ -899,6 +912,7 @@ def _build_structured_parts(prompt: str, references: list[dict]) -> list[dict]:
             handle_to_id.setdefault(alias, r["media_id"])
     parts: list[dict] = []
     pos = 0
+    bound: set[str] = set()      # mediaId đã có reference part (chỉ dùng khi dedupe)
 
     def push_text(s: str):
         if s:
@@ -906,13 +920,14 @@ def _build_structured_parts(prompt: str, references: list[dict]) -> list[dict]:
 
     for m in _REF_TOKEN_RE.finditer(prompt):
         handle = m.group(1).strip()
-        if handle in handle_to_id:
+        mid = handle_to_id.get(handle)
+        if mid and not (dedupe and mid in bound):
             push_text(prompt[pos:m.start()])
-            parts.append({"reference": {"media": {"handle": handle,
-                                                  "mediaId": handle_to_id[handle]}}})
+            parts.append({"reference": {"media": {"handle": handle, "mediaId": mid}}})
+            bound.add(mid)
             pos = m.end()
         else:
-            # keep unknown token as plain text without the brackets
+            # token lạ — hoặc ảnh đã bind rồi — giữ làm chữ thường, bỏ ngoặc
             push_text(prompt[pos:m.start()] + handle)
             pos = m.end()
 

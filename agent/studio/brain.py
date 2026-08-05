@@ -280,14 +280,23 @@ def sheet_page_prompt(panels: list[dict]) -> str:
     """Phần THÂN của prompt trang storyboard: một dòng `Panel N [cỡ, ống kính, máy]: mô tả`.
 
     Đúng dạng người dùng đã gõ tay khi test trên Flow. Ngoặc vuông giữ nguyên vì nó tách bạch
-    thông số máy khỏi hành động; entity vẫn gọi bằng `{Tên}` để Flow bind reference part."""
+    thông số máy khỏi hành động; entity vẫn gọi bằng `{Tên}` để Flow bind reference part.
+
+    `caption` được ĐỌC THÀNH LỜI ("caption under this panel reads: …") chứ không để model tự
+    nghĩ ra chữ. Thông số máy trong ngoặc vuông là tiếng Anh, nên nếu không đưa caption ra thì
+    model chép luôn thông số ấy xuống làm caption và dòng chữ trong ảnh ra tiếng Anh — trong
+    khi caption là thứ người đọc storyboard nhìn, phải đúng ngôn ngữ của dự án."""
     out = []
     for i, p in enumerate(panels):
         spec = ", ".join(str(p.get(k) or "").strip()
                          for k in ("shot_size", "lens", "movement") if (p.get(k) or "").strip())
         body = str(p.get("description") or p.get("title") or "").strip().rstrip(".")
+        cap = str(p.get("caption") or "").strip().rstrip(".")
         head = f"Panel {i + 1}" + (f" [{spec}]" if spec else "")
-        out.append(f"{head}: {body}." if body else f"{head}.")
+        line = f"{head}: {body}." if body else f"{head}."
+        if cap:
+            line += f' The caption printed under this panel reads exactly: "{cap}".'
+        out.append(line)
     return "\n".join(out)
 
 
