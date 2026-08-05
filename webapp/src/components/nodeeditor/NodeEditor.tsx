@@ -1388,14 +1388,18 @@ function defaultGraph(seed: EditorTarget, entities: Entity[]): { nodes: Node[]; 
     edges.push({ id: `es${k}`, source: `src${k}`, target: "i" });
   });
   // Storyboard shot frames from the same scene — let the user reference a nearby frame's
-  // composition, lighting or character pose while editing this shot's image.
+  // composition, lighting or character pose while editing this shot's image. Seeded as loose
+  // nodes and deliberately NOT wired to "Tạo ảnh": node `image` chạy với bind_unreferenced=True
+  // (mọi ảnh NỐI VÀO đều thành reference part, kể cả khi prompt không gọi tên), nên tự nối sẵn
+  // các frame anh em = ép model trộn bố cục/nhân vật của khung khác vào ảnh này. Auto gen
+  // (_build_frame_references) chỉ đưa entity và để prompt tự chọn theo tên — nối tay khi cần thì
+  // mới đúng nghĩa "cố ý".
   const entityCount = refIds.length;
   shotRefs.forEach((s, k) => {
     const sid = `sshot${k}`;
     nodes.push(mk(sid, "source", 0, 200 + (entityCount + k) * 150, {
       media_id: s.media_id, web: s.web, label: s.label,
     }));
-    edges.push({ id: `ess${k}`, source: sid, target: "i" });
   });
   nodes.push(
     mk("i", "image", 340, 80, { aspect: "16:9", model: "", count: 1, _result: seed.imageSrc || "" })
@@ -1933,6 +1937,33 @@ function Editor({
         edges.push({ id: `es-${sid}`, source: sid, target: gen.id });
       });
     };
+    // Dọn graph ĐÃ LƯU bởi bản cũ: nó tự nối mọi frame anh em cùng scene vào node Tạo ảnh, và
+    // node `image` chạy với bind_unreferenced=True nên chúng thành reference part dù prompt
+    // không gọi tên → ảnh ra bị trộn bố cục/nhân vật của khung khác. Cắt đúng những cạnh tự nối
+    // đó (node "Nguồn ảnh" vẫn còn, nối lại bằng tay được), TRỪ khi prompt có gọi `{tên}` của nó
+    // — lúc ấy reference là có chủ đích và phải giữ.
+    const dropSeededShotRefEdges = (nodes: Node[], edges: Edge[]): Edge[] => {
+      if (goal !== "image") return edges;
+      const seeded = new Map(
+        nodes
+          .filter((n) => n.type === "source" && /^sshot\d+$/.test(n.id))
+          .map((n) => [n.id, String((n.data as any).handle || (n.data as any).label || "")])
+      );
+      if (!seeded.size) return edges;
+      const genIds = new Set(
+        nodes.filter((n) => n.type === "image" || n.type === "editImage").map((n) => n.id)
+      );
+      const prompts = nodes
+        .filter((n) => n.type === "prompt")
+        .map((n) => String((n.data as any).text || ""))
+        .join("\n");
+      return edges.filter((e) => {
+        const handle = seeded.get(e.source);
+        if (handle === undefined || !genIds.has(e.target)) return true;
+        return !!handle && prompts.includes(`{${handle}}`);
+      });
+    };
+
     const apply = (g: { nodes: any[]; edges: any[] }) => {
       const nodes: Node[] = g.nodes.map((n: any) => ({
         id: n.id,
@@ -1940,11 +1971,12 @@ function Editor({
         position: n.position || { x: 0, y: 0 },
         data: { ...n.data, _type: n.type || n.data?._type },
       }));
-      const edges: Edge[] = (g.edges || []).map((e: any, i: number) => ({
+      let edges: Edge[] = (g.edges || []).map((e: any, i: number) => ({
         id: e.id || `e${i}`,
         source: e.source,
         target: e.target,
       }));
+      edges = dropSeededShotRefEdges(nodes, edges);
       // Refresh entity-bound source nodes to the entity's CURRENT image, so regenerating a
       // location/character updates its reference node instead of keeping the stale snapshot.
       for (const n of nodes) {
