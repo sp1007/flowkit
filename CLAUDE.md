@@ -114,6 +114,13 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   Khối ấy dùng chung cho cả đường tự động (`sheet_page_prompt`) lẫn node editor của trang
   (`graph.py`, `kind="sheet"`) — hai đường cùng vẽ một thứ thì phải nhận cùng lời dặn. Đừng cắt ô
   ra rồi upload lại: thêm một ảnh rác cho mỗi location mà không hơn gì.
+- **Ảnh mẫu của location chỉ có MỘT góc, phải bắt ba ô còn lại mang đặc điểm của nó sang.** Câu
+  "bám theo ảnh" chung chung không đủ: ô 2/3/4 là góc máy KHÔNG có trong ảnh mẫu nên model bịa,
+  mà bịa thì rơi về khuôn phố cổ generic — đã đo với ảnh thật phố Hàng Mã: ô 1 giữ được cây và
+  mái bạt, ô 2–4 thành dãy nhà ống hẹp không cây. `_SHEET["location"]` vì thế nói thẳng ô 1 tái
+  hiện ảnh mẫu, ô 2–4 là CÙNG chỗ ấy nhìn từ nơi khác và phải mang theo đúng bề rộng đường, cây,
+  mái bạt, loại hàng, biển hiệu. Và đừng viết tên cú máy thành tiêu đề in hoa (`1 WIDE
+  ESTABLISHING — …`): model hiểu đó là nhãn cần vẽ và in luôn bốn chữ ấy vào ảnh.
 - **Đừng để thông số máy đứng cạnh số panel.** `Panel 1 [Wide, 24mm, tracking back]:` trông y như
   một nhãn viết sẵn và model chép nguyên cụm xuống làm caption — trang ra chữ
   `toàn cảnh [Wide, 24mm, tracking back]`. Tách thành câu riêng đặt SAU hành động ("Shoot it
