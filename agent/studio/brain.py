@@ -220,7 +220,9 @@ _SHEET_PAGE = (
     "Leave a {margin}px margin around the page and a {gap}px gap between panels horizontally. "
     "Directly under EACH panel put ONE short line of small-type caption text naming that "
     "panel's shot size (e.g. {sizes}); the next row of panels starts about {caption_gap}px below "
-    "that caption line. "
+    "that caption line. A panel's caption is EXACTLY the words quoted for it below and nothing "
+    "else — never append or print the camera direction (shot size, lens, movement), never print "
+    "square brackets, and never print any English on the page. "
     "Number every panel with a small round badge in its TOP-LEFT corner: black digits on a "
     "white/cream circle. "
     "Every panel is a full cinematic frame in its own right, edge to edge inside its cell — no "
@@ -240,8 +242,9 @@ _SHEET_PAGE = (
     "characters, and add no extra people who are not named. The reference does NOT dictate POSE: "
     "ignore its A-pose, expression, gaze and framing; invent pose and framing fresh for each "
     "panel. Never reproduce a reference SHEET layout inside a panel — no turnaround row, no "
-    "expression row, and the location reference's own 2x2 angle grid must not appear; pick "
-    "whichever of its angles suits each panel and render that as a full scene. "
+    "expression row, and if the location reference is itself a grid of angles, that grid must not "
+    "appear anywhere on the page and its cells are ONE place seen several ways, never several "
+    "places; re-frame that place freshly for each panel instead of copying any one cell. "
     "WHERE THE TEXT ABOVE AND THE REFERENCE IMAGES DISAGREE ABOUT WHAT SOMETHING LOOKS LIKE, "
     "THE REFERENCE WINS. This is THE place and THESE are the people from the references, not a "
     "similar-sounding one: keep the location's real architecture, materials, shopfronts, "
@@ -284,6 +287,35 @@ def _strip_braces(s: str) -> str:
     return _BRACE_TOKEN_RE.sub(r"\1", s or "")
 
 
+def location_setting_clause(handle: str) -> str:
+    """Câu mở đầu prompt TRANG storyboard: ảnh location là lưới, và frame nào mới là con phố.
+
+    Ảnh location của một entity là contact sheet 2x2 bốn góc máy. Illustrators không cần giải
+    thích gì — mỗi frame là một lượt sinh riêng và `_SINGLE_FRAME` cấm vẽ lưới, model tự chọn
+    một ô. Trang storyboard thì im lặng là hỏng: prompt bảo "ảnh này LÀ con phố" trong khi đưa
+    một tờ bốn ảnh khác nhau, và chính cái lưới ấy còn đánh nhau với lệnh dựng lưới 3x2. Đã đo:
+    tham chiếu là phố rộng có cây và sạp hoa quả, trang vẽ ra là ngõ hẹp treo đèn lồng.
+
+    Gọi FRAME 1 theo badge số mà `_SHEET["location"]` bắt model vẽ sẵn vào lưới — chỉ đích danh
+    một con số chắc hơn tả vị trí, và không phải cắt ô ra rồi upload thêm một ảnh rác.
+
+    Dùng chung cho cả tab Storyboard lẫn node editor của trang (`graph.py`, kind="sheet"): hai
+    đường cùng vẽ một thứ thì phải nhận cùng một lời dặn."""
+    return (f"SETTING — every panel takes place at the SAME place, {{{handle}}}. Read its "
+            "reference correctly: it is NOT a single photograph, it is a 2x2 contact sheet of "
+            "four camera angles of that ONE place, each cell numbered by a round badge in its "
+            "corner — " + "; ".join(LOCATION_GRID_CELLS_EN) + ". Four views of one place, not "
+            "four places. FRAME 1 is the definitive view; read frames 2, 3 and 4 only to learn "
+            "details frame 1 does not show. Frame 1 is what the place IS: the width and shape of "
+            "the road or room, the stalls and shopfronts and what they sell, the trees, awnings, "
+            "signage, parked vehicles, furniture and the colour of the light. Build EVERY panel "
+            "from it — a panel may look along it, across it, or close in on part of it, but it "
+            "must be recognisably this place and not a similar-sounding one. Never copy that "
+            "contact sheet's own 2x2 layout and never draw its badges; the page you draw uses "
+            "the grid specified below. Any wording further down is about what HAPPENS there, "
+            "never about what the place looks like.")
+
+
 def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str:
     """Phần THÂN của prompt trang storyboard.
 
@@ -299,20 +331,17 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
     Bỏ ngoặc trong mô tả panel là cố ý: mỗi ngoặc còn sót lại sẽ ăn mất lượt bind của ảnh đó
     khỏi khối đầu, hoặc (nếu không dedupe) đẻ thêm reference part cho tới khi vượt trần.
 
+    Khối SETTING nói thẳng ảnh location là LƯỚI 2x2 và chỉ đích danh ô trên-trái. Không nói thì
+    model nhận một tờ contact sheet bốn góc máy trong khi prompt bảo "ảnh này LÀ con phố" — đã
+    đo: tham chiếu là phố rộng có cây và sạp hoa quả, trang vẽ ra là ngõ hẹp treo đèn lồng.
+
     `caption` được ĐỌC THÀNH LỜI ("caption under this panel reads: …") chứ không để model tự
     nghĩ ra chữ. Thông số máy trong ngoặc vuông là tiếng Anh, nên nếu không đưa caption ra thì
     model chép luôn thông số ấy xuống làm caption và dòng chữ trong ảnh ra tiếng Anh."""
     head_lines: list[str] = []
     loc = next((r for r in (refs or []) if r.get("type") == "location"), None)
     if loc:
-        head_lines.append(
-            f"SETTING — every panel takes place at the SAME street, {{{loc['handle']}}}. Its "
-            "reference image is what that street IS: the width and shape of the road, the "
-            "stalls and shopfronts and what they sell, the trees, awnings, signage, parked "
-            "vehicles, street furniture and the colour of the light. Build EVERY panel from "
-            "that image — a panel may look along it, across it, or close in on part of it, but "
-            "it must be recognisably this street and not a similar-sounding one. Any wording "
-            "below is about what HAPPENS there, never about what the place looks like.")
+        head_lines.append(location_setting_clause(loc["handle"]))
     others = [r for r in (refs or []) if r.get("type") != "location"]
     if others:
         head_lines.append(
@@ -328,10 +357,16 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
                          for k in ("shot_size", "lens", "movement") if (p.get(k) or "").strip())
         body = _strip_braces(str(p.get("description") or p.get("title") or "").strip().rstrip("."))
         cap = _strip_braces(str(p.get("caption") or "").strip().rstrip("."))
-        head = f"Panel {i + 1}" + (f" [{spec}]" if spec else "")
-        line = f"{head}: {body}." if body else f"{head}."
+        # Thông số máy KHÔNG đứng cạnh số panel nữa. `Panel 1 [Wide, 24mm, tracking back]:` —
+        # và cả biến thể trong ngoặc đơn — trông y như một nhãn viết sẵn, model chép nguyên cụm
+        # xuống làm caption: trang ra "toàn cảnh [Wide, 24mm, tracking back]". Tách thành câu
+        # riêng, đặt SAU hành động và cách xa câu caption, thì nó đọc như lời dặn.
+        line = f"Panel {i + 1}: {body}." if body else f"Panel {i + 1}."
+        if spec:
+            line += f" Shoot it {spec.lower()}."
         if cap:
-            line += f' The caption printed under this panel reads exactly: "{cap}".'
+            line += (f' Its printed caption is the single phrase "{cap}" and nothing else — '
+                     "never the camera wording.")
         out.append(line)
     return "\n".join(out)
 
@@ -523,21 +558,35 @@ _SHEET = {
              "watermarks on the sheet — clean art only"),
     # ONE image = a 2x2 grid of four angles of the same place, in a FIXED quadrant order so
     # we can overlay correct position labels afterwards (Toàn cảnh / Góc ngược / Trên cao /
-    # Cận cảnh). The model must not draw its own text. Shots use the single_frame guard to
-    # pick one angle instead of copying the grid.
+    # Cận cảnh). Shots use the single_frame guard to pick one angle instead of copying the grid.
+    # Mỗi ô mang một badge số y như trang storyboard: prompt nào cần chỉ đích danh một góc thì
+    # gọi "the cell badged 1" — chắc hơn hẳn tả bằng vị trí, và không phải cắt/upload thêm ảnh
+    # nào. Ngoài badge ra vẫn cấm mọi chữ.
     "location": ("ONE image laid out as a tidy 2x2 grid of FOUR camera angles of the SAME "
                  "place, in this EXACT order: TOP-LEFT a wide establishing shot, TOP-RIGHT the "
                  "reverse angle, BOTTOM-LEFT a high overhead/bird's-eye angle, BOTTOM-RIGHT an "
-                 "eye-level closer detail. Consistent architecture, materials, colour and "
+                 "eye-level closer detail. Number the four cells in that reading order with a "
+                 "small round badge in each cell's TOP-LEFT corner — black digits 1, 2, 3, 4 on "
+                 "a white/cream circle. Consistent architecture, materials, colour and "
                  "lighting across all four panels. The place is COMPLETELY EMPTY — no people, "
                  "no animals (ignore any people mentioned above). Photoreal, cinematic, deep "
-                 "detail. Do NOT draw any text, captions, labels or watermarks yourself — clean "
-                 "panels only"),
+                 "detail. Those four badges are the ONLY text: draw no captions, labels, titles "
+                 "or watermarks of your own"),
 }
 
 # Position labels overlaid on the location grid quadrants (TL, TR, BL, BR), matching the
 # order fixed in the _SHEET["location"] prompt above.
 LOCATION_GRID_LABELS = ["Toàn cảnh", "Góc ngược", "Trên cao", "Cận cảnh"]
+
+# Cùng bốn ô ấy, bằng tiếng Anh, cho prompt phải NÓI RÕ model đọc ô nào. Ảnh location là một
+# lưới 2x2 — thứ hợp lý khi mỗi frame là một lượt sinh riêng (`_SINGLE_FRAME` cấm vẽ lưới, model
+# tự chọn một ô), nhưng với MỘT TRANG storyboard thì im lặng là hỏng: prompt bảo "ảnh này LÀ con
+# phố" trong khi đưa cho model một tờ contact sheet bốn góc máy, và chính cái lưới ấy còn đánh
+# nhau với lệnh dựng lưới 3x2 của trang.
+LOCATION_GRID_CELLS_EN = ("badge 1 top-left, a wide establishing view",
+                          "badge 2 top-right, the reverse angle",
+                          "badge 3 bottom-left, a high overhead angle",
+                          "badge 4 bottom-right, a closer detail")
 
 
 def ref_image_prompt(entity_type: str, name: str, description: str,

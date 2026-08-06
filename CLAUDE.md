@@ -103,6 +103,21 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   bỏ hết ngoặc trong mô tả panel — mỗi ngoặc còn sót lại sẽ ăn mất lượt bind khỏi khối đầu.
   Kèm theo, `sheet_autofill_prompt` cấm mô tả panel nhắc tới phố/đèn/thời tiết/ánh sáng: chữ tả
   cảnh cạnh tranh trực tiếp với ảnh tham chiếu và model theo chữ.
+- **Ảnh location là LƯỚI 2x2 — phải nói cho model biết nó đang nhìn cái gì.** `entity.media_id`
+  của location là một tờ contact sheet bốn góc máy. Illustrators dùng được vì mỗi frame là một
+  lượt sinh riêng và `_SINGLE_FRAME` cấm vẽ lưới nên model tự chọn một ô. Trang storyboard thì
+  hỏng nếu im lặng: prompt bảo "ảnh này LÀ con phố" trong khi đưa một tờ bốn ảnh khác nhau, và
+  chính cái lưới ấy còn đánh nhau với lệnh dựng lưới 3x2 — đã đo: tham chiếu là phố rộng có cây
+  và sạp hoa quả, trang vẽ ra là ngõ hẹp treo đèn lồng. Cách chữa: lưới location tự mang **badge
+  số 1–4** (`_SHEET["location"]`, cùng kiểu badge của trang storyboard), và
+  `brain.location_setting_clause` chỉ đích danh **frame 1** là con phố, 2–4 chỉ để tra chi tiết.
+  Khối ấy dùng chung cho cả đường tự động (`sheet_page_prompt`) lẫn node editor của trang
+  (`graph.py`, `kind="sheet"`) — hai đường cùng vẽ một thứ thì phải nhận cùng lời dặn. Đừng cắt ô
+  ra rồi upload lại: thêm một ảnh rác cho mỗi location mà không hơn gì.
+- **Đừng để thông số máy đứng cạnh số panel.** `Panel 1 [Wide, 24mm, tracking back]:` trông y như
+  một nhãn viết sẵn và model chép nguyên cụm xuống làm caption — trang ra chữ
+  `toàn cảnh [Wide, 24mm, tracking back]`. Tách thành câu riêng đặt SAU hành động ("Shoot it
+  wide, 24mm, tracking back.") thì nó đọc như lời dặn và caption ra đúng tiếng Việt.
 - **Đừng lưu thân prompt tự sinh vào `board_sheet.prompt`.** Cột đó là chỗ NGƯỜI DÙNG ghi đè;
   ghi bản tự sinh vào đấy thì mọi lượt vẽ sau tái dùng thân cũ, sửa panel hay sửa cách dựng
   prompt đều không có tác dụng. Muốn xem thân đang gửi thì gọi `/sheets/{id}/prompt-preview`.

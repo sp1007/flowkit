@@ -241,6 +241,19 @@ async def _load_local_image(media_id: str, pid: str):
     return await asyncio.to_thread(lambda: Image.open(p).convert("RGB"))
 
 
+async def _location_ref(references: list[dict], pid: str) -> str | None:
+    """Handle của reference nào là một LOCATION (ảnh của nó là lưới 2x2 bốn góc máy), hoặc None.
+
+    Node source lấy handle từ tên entity, nên đối chiếu tên là đủ. Handle do người dùng đặt lại
+    ("định danh") sẽ không khớp — chấp nhận: lúc ấy họ đang cố ý gọi ảnh bằng tên khác."""
+    names = {r.get("handle") for r in (references or []) if r.get("handle")}
+    if not names:
+        return None
+    rows = await db.query_all(
+        "SELECT name FROM entity WHERE project_id=? AND type='location'", (pid,))
+    return next((r["name"] for r in rows if r["name"] in names), None)
+
+
 async def _save_and_upload(img, pid: str, flow_pid: str) -> tuple[str, str]:
     """Save a processed PIL image locally AND upload it to Flow → (media_id, web). Uploading
     keeps the chain alive: a locally-filtered image still gets a Flow media_id so downstream
@@ -542,6 +555,15 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                 page = None
                 if kind == "sheet":
                     page = (int(target.get("cols") or 3), int(target.get("rows") or 2))
+                    # Ảnh location nối vào node là LƯỚI 2x2 bốn góc máy. Không nói ra thì model
+                    # coi bốn ô là bốn nơi khác nhau và trang trôi sang một con phố lạ — y hệt
+                    # đường tự động, nên node editor phải nhận cùng lời dặn (brain
+                    # .location_setting_clause chỉ đích danh frame 1). Đặt ở ĐẦU vì reference
+                    # chỉ ràng buộc từ chỗ nó được bind trở đi.
+                    loc = None if "SETTING —" in body else \
+                        await _location_ref(inp["references"], pid)
+                    if loc:
+                        body = brain.location_setting_clause(loc) + "\n" + body
                 img_prompt = brain.compose_prompt(
                     project, body, single_frame=(kind == "shot"), cast=cast, sheet_page=page)
             # Ảnh nối vào node này là ảnh người dùng CỐ Ý đưa vào, nên phải được bind vào
