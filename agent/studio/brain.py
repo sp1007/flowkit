@@ -563,9 +563,7 @@ _SHEET = {
     # gọi "the cell badged 1" — chắc hơn hẳn tả bằng vị trí, và không phải cắt/upload thêm ảnh
     # nào. Ngoài badge ra vẫn cấm mọi chữ.
     "location": ("ONE image laid out as a tidy 2x2 grid of FOUR camera setups of the SAME "
-                 "place, in this EXACT reading order, each cell carrying a small round badge in "
-                 "its TOP-LEFT corner — a black digit on a white/cream circle, and nothing "
-                 "written beside it. "
+                 "place, in this EXACT reading order. "
                  "Cell 1 is the master view: eye level, wide lens, camera at one end looking "
                  "through the whole space. "
                  "Cell 2 is taken from the near edge looking straight across at the frontage "
@@ -591,9 +589,14 @@ _SHEET = {
                  "share the same camera height AND the same vanishing point. Consistent "
                  "architecture, materials, colour and lighting across all four. The place is "
                  "COMPLETELY EMPTY — no people, no animals (ignore any people mentioned above). "
-                 "Photoreal, cinematic, deep detail. The four digit badges are the ONLY text you "
-                 "draw: never write out the wording of this brief, never label a cell with the "
-                 "type of shot it is, and add no captions, titles or watermarks"),
+                 "Photoreal, cinematic, deep detail. "
+                 "Number the cells 1, 2, 3, 4 in that reading order with EXACTLY ONE badge per "
+                 "cell — a small white/cream circle holding a black digit, placed in that cell's "
+                 "TOP-LEFT corner. FOUR badges on the whole image and no more: no second badge in "
+                 "another corner of a cell, no number used twice, and no badge on a cell that "
+                 "already has one. Those four digits are the ONLY text you draw: never write out "
+                 "the wording of this brief, never label a cell with the type of shot it is, and "
+                 "add no captions, titles or watermarks"),
 }
 
 # Position labels overlaid on the location grid quadrants (TL, TR, BL, BR), matching the
