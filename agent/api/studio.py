@@ -1077,7 +1077,7 @@ async def _generate_entity_image(entity: dict, project: dict) -> dict:
 
 
 async def _label_location_grid(entity: dict, project: dict) -> None:
-    """Overlay the four position labels (Toàn cảnh / Góc ngược / Trên cao / Cận cảnh) on the
+    """Overlay the four position labels (Toàn cảnh / Nhìn ngang / Trên cao / Cận cảnh) on the
     location's 2x2 grid quadrants → a labeled DISPLAY copy set as image_path. The original
     grid (media_id) stays unlabeled and is what shots reference."""
     web = entity.get("image_path")

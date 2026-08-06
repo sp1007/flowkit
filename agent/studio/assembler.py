@@ -183,7 +183,7 @@ _FONT_FALLBACKS = [
 
 def label_quadrants(src: Path, out: Path, labels: list[str], font: str | None) -> bool:
     """Overlay a label at the bottom of each 2x2 quadrant of an image (used to tag the four
-    angles of a location grid: Toàn cảnh / Góc ngược / Trên cao / Cận cảnh). Writes a labeled
+    angles of a location grid: Toàn cảnh / Nhìn ngang / Trên cao / Cận cảnh). Writes a labeled
     copy to `out`. Returns True on success, False on any failure (caller keeps the original)."""
     try:
         from PIL import Image, ImageDraw, ImageFont

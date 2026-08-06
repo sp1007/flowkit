@@ -557,36 +557,49 @@ _SHEET = {
              "studio product reference. Do NOT draw any text, titles, captions, view labels or "
              "watermarks on the sheet — clean art only"),
     # ONE image = a 2x2 grid of four angles of the same place, in a FIXED quadrant order so
-    # we can overlay correct position labels afterwards (Toàn cảnh / Góc ngược / Trên cao /
+    # we can overlay correct position labels afterwards (Toàn cảnh / Nhìn ngang / Trên cao /
     # Cận cảnh). Shots use the single_frame guard to pick one angle instead of copying the grid.
     # Mỗi ô mang một badge số y như trang storyboard: prompt nào cần chỉ đích danh một góc thì
     # gọi "the cell badged 1" — chắc hơn hẳn tả bằng vị trí, và không phải cắt/upload thêm ảnh
     # nào. Ngoài badge ra vẫn cấm mọi chữ.
-    "location": ("ONE image laid out as a tidy 2x2 grid of FOUR camera angles of the SAME "
-                 "place, in this EXACT order: TOP-LEFT a wide establishing shot, TOP-RIGHT the "
-                 "reverse angle, BOTTOM-LEFT a high overhead/bird's-eye angle, BOTTOM-RIGHT an "
-                 "eye-level closer detail. Number the four cells in that reading order with a "
-                 "small round badge in each cell's TOP-LEFT corner — black digits 1, 2, 3, 4 on "
-                 "a white/cream circle. Consistent architecture, materials, colour and "
-                 "lighting across all four panels. The place is COMPLETELY EMPTY — no people, "
-                 "no animals (ignore any people mentioned above). Photoreal, cinematic, deep "
-                 "detail. Those four badges are the ONLY text: draw no captions, labels, titles "
-                 "or watermarks of your own"),
+    "location": ("ONE image laid out as a tidy 2x2 grid of FOUR camera setups of the SAME "
+                 "place, in this EXACT reading order, each cell carrying a small round badge in "
+                 "its TOP-LEFT corner — black digit on a white/cream circle: "
+                 "1 WIDE ESTABLISHING — eye level, wide lens, camera at one end looking through "
+                 "the whole space; this is the master view. "
+                 "2 CROSS VIEW — camera stands at the near edge and looks straight ACROSS the "
+                 "place at the frontage opposite, so the street or room runs left-to-right across "
+                 "the frame instead of away from the camera. NO long receding perspective and no "
+                 "vanishing point in the distance: the opposite side fills the frame flat on. "
+                 "3 HIGH OVERHEAD — a bird's-eye view from well above roof or ceiling height, "
+                 "camera tilted steeply down; the rooftops, canopies and the layout of the "
+                 "ground are the subject. "
+                 "4 CLOSE DETAIL — a tight eye-level shot taken about two metres from ONE single "
+                 "element (one shopfront, stall, doorway, window or corner) which fills the "
+                 "frame; no receding perspective, no vanishing point, no view along the whole "
+                 "space. "
+                 "These are FOUR genuinely different vantage points, not one view repeated with "
+                 "small changes — a viewer must tell them apart at a glance, and no two cells may "
+                 "share the same camera height AND the same vanishing point. Consistent "
+                 "architecture, materials, colour and lighting across all four. The place is "
+                 "COMPLETELY EMPTY — no people, no animals (ignore any people mentioned above). "
+                 "Photoreal, cinematic, deep detail. Those four badges are the ONLY text: draw "
+                 "no captions, labels, titles or watermarks of your own"),
 }
 
 # Position labels overlaid on the location grid quadrants (TL, TR, BL, BR), matching the
 # order fixed in the _SHEET["location"] prompt above.
-LOCATION_GRID_LABELS = ["Toàn cảnh", "Góc ngược", "Trên cao", "Cận cảnh"]
+LOCATION_GRID_LABELS = ["Toàn cảnh", "Nhìn ngang", "Trên cao", "Cận cảnh"]
 
 # Cùng bốn ô ấy, bằng tiếng Anh, cho prompt phải NÓI RÕ model đọc ô nào. Ảnh location là một
 # lưới 2x2 — thứ hợp lý khi mỗi frame là một lượt sinh riêng (`_SINGLE_FRAME` cấm vẽ lưới, model
 # tự chọn một ô), nhưng với MỘT TRANG storyboard thì im lặng là hỏng: prompt bảo "ảnh này LÀ con
 # phố" trong khi đưa cho model một tờ contact sheet bốn góc máy, và chính cái lưới ấy còn đánh
 # nhau với lệnh dựng lưới 3x2 của trang.
-LOCATION_GRID_CELLS_EN = ("badge 1 top-left, a wide establishing view",
-                          "badge 2 top-right, the reverse angle",
+LOCATION_GRID_CELLS_EN = ("badge 1 top-left, a wide establishing view along the place",
+                          "badge 2 top-right, a flat side-on view across it",
                           "badge 3 bottom-left, a high overhead angle",
-                          "badge 4 bottom-right, a closer detail")
+                          "badge 4 bottom-right, one frontage close up")
 
 
 def ref_image_prompt(entity_type: str, name: str, description: str,
