@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   api,
   boardApi,
+  sheetRefEntityIds,
   type BoardPanel,
   type BoardSheet,
   type Project,
@@ -124,7 +125,15 @@ export default function BoardTab({
       id: sh.id,
       title: sh.title || `Trang ${sh.idx + 1}`,
       goal: "image",
-      prompt: sh.prompt || "",
+      // Prompt trang = thân đã gửi đi, hoặc ghép từ các panel khi chưa vẽ lần nào.
+      prompt:
+        sh.prompt ||
+        sh.panels_list
+          .map((p, i) => `Panel ${i + 1}: ${p.description || p.caption || ""}`)
+          .join("\n"),
+      // Union entity của MỌI panel — thiếu cái này thì đồ thị mặc định không có node
+      // "Nguồn ảnh" nào và node Tạo ảnh chạy trơ, không bám ảnh tham chiếu.
+      refEntityIds: sheetRefEntityIds(sh),
       imageMediaId: sh.media_id,
       imageSrc: sh.path,
     });

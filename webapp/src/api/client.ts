@@ -754,7 +754,24 @@ export interface BoardPanel {
   movement: string;
   description: string;
   continuity?: string | null;
+  /** JSON list các entity id panel này tham chiếu — nguồn của node "Nguồn ảnh" trong Node Editor. */
+  ref_entity_ids?: string | null;
 }
+
+/** Union entity id của mọi panel, giữ thứ tự (location của scene luôn đứng đầu). */
+export const sheetRefEntityIds = (sh: { panels_list?: BoardPanel[] }): string[] => {
+  const out: string[] = [];
+  for (const p of sh.panels_list || []) {
+    let ids: string[] = [];
+    try {
+      ids = JSON.parse(p.ref_entity_ids || "[]");
+    } catch {
+      ids = [];
+    }
+    for (const i of ids) if (i && !out.includes(i)) out.push(i);
+  }
+  return out;
+};
 
 export interface BoardSheet {
   id: string;

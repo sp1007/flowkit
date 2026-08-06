@@ -202,7 +202,11 @@ async def autofill_scene_sheets(sid: str, n_sheets: int | None = None, replace: 
     if not pages:
         raise HTTPException(502, "AI không chia được scene thành trang storyboard")
 
-    by_name = {e["name"]: e["id"] for e in entities}
+    # PHẢI dùng _index_by_name: `_resolve_shot_refs` tra bằng TÊN ĐÃ CHUẨN HOÁ và mong giá trị
+    # là cả HÀNG entity (nó đọc e["type"], e["id"]). Từng viết {name: id} ở đây nên mọi tra cứu
+    # trả None — không entity nào ngoài location của scene được đính, và trang vẽ ra bịa lại
+    # nhân vật lẫn đạo cụ dù prompt gọi đúng tên chúng.
+    by_name = S._index_by_name(entities)
     if replace:
         for o in await db.query_all("SELECT id FROM board_sheet WHERE scene_id=?", (sid,)):
             await db.execute("DELETE FROM board_panel WHERE sheet_id=?", (o["id"],))

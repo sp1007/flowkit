@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   api,
   boardApi,
+  sheetRefEntityIds,
   type BoardSheet,
   type Project,
   type Scene,
@@ -180,6 +181,9 @@ export default function ShotsTab({
                                 id: sh.id,
                                 title: sheetLabel(sh),
                                 prompt: sh.prompt || "",
+                                // Xem BoardTab: thiếu cái này thì đồ thị mặc định không có
+                                // node "Nguồn ảnh" và node Tạo ảnh chạy trơ.
+                                refEntityIds: sheetRefEntityIds(sh),
                                 imageMediaId: sh.media_id,
                                 imageSrc: sh.path,
                               })
