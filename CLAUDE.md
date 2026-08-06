@@ -153,6 +153,13 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
 - **Đừng lưu thân prompt tự sinh vào `board_sheet.prompt`.** Cột đó là chỗ NGƯỜI DÙNG ghi đè;
   ghi bản tự sinh vào đấy thì mọi lượt vẽ sau tái dùng thân cũ, sửa panel hay sửa cách dựng
   prompt đều không có tác dụng. Muốn xem thân đang gửi thì gọi `/sheets/{id}/prompt-preview`.
+- **Prompt do NGƯỜI DÙNG viết thì luôn bật `dedupe_refs`.** Node Editor không giới hạn số lần
+  gọi tên một entity, mà mỗi lần nhắc không dedupe là một reference part. Prompt seed của node
+  TRANG storyboard là N dòng panel, mỗi dòng gọi 3–4 entity: đo được **39 part / 19 reference →
+  400 mọi lượt** (dedupe còn 9). Đường Assets/Illustrators/candidates cùng loại, đo được 5–13
+  part nên chưa nổ — chỉ là chưa chạm ngưỡng, nên đã bật sẵn. `generate_video_from_references`
+  bật cứng vì prompt timeline gọi lại cùng một frame ở nhiều mốc là chuyện thường. Bind lần thứ
+  hai của cùng một ảnh không thêm thông tin gì nên dedupe không mất mát.
 - **`structuredPrompt` bị băm vụn = Flow trả 400.** Mỗi token KHÔNG bind (token lạ, hoặc ảnh đã
   bind rồi khi `dedupe`) cắt đoạn văn làm đôi, nên `_build_structured_parts` phải GỘP mảnh text
   vào part liền trước chứ không tạo part mới. Trang storyboard 30 token từng ra 37 part → 400

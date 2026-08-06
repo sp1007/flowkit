@@ -580,6 +580,13 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                 user_paygate_tier=project["paygate_tier"],
                 references=inp["references"] or None,
                 image_model=_img_model(project, data),
+                # Prompt của node là do NGƯỜI DÙNG viết nên cùng một entity được gọi tên bao
+                # nhiêu lần cũng được — mà mỗi lần nhắc không dedupe là một reference part, và
+                # part vụn quá nhiều thì Flow trả 400 INVALID_ARGUMENT (xem CLAUDE.md). Prompt
+                # seed của node TRANG storyboard là 6 dòng panel, mỗi dòng gọi 3-4 entity: đo
+                # được 37-39 part / 19 reference → 400 mọi lượt. Bind lần thứ hai của cùng một
+                # ảnh không thêm thông tin gì, nên dedupe không mất mát.
+                dedupe_refs=True,
                 bind_unreferenced=True), pid)
             outputs[nid] = {"media_id": mid, "web": web, "ext": "png",
                             "handle": _handle_of(data, "image")}

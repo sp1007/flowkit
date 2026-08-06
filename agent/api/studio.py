@@ -1061,7 +1061,7 @@ async def _generate_entity_image(entity: dict, project: dict) -> dict:
         gen_call=lambda: client.generate_images(
             prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
             user_paygate_tier=tier, image_model=model, seed=project.get("seed"),
-            references=refs or None, bind_unreferenced=bool(refs)),
+            references=refs or None, dedupe_refs=True, bind_unreferenced=bool(refs)),
         store_call=lambda info: _store_media_on_entity(
             entity, project, info, f"{entity['type']}_{entity['name']}"),
         label_for_err=f"asset {entity['name']}")
@@ -1614,6 +1614,7 @@ async def _generate_frame_image(shot: dict, batch_id: str = None) -> dict:
         gen_call=lambda: client.generate_images(
             prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
             user_paygate_tier=tier, references=refs or None, image_model=model,
+            dedupe_refs=True,
             seed=project.get("seed"), batch_id=batch_id, serialize=batch_id is None),
         store_call=lambda info: _store_media_on_shot(
             shot, project, info, "image", name),
@@ -4233,7 +4234,8 @@ async def shot_candidates(sid: str, body: CandidatesRequest):
     cands = await _gen_candidates(
         lambda: client.generate_images(
             prompt=prompt, project_id=project["flow_project_id"], aspect_ratio=aspect,
-            user_paygate_tier=tier, references=refs or None, image_model=model),
+            user_paygate_tier=tier, references=refs or None, image_model=model,
+            dedupe_refs=True),
         project, max(2, min(4, body.n)))
     return {"candidates": cands}
 

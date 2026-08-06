@@ -616,8 +616,13 @@ class FlowClient:
         # Like generate_images: prompt may embed entity names as "{handle}" so each mention
         # binds to its own reference image instead of being mixed up. referenceImages follow
         # the reference order, de-duplicated.
+        #
+        # dedupe ở đây LUÔN bật, khác generate_images (nơi nó là tuỳ chọn). Prompt timeline của
+        # một clip gọi lại cùng một frame ở nhiều mốc thời gian là chuyện bình thường, mà mỗi
+        # lần nhắc không dedupe là một reference part — đủ nhiều thì Flow trả 400
+        # INVALID_ARGUMENT (xem CLAUDE.md). Bind lần thứ hai của cùng một ảnh không thêm gì.
         if references:
-            parts = _build_structured_parts(prompt, references)
+            parts = _build_structured_parts(prompt, references, dedupe=True)
             ref_ids = list(dict.fromkeys(r["media_id"] for r in references))
         else:
             parts = [{"text": prompt}]
