@@ -915,7 +915,19 @@ def _build_structured_parts(prompt: str, references: list[dict],
     bound: set[str] = set()      # mediaId đã có reference part (chỉ dùng khi dedupe)
 
     def push_text(s: str):
-        if s:
+        """Nối vào part text liền trước thay vì tạo part mới.
+
+        Mỗi token KHÔNG bind (token lạ, hoặc ảnh đã bind rồi khi dedupe) cắt đoạn văn làm đôi;
+        nếu mỗi mảnh thành một part riêng thì một prompt nhiều token biến structuredPrompt
+        thành hàng chục mảnh text vụn liền kề — Flow trả 400 INVALID_ARGUMENT. Đã đo trên trang
+        storyboard 6 panel: 30 token → 37 part → 400; gộp lại còn 8 part → chạy, cùng nguyên
+        văn prompt ấy. Các mảnh liền kề vốn chỉ là một đoạn văn bị chẻ ra, gộp lại không đổi
+        nghĩa gì."""
+        if not s:
+            return
+        if parts and "text" in parts[-1]:
+            parts[-1]["text"] += s
+        else:
             parts.append({"text": s})
 
     for m in _REF_TOKEN_RE.finditer(prompt):

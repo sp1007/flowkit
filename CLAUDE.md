@@ -94,6 +94,15 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   LLM viết từ `entity.description` còn ảnh location là do model vẽ, hai bên lệch nhau là thường,
   không phân xử thì model theo chữ và dựng lại cả con phố. Trần 8 reference của Flow là cứng nên
   `_build_frame_references(reserve=1)` phải chừa chỗ cho neo.
+- **`structuredPrompt` bị băm vụn = Flow trả 400.** Mỗi token KHÔNG bind (token lạ, hoặc ảnh đã
+  bind rồi khi `dedupe`) cắt đoạn văn làm đôi, nên `_build_structured_parts` phải GỘP mảnh text
+  vào part liền trước chứ không tạo part mới. Trang storyboard 30 token từng ra 37 part → 400
+  `INVALID_ARGUMENT`; gộp lại còn 3 part → chạy, cùng nguyên văn prompt. Triệu chứng dễ đánh
+  lừa: agent báo *"Flow không trả media (có thể bị chặn)"* (vì `res["error"]` rỗng) chứ không
+  báo 400 — muốn thấy mã lỗi thật thì gửi lại qua `POST /api/flow/generate-image`, endpoint đó
+  bóc `status` + `error` ra. Cũng đừng đoán là do prompt dài: đã đo 9306 ký tự chạy tốt, còn
+  6078 ký tự vẫn hỏng khi part bị vụn. Kèm theo: `dedupe_refs=True` bind mỗi ẢNH đúng một lần —
+  bắt buộc cho prompt nhắc cùng một entity ở nhiều panel.
 - **Asset có hai đầu vào ảnh, đừng lẫn.** `entity.ref_media` = ảnh MẪU người dùng đính vào để
   ✦ vẽ bám theo (đầu VÀO); `entity.media_id` là ảnh KẾT QUẢ; `entity.extra_media` là các góc
   phụ sinh thêm của location (đầu RA). Nút ✦ (`/entities/{eid}/generate`) chạy `graph_json`
