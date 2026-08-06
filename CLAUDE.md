@@ -129,6 +129,15 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   một nhãn viết sẵn và model chép nguyên cụm xuống làm caption — trang ra chữ
   `toàn cảnh [Wide, 24mm, tracking back]`. Tách thành câu riêng đặt SAU hành động ("Shoot it
   wide, 24mm, tracking back.") thì nó đọc như lời dặn và caption ra đúng tiếng Việt.
+- **Khối SETTING ở đầu trôi mất trước khi model đọc tới panel.** Prompt trang dài ~9700 ký tự;
+  đặt lời dặn bối cảnh ở đầu là đúng (lượt bind reference phải nằm đó) nhưng KHÔNG đủ — đã tái
+  hiện được: cùng một prompt, hai lượt liền đều cho ngõ hẹp generic dù frame 1 là phố rộng có cây.
+  `sheet_page_prompt` vì thế nhắc lại NGAY TRƯỚC danh sách panel, bằng TÊN THƯỜNG không ngoặc —
+  lượt bind đã tiêu ở khối SETTING, thêm ngoặc ở đây chỉ ăn mất nó khỏi chỗ có ích hơn.
+- **Số panel phải nói bằng số VÀ cấm bỏ sót.** "6 panels in a 3x2 grid" không đủ: model vẽ 5 ô,
+  đánh số 1,2,3,5,6, hàng trên 2 ô hàng dưới 3 — tái hiện được, không phải lượt xui. Phải nói rõ
+  "{rows} hàng, mỗi hàng {cols} ô bằng nhau", "vẽ ĐỦ {n} panel", và nói thẳng rằng thiếu một ô
+  hay đứt số là SAI kể cả khi từng ô đẹp.
 - **Đừng lưu thân prompt tự sinh vào `board_sheet.prompt`.** Cột đó là chỗ NGƯỜI DÙNG ghi đè;
   ghi bản tự sinh vào đấy thì mọi lượt vẽ sau tái dùng thân cũ, sửa panel hay sửa cách dựng
   prompt đều không có tác dụng. Muốn xem thân đang gửi thì gọi `/sheets/{id}/prompt-preview`.

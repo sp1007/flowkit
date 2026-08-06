@@ -215,8 +215,11 @@ PANEL_SHOT_SIZES = ["toàn cảnh", "cận trung", "cận cảnh", "toàn thân"
 # và câu "ảnh thắng chữ" (xem lịch sử: mô tả do LLM viết từ entity.description hay lệch với ảnh
 # location model đã vẽ, không phân xử thì model dựng lại cả con phố).
 _SHEET_PAGE = (
-    "LAYOUT — render ONE storyboard PAGE: {n} cinematic panels arranged in a clean {cols}x{rows} "
-    "grid, read left to right, top to bottom, panel 1 first. "
+    "LAYOUT — render ONE storyboard PAGE: EXACTLY {n} cinematic panels in a clean {cols}x{rows} "
+    "grid — {rows} rows of {cols} equally sized panels each, read left to right, top to bottom, "
+    "panel 1 first. Draw all {n} of the panels listed below and number them 1 to {n} with none "
+    "skipped, dropped, merged or added: a page with a panel missing, with a row of a different "
+    "width, or with a gap in the numbering is wrong even if every panel on it is beautiful. "
     "Leave a {margin}px margin around the page and a {gap}px gap between panels horizontally. "
     "Directly under EACH panel put ONE short line of small-type caption text naming that "
     "panel's shot size (e.g. {sizes}); the next row of panels starts about {caption_gap}px below "
@@ -352,6 +355,17 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
             "only pose, angle and framing change from panel to panel.")
 
     out = list(head_lines)
+    if loc:
+        # Nhắc lại NGAY TRƯỚC danh sách panel. Khối SETTING đứng ở đầu một prompt ~9700 ký tự,
+        # và tới lúc model đọc tới panel thì nó đã trôi: đo được trang vẽ ra một ngõ hẹp generic
+        # trong khi frame 1 là phố rộng có cây. Nhắc bằng TÊN THƯỜNG, không ngoặc — lượt bind đã
+        # tiêu ở khối SETTING rồi, thêm ngoặc ở đây chỉ ăn mất nó khỏi chỗ có ích hơn.
+        out.append(
+            f"Every panel below is set on that same street. Its background is {loc['handle']} "
+            "exactly as frame 1 of the reference shows it — the same road width, the same trees, "
+            "awnings and stalls, the same shopfronts and goods. A panel's wording says what "
+            "HAPPENS in it; it never redescribes the place, and nothing in it licenses a "
+            "different street.")
     for i, p in enumerate(panels):
         spec = ", ".join(str(p.get(k) or "").strip()
                          for k in ("shot_size", "lens", "movement") if (p.get(k) or "").strip())
