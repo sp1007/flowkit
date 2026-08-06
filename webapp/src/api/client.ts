@@ -802,6 +802,13 @@ export const boardApi = {
     req<{ sheets: BoardSheet[] }>(
       `/scenes/${sceneId}/sheets/autofill${nSheets ? `?n_sheets=${nSheets}` : ""}`,
       { method: "POST" }),
+  // Chia trang cho MỌI scene. force=false bỏ qua scene đã có trang (chia lại là xoá sạch
+  // panel của scene đó, kể cả mô tả đã sửa tay).
+  autofillAll: (pid: string, nSheets?: number, force = false) =>
+    req<{ requested: number; done: number; skipped: number; errors: any[] }>(
+      `/projects/${pid}/sheets/autofill-all?force=${force}` +
+        (nSheets ? `&n_sheets=${nSheets}` : ""),
+      { method: "POST" }),
   patchSheet: (id: string, body: { title?: string; prompt?: string; motion_prompt?: string }) =>
     req<BoardSheet>(`/sheets/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   patchPanel: (id: string, body: Partial<Omit<BoardPanel, "id" | "sheet_id" | "idx">>) =>

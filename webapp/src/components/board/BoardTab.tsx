@@ -97,6 +97,47 @@ export default function BoardTab({
     }
   };
 
+  // ✨ Chia trang cho MỌI scene. Mặc định KHÔNG phá gì: scene đã có trang bị bỏ qua, nên bấm
+  // nhầm cũng không mất panel đã sửa tay. Chỉ khi mọi scene đều đã có trang — lúc ấy nút thành
+  // vô nghĩa — mới hỏi có chia lại từ đầu không (trường hợp hay gặp: prompt autofill vừa đổi và
+  // các trang cũ mang khuôn cũ). Câu hỏi là CÓ/HUỶ, không phải hai lựa chọn: nút Huỷ của hộp
+  // thoại không phân biệt được với ESC, nên dùng nó làm một lựa chọn thì bấm ESC sẽ lỡ chạy.
+  const autofillAll = async () => {
+    const had = new Set(sheets.map((s) => s.scene_id));
+    const pending = scenes.filter((sc) => !had.has(sc.id)).length;
+    let force = false;
+    if (!pending) {
+      if (!scenes.length) {
+        setErr("Chưa có scene nào. Tách script ở tab Script trước.");
+        return;
+      }
+      force = await confirm({
+        title: "Chia lại tất cả?",
+        message:
+          `Cả ${scenes.length} scene đều đã có trang. Chia lại sẽ XOÁ toàn bộ panel của chúng ` +
+          "(kể cả mô tả bạn đã sửa tay) và để AI tách lại từ script. Ảnh đã sinh trên Flow không " +
+          "bị xoá.",
+        confirmText: "Chia lại tất cả",
+        danger: true,
+      });
+      if (!force) return;
+    }
+    mark("autofill-all", true);
+    setErr(null);
+    try {
+      const r = await boardApi.autofillAll(project.id, undefined, force);
+      await reload();
+      const bits = [`${r.done} scene được chia`];
+      if (r.skipped) bits.push(`${r.skipped} bỏ qua (đã có trang)`);
+      if (r.errors.length) bits.push(`${r.errors.length} lỗi`);
+      setErr(r.errors.length ? `Chia trang: ${bits.join(" · ")}` : null);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      mark("autofill-all", false);
+    }
+  };
+
   const removeSheet = async (sh: BoardSheet) => {
     if (
       !(await confirm({
@@ -149,6 +190,13 @@ export default function BoardTab({
           {sheets.length} trang · {drawn} đã vẽ · {nPanels} panel/trang
         </div>
         <div className="flex-1" />
+        <button
+          onClick={autofillAll}
+          disabled={running.has("autofill-all") || !scenes.length}
+          className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 disabled:opacity-40"
+        >
+          {running.has("autofill-all") ? "Đang chia…" : "✨ Chia trang hàng loạt"}
+        </button>
         <button
           onClick={genAll}
           disabled={!!job || !sheets.length}

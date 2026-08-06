@@ -225,6 +225,37 @@ async def autofill_scene_sheets(sid: str, n_sheets: int | None = None, replace: 
     return {"sheets": await _with_panels(made)}
 
 
+@router.post("/projects/{pid}/sheets/autofill-all")
+async def autofill_all_sheets(pid: str, n_sheets: int | None = None, force: bool = False):
+    """✨ Chia trang cho MỌI scene của dự án.
+
+    Mặc định BỎ QUA scene đã có trang — chia lại là xoá sạch panel của scene đó, kể cả mô tả
+    người dùng đã sửa tay. `force=true` mới chia lại từ đầu (dùng khi prompt autofill đổi và các
+    trang cũ mang khuôn cũ).
+
+    Chạy TUẦN TỰ chứ không song song: mỗi scene là một lượt gọi LLM, bắn cùng lúc chỉ để dính
+    rate limit. Một scene lỗi không làm hỏng cả lượt — nó vào `errors` và các scene sau vẫn chạy.
+    """
+    await S._project_or_404(pid)
+    scenes = await db.query_all("SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))
+    done, skipped, errors = 0, 0, []
+    for sc in scenes:
+        if not force:
+            has = await db.query_one(
+                "SELECT COUNT(*) AS n FROM board_sheet WHERE scene_id=?", (sc["id"],))
+            if has and has["n"]:
+                skipped += 1
+                continue
+        try:
+            await autofill_scene_sheets(sc["id"], n_sheets=n_sheets)
+            done += 1
+        except Exception as ex:  # noqa: BLE001
+            logger.warning("chia trang scene %s lỗi: %s", sc["id"], ex)
+            errors.append({"scene": sc["id"], "heading": sc.get("heading") or "",
+                           "error": str(ex)[:200]})
+    return {"requested": len(scenes), "done": done, "skipped": skipped, "errors": errors}
+
+
 # ─── Sinh ảnh trang ─────────────────────────────────────────
 
 async def _sheet_refs_and_cast(sheet: dict, scene: dict,
