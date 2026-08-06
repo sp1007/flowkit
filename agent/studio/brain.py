@@ -303,8 +303,8 @@ def location_setting_clause(handle: str) -> str:
     đường cùng vẽ một thứ thì phải nhận cùng một lời dặn."""
     return (f"SETTING — every panel takes place at the SAME place, {{{handle}}}. Read its "
             "reference correctly: it is NOT a single photograph, it is a 2x2 contact sheet of "
-            "four camera angles of that ONE place, each cell numbered by a round badge in its "
-            "corner — " + "; ".join(LOCATION_GRID_CELLS_EN) + ". Four views of one place, not "
+            "four camera angles of that ONE place, each cell numbered by a round badge — "
+            + "; ".join(LOCATION_GRID_CELLS_EN) + ". Four views of one place, not "
             "four places. FRAME 1 is the definitive view; read frames 2, 3 and 4 only to learn "
             "details frame 1 does not show. Frame 1 is what the place IS: the width and shape of "
             "the road or room, the stalls and shopfronts and what they sell, the trees, awnings, "
@@ -587,8 +587,13 @@ _SHEET = {
                  "These are four genuinely different vantage points, not one view repeated with "
                  "small changes — a viewer must tell them apart at a glance, and no two cells may "
                  "share the same camera height AND the same vanishing point. Consistent "
-                 "architecture, materials, colour and lighting across all four. The place is "
-                 "COMPLETELY EMPTY — no people, no animals (ignore any people mentioned above). "
+                 "architecture, materials, colour and lighting across all four. NO PEOPLE and no "
+                 "animals anywhere in any cell (ignore any people mentioned above) — but empty of "
+                 "people is NOT emptied of the place: it stays fully dressed and open for "
+                 "business, stalls stocked and spilling over, goods hung out, shopfronts lit, "
+                 "produce and merchandise on display exactly as the reference shows them. Never "
+                 "roll the shutters down, never clear the stalls, never strip the colour out of "
+                 "the place — the wares ARE the location. "
                  "Photoreal, cinematic, deep detail. "
                  "Number the cells 1, 2, 3, 4 in that reading order with EXACTLY ONE badge per "
                  "cell — a small white/cream circle holding a black digit, placed in that cell's "
@@ -608,10 +613,10 @@ LOCATION_GRID_LABELS = ["Toàn cảnh", "Nhìn ngang", "Trên cao", "Cận cản
 # tự chọn một ô), nhưng với MỘT TRANG storyboard thì im lặng là hỏng: prompt bảo "ảnh này LÀ con
 # phố" trong khi đưa cho model một tờ contact sheet bốn góc máy, và chính cái lưới ấy còn đánh
 # nhau với lệnh dựng lưới 3x2 của trang.
-LOCATION_GRID_CELLS_EN = ("badge 1 top-left, a wide establishing view along the place",
-                          "badge 2 top-right, a flat side-on view across it",
-                          "badge 3 bottom-left, a high overhead angle",
-                          "badge 4 bottom-right, one frontage close up")
+LOCATION_GRID_CELLS_EN = ("frame 1, the top-left cell, a wide establishing view along the place",
+                          "frame 2, top-right, a flat side-on view across it",
+                          "frame 3, bottom-left, a high overhead angle",
+                          "frame 4, bottom-right, one frontage close up")
 
 
 def ref_image_prompt(entity_type: str, name: str, description: str,

@@ -121,6 +121,10 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   hiện ảnh mẫu, ô 2–4 là CÙNG chỗ ấy nhìn từ nơi khác và phải mang theo đúng bề rộng đường, cây,
   mái bạt, loại hàng, biển hiệu. Và đừng viết tên cú máy thành tiêu đề in hoa (`1 WIDE
   ESTABLISHING — …`): model hiểu đó là nhãn cần vẽ và in luôn bốn chữ ấy vào ảnh.
+- **"Vắng người" ≠ "dọn sạch".** Câu `COMPLETELY EMPTY — no people, no animals` của lưới location
+  từng làm model kéo cửa cuốn xuống và dọn hết sạp: phố còn đúng cây với mặt đường, mất sạch hàng
+  hoá và màu — mà với phố chợ thì hàng hoá CHÍNH LÀ bối cảnh. Phải nói tách bạch: không người,
+  nhưng chỗ đó vẫn đang mở cửa buôn bán, sạp đầy ắp, hàng treo, đèn sáng đúng như ảnh mẫu.
 - **Đừng để thông số máy đứng cạnh số panel.** `Panel 1 [Wide, 24mm, tracking back]:` trông y như
   một nhãn viết sẵn và model chép nguyên cụm xuống làm caption — trang ra chữ
   `toàn cảnh [Wide, 24mm, tracking back]`. Tách thành câu riêng đặt SAU hành động ("Shoot it
