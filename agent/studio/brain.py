@@ -945,17 +945,41 @@ def sheet_autofill_prompt(scene_heading: str, scene_body: str, entities: list[di
         "They are drawn in the SAME pass and later become ONE continuous video clip, so within a "
         "page the place, the light, the weather and the costumes cannot change at all — only the "
         "camera and the action move. A NEW page is where a bigger jump is allowed.\n\n"
+        "HOW THE CAMERA IS CHOSEN — the panels follow the ACTION, never a shot-size ladder. Do "
+        "NOT open every page wide and finish it tight. Do not walk the panels from the widest "
+        "size down to the tightest. Do not treat the size list as a checklist where each size "
+        "gets used once. Two neighbouring panels may share a size when the action stays put; a "
+        "page may live entirely in close framings, or never go wide at all, or end wider than it "
+        "began. Choose each panel's size, lens and movement from what THAT moment of the action "
+        "needs and from where the camera physically is after the previous panel. If two "
+        "different scenes come out with the same run of sizes, the choice was a template and it "
+        "is wrong.\n\n"
         "For each page return:\n"
         "- `title`: short label for the whole page.\n"
         f"- `panels`: a list of exactly {panels} objects, in reading order (left to right, top to "
         "bottom), each with:\n"
         f"  · `caption`: the ONE-LINE Vietnamese shot-size label printed under the panel — one of "
-        f"{sizes}, or a similarly short term. This is drawn INSIDE the image, keep it very short.\n"
+        f"{sizes}, or a similarly short term. This is drawn INSIDE the image, keep it very "
+        "short. These are OPTIONS, not a set to deal out: a size may repeat across the page and "
+        "some may never be used. Using each listed size exactly once is the tell-tale sign of a "
+        f"template — a page of {panels} panels is not a distribution of {panels} sizes.\n"
         "  · `shot_size`: English shot size for the camera spec, e.g. Wide / Medium / Close-up / "
         "Full-body / Rear.\n"
         "  · `lens`: focal length, e.g. 24mm / 35mm / 50mm / 85mm.\n"
-        "  · `movement`: the camera behaviour for THIS moment, e.g. tracking back / low angle / "
-        "rear follow / shallow DOF. Leave \"\" if the moment is a static hold.\n"
+        "  · `movement`: the camera behaviour for THIS moment — not a term picked off a list, "
+        "but what the camera is actually doing here. Leave \"\" if the moment is a static hold.\n"
+        "  · `continuity`: ONE short sentence saying how the subject and the camera get here "
+        "FROM the previous panel — what moved, in which direction, how far. This is the "
+        "connective tissue the video model needs to join the panels into one unbroken take. "
+        "\"\" for the first panel of a page.\n"
+        "    NOTHING TELEPORTS. Two neighbouring panels are one or two seconds apart, so "
+        "whatever separates them must be crossable in that time by a real operator on the "
+        "ground: no swinging from in front of the subject round to behind them, no retreating "
+        "five metres and craning overhead at once, no leaping from a 24mm wide to a 135mm "
+        "detail, no cutting to the far side of the street. The subject likewise cannot turn "
+        "around, change hands, gain or lose an object, or arrive somewhere the walk was never "
+        "shown. If two panels you want cannot be joined that way, choose a different second "
+        "panel — the ONLY jump allowed is between PAGES, never inside one.\n"
         "  · `description`: ONE sentence of ACTION ONLY — what the subject does and how it is "
         "posed in this panel. The place is supplied to the image model as a reference PICTURE "
         "and is stated once for the whole page, so describing it again in a panel is not "
@@ -976,9 +1000,13 @@ def sheet_autofill_prompt(scene_heading: str, scene_body: str, entities: list[di
         f"Visual style: {style}. Produce {count}.\n\n"
         f"AVAILABLE ENTITIES:\n{roster}\n\n"
         f"SCENE: {scene_heading}\n{scene_body}\n\n"
-        "Return ONLY JSON array: [{\"title\":\"...\",\"panels\":[{\"caption\":\"toàn cảnh\","
-        "\"shot_size\":\"Wide\",\"lens\":\"24mm\",\"movement\":\"tracking back\","
-        "\"description\":\"...\",\"ref_entity_names\":[\"Location\"]}]}]"
+        # Ví dụ JSON cố tình KHÔNG mở bằng toàn cảnh/24mm: mẫu đầu tiên model nhìn thấy là mẫu
+        # nó bắt chước, và một ví dụ mở bằng Wide 24mm là cách chắc chắn nhất để mọi trang lại
+        # bắt đầu bằng một cú toàn cảnh.
+        "Return ONLY JSON array (field values below are placeholders, not a pattern to copy): "
+        "[{\"title\":\"...\",\"panels\":[{\"caption\":\"trung cảnh\",\"shot_size\":\"Medium\","
+        "\"lens\":\"50mm\",\"movement\":\"...\",\"continuity\":\"\",\"description\":\"...\","
+        "\"ref_entity_names\":[\"Location\"]}]}]"
     )
 
 
@@ -996,14 +1024,23 @@ def sheet_timeline_prompt(panels: list[dict], clip_s: int, scene_heading: str = 
     đúng nghĩa đen — cho cái trang đó chuyển động, lưới và caption và tất cả. Nên câu đầu tiên
     phải nói rõ trang là BẢN VẼ KẾ HOẠCH, không phải khung hình cần dựng lại."""
     n = len(panels)
-    listing = "\n".join(
-        f"  Panel {i + 1}"
-        + (f" [{p.get('shot_size') or ''}"
-           + (f", {p['lens']}" if p.get("lens") else "")
-           + (f", {p['movement']}" if p.get("movement") else "") + "]"
-           if p.get("shot_size") else "")
-        + f": {(p.get('description') or p.get('caption') or '').strip()}"
-        for i, p in enumerate(panels))
+
+    def _line(i: int, p: dict) -> str:
+        s = f"  Panel {i + 1}"
+        if p.get("shot_size"):
+            s += (f" [{p['shot_size']}"
+                  + (f", {p['lens']}" if p.get("lens") else "")
+                  + (f", {p['movement']}" if p.get("movement") else "") + "]")
+        s += f": {(p.get('description') or p.get('caption') or '').strip()}"
+        # `continuity` = cách chủ thể và máy quay ĐI TỪ panel trước sang panel này. Không có nó
+        # thì danh sách chỉ là sáu trạng thái rời và model video phải tự đoán đường nối — đúng
+        # chỗ nó hay bịa ra một cú cắt. Có nó thì cả trang mới là MỘT cú máy liên tục.
+        cont = (p.get("continuity") or "").strip()
+        if cont and i:
+            s += f"\n      Getting here from panel {i}: {cont}"
+        return s
+
+    listing = "\n".join(_line(i, p) for i, p in enumerate(panels))
     timeline = _OMNI_TIMELINE_HEAD.format(clip_s=clip_s, n_beats=max(n, round(clip_s / 2)))
     return (
         f"You are the cinematographer for ONE {clip_s}-second continuous take.\n\n"
@@ -1031,7 +1068,10 @@ def sheet_timeline_prompt(panels: list[dict], clip_s: int, scene_heading: str = 
         "them — the action, the emotion, the space — and choose the movement that passage "
         "deserves, including holding still when stillness is what it deserves. Do not reach for "
         "a stock move, do not apply the same move to every clip, and do not invent motion merely "
-        "to fill seconds.\n"
+        "to fill seconds. A 'Getting here from panel N' line, where one is given, is the "
+        "connective tissue the storyboard already worked out: honour what it says moved and in "
+        "which direction, and write the passage so the subject and the camera flow through it "
+        "without ever appearing to cut.\n"
         "  • The one thing that is NOT negotiable is that it must make physical sense: the "
         "subject cannot teleport, turn around or change hands between two moments without the "
         "movement being shown, and the camera cannot jump to a position it had no way of "

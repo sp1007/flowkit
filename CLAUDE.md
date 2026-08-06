@@ -138,6 +138,18 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   đánh số 1,2,3,5,6, hàng trên 2 ô hàng dưới 3 — tái hiện được, không phải lượt xui. Phải nói rõ
   "{rows} hàng, mỗi hàng {cols} ô bằng nhau", "vẽ ĐỦ {n} panel", và nói thẳng rằng thiếu một ô
   hay đứt số là SAI kể cả khi từng ô đẹp.
+- **Liệt kê đúng N cỡ cảnh cho N panel = model chia đều mỗi cỡ một lần.** Ba scene khác nhau từng
+  ra y một chuỗi `toàn cảnh → toàn thân → trung cảnh → cận trung → cận cảnh → cận sau`, vì
+  `sheet_autofill_prompt` đưa 6 lựa chọn cho 6 ô nên LLM làm song ánh. Phải nói thẳng đó là LỰA
+  CHỌN chứ không phải bộ bài để chia: cỡ được lặp, có cỡ không dùng tới, và dùng mỗi cỡ đúng một
+  lần chính là dấu hiệu của khuôn mẫu. Kèm theo: cấm thang wide→tight, và ví dụ JSON KHÔNG được
+  mở bằng `toàn cảnh/Wide/24mm` — mẫu đầu tiên model nhìn thấy là mẫu nó bắt chước.
+- **`board_panel.continuity` là thứ nối trang thành MỘT cú máy.** Không có nó thì danh sách panel
+  chỉ là N trạng thái rời và model video tự đoán đường nối — đúng chỗ nó bịa ra một cú cắt. Cột
+  vốn đã có trong schema và `_create_sheet` vốn đã lưu, chỉ prompt autofill là quên hỏi. Và phải
+  cấm teleport bằng ví dụ cụ thể (vòng từ trước mặt ra sau lưng, lùi 5 mét kèm cẩu lên, nhảy từ
+  24mm sang 135mm): hai panel liền nhau chỉ cách nhau 1–2 giây, cú nhảy duy nhất được phép là
+  giữa hai TRANG. `sheet_timeline_prompt` in nó ra thành dòng `Getting here from panel N`.
 - **Đừng lưu thân prompt tự sinh vào `board_sheet.prompt`.** Cột đó là chỗ NGƯỜI DÙNG ghi đè;
   ghi bản tự sinh vào đấy thì mọi lượt vẽ sau tái dùng thân cũ, sửa panel hay sửa cách dựng
   prompt đều không có tác dụng. Muốn xem thân đang gửi thì gọi `/sheets/{id}/prompt-preview`.
