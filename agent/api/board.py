@@ -241,7 +241,14 @@ async def _sheet_refs_and_cast(sheet: dict, scene: dict,
             pass
     shim = {"ref_entity_ids": json.dumps(list(dict.fromkeys(ids)))}
     refs = await S._build_frame_references(shim, scene)
-    body = sheet.get("prompt") or brain.sheet_page_prompt(panels)
+    # `type` để sheet_page_prompt tách câu SETTING (location) khỏi câu SUBJECTS (nhân vật/đạo
+    # cụ) — hai loại cần hai lời dặn khác hẳn nhau.
+    if refs:
+        rows = await db.query_all(
+            "SELECT name, type FROM entity WHERE project_id=?", (scene["project_id"],))
+        kind_of = {r["name"]: r["type"] for r in rows}
+        refs = [{**r, "type": kind_of.get(r["handle"], "prop")} for r in refs]
+    body = sheet.get("prompt") or brain.sheet_page_prompt(panels, refs)
     cast = await S._frame_cast(scene, body)
     return refs, cast, body
 
@@ -267,7 +274,11 @@ async def _generate_sheet(sheet: dict, batch_id: str | None = None) -> dict:
             "media_id": info.get("media_id"),
             "primary_media_id": info.get("primary_media_id"),
             "workflow_id": info.get("workflow_id"),
-            "path": web, "prompt": body, "status": "done", "updated_at": db.now()})
+            # KHÔNG ghi `prompt` ở đây. Cột đó là chỗ NGƯỜI DÙNG ghi đè thân prompt; lưu bản tự
+            # sinh vào đấy thì mọi lượt vẽ sau tái dùng thân cũ và trang không bao giờ nhận được
+            # thay đổi ở panel hay ở cách dựng prompt. Muốn xem thân đang gửi thì có
+            # /sheets/{id}/prompt-preview, nó tính lại từ panel.
+            "path": web, "status": "done", "updated_at": db.now()})
         if info.get("workflow_id") and project.get("flow_project_id"):
             try:
                 await client.change_display_name(

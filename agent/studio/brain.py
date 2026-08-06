@@ -276,22 +276,58 @@ def sheet_page_guard(cols: int, rows: int, *, margin: int = 5, gap: int = 5,
         caption_gap=caption_gap, sizes="/".join(PANEL_SHOT_SIZES[:5]))
 
 
-def sheet_page_prompt(panels: list[dict]) -> str:
-    """Phần THÂN của prompt trang storyboard: một dòng `Panel N [cỡ, ống kính, máy]: mô tả`.
+_BRACE_TOKEN_RE = re.compile(r"\{([^{}]+)\}")
 
-    Đúng dạng người dùng đã gõ tay khi test trên Flow. Ngoặc vuông giữ nguyên vì nó tách bạch
-    thông số máy khỏi hành động; entity vẫn gọi bằng `{Tên}` để Flow bind reference part.
+
+def _strip_braces(s: str) -> str:
+    """`{Tên}` → `Tên`. Tên vẫn nằm trong câu để model đọc, chỉ mất tư cách token bind."""
+    return _BRACE_TOKEN_RE.sub(r"\1", s or "")
+
+
+def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str:
+    """Phần THÂN của prompt trang storyboard.
+
+    Bố cục: một khối SETTING/CAST gọi tên MỖI reference đúng MỘT lần, rồi tới các dòng
+    `Panel N [cỡ, ống kính, máy]: hành động` đã BỎ HẾT ngoặc nhọn.
+
+    Vì sao phải gom token lên đầu thay vì để rải rác như bản gõ tay: một trang phải bind mỗi
+    ảnh đúng một lần (bind mọi lần → 30 reference part → Flow trả 400, đã đo). Mà khi chỉ được
+    bind một lần thì VỊ TRÍ của lần ấy quyết định tất cả — để nó rơi vào giữa câu panel 1 thì
+    ảnh chỉ ràng buộc mỗi panel đó, còn 5 panel sau trôi theo chữ. Đặt ở đầu, trong câu nói rõ
+    "ảnh này định nghĩa chỗ này cho MỌI panel", thì một lần bind phủ được cả trang.
+
+    Bỏ ngoặc trong mô tả panel là cố ý: mỗi ngoặc còn sót lại sẽ ăn mất lượt bind của ảnh đó
+    khỏi khối đầu, hoặc (nếu không dedupe) đẻ thêm reference part cho tới khi vượt trần.
 
     `caption` được ĐỌC THÀNH LỜI ("caption under this panel reads: …") chứ không để model tự
     nghĩ ra chữ. Thông số máy trong ngoặc vuông là tiếng Anh, nên nếu không đưa caption ra thì
-    model chép luôn thông số ấy xuống làm caption và dòng chữ trong ảnh ra tiếng Anh — trong
-    khi caption là thứ người đọc storyboard nhìn, phải đúng ngôn ngữ của dự án."""
-    out = []
+    model chép luôn thông số ấy xuống làm caption và dòng chữ trong ảnh ra tiếng Anh."""
+    head_lines: list[str] = []
+    loc = next((r for r in (refs or []) if r.get("type") == "location"), None)
+    if loc:
+        head_lines.append(
+            f"SETTING — every panel takes place at the SAME street, {{{loc['handle']}}}. Its "
+            "reference image is what that street IS: the width and shape of the road, the "
+            "stalls and shopfronts and what they sell, the trees, awnings, signage, parked "
+            "vehicles, street furniture and the colour of the light. Build EVERY panel from "
+            "that image — a panel may look along it, across it, or close in on part of it, but "
+            "it must be recognisably this street and not a similar-sounding one. Any wording "
+            "below is about what HAPPENS there, never about what the place looks like.")
+    others = [r for r in (refs or []) if r.get("type") != "location"]
+    if others:
+        head_lines.append(
+            "SUBJECTS — these appear across the panels and each must match its own reference "
+            "image exactly: "
+            + ", ".join("{" + r["handle"] + "}" for r in others)
+            + ". Keep their identity, costume, colours and details as the references show them; "
+            "only pose, angle and framing change from panel to panel.")
+
+    out = list(head_lines)
     for i, p in enumerate(panels):
         spec = ", ".join(str(p.get(k) or "").strip()
                          for k in ("shot_size", "lens", "movement") if (p.get(k) or "").strip())
-        body = str(p.get("description") or p.get("title") or "").strip().rstrip(".")
-        cap = str(p.get("caption") or "").strip().rstrip(".")
+        body = _strip_braces(str(p.get("description") or p.get("title") or "").strip().rstrip("."))
+        cap = _strip_braces(str(p.get("caption") or "").strip().rstrip("."))
         head = f"Panel {i + 1}" + (f" [{spec}]" if spec else "")
         line = f"{head}: {body}." if body else f"{head}."
         if cap:
@@ -827,10 +863,17 @@ def sheet_autofill_prompt(scene_heading: str, scene_body: str, entities: list[di
         "  · `lens`: focal length, e.g. 24mm / 35mm / 50mm / 85mm.\n"
         "  · `movement`: the camera behaviour for THIS moment, e.g. tracking back / low angle / "
         "rear follow / shallow DOF. Leave \"\" if the moment is a static hold.\n"
-        "  · `description`: ONE sentence of what happens in this panel — the action and the pose. "
-        "Do NOT restate the location's architecture, the weather or the lighting: they are fixed "
-        "for the whole page and stating them again is what makes the model redraw the place. Name "
-        "entities with {braces}.\n"
+        "  · `description`: ONE sentence of ACTION ONLY — what the subject does and how it is "
+        "posed in this panel. The place is supplied to the image model as a reference PICTURE "
+        "and is stated once for the whole page, so describing it again in a panel is not "
+        "harmless repetition: your words compete with that picture and the model redraws the "
+        "street from your words instead. So write NOTHING about the street, buildings, stalls, "
+        "signage, weather, time of day or lighting.\n"
+        "    BAD: \"Mở đầu trên {Phố X} dưới cơn mưa đêm, hàng đèn lồng đỏ rực rỡ phản chiếu "
+        "xuống mặt đường ướt đẫm, cô gái bước đi.\"\n"
+        "    GOOD: \"{An} bước chậm về phía máy quay, tay nâng nhẹ {Ô trong suốt}, đầu hơi "
+        "nghiêng, ánh mắt dõi sang bên phải.\"\n"
+        "    Name entities with {braces}.\n"
         "  · `ref_entity_names`: every entity in that panel (names WITHOUT braces), always "
         "including the location.\n"
         f"\n{_CINE}\n\n{_CONTINUITY}\n\n"

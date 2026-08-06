@@ -94,6 +94,18 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   LLM viết từ `entity.description` còn ảnh location là do model vẽ, hai bên lệch nhau là thường,
   không phân xử thì model theo chữ và dựng lại cả con phố. Trần 8 reference của Flow là cứng nên
   `_build_frame_references(reserve=1)` phải chừa chỗ cho neo.
+- **Một trang chỉ bind được MỘT lần mỗi ảnh, nên VỊ TRÍ bind quyết định tất cả.** Bind mọi lần
+  nhắc thì trang 6 panel ra 30 reference part → Flow 400, nên `dedupe_refs=True` là bắt buộc.
+  Nhưng khi chỉ được một lần, để token rơi vào giữa câu panel 1 thì ảnh chỉ ràng buộc panel đó
+  còn 5 panel sau trôi theo chữ — đúng cái đã làm phố Hàng Mã (đường rộng, cây, sạp hoa quả)
+  biến thành một ngõ đèn lồng generic. `brain.sheet_page_prompt` vì thế gom mỗi reference lên
+  ĐẦU trong khối SETTING/SUBJECTS ("ảnh này định nghĩa chỗ này cho MỌI panel") và `_strip_braces`
+  bỏ hết ngoặc trong mô tả panel — mỗi ngoặc còn sót lại sẽ ăn mất lượt bind khỏi khối đầu.
+  Kèm theo, `sheet_autofill_prompt` cấm mô tả panel nhắc tới phố/đèn/thời tiết/ánh sáng: chữ tả
+  cảnh cạnh tranh trực tiếp với ảnh tham chiếu và model theo chữ.
+- **Đừng lưu thân prompt tự sinh vào `board_sheet.prompt`.** Cột đó là chỗ NGƯỜI DÙNG ghi đè;
+  ghi bản tự sinh vào đấy thì mọi lượt vẽ sau tái dùng thân cũ, sửa panel hay sửa cách dựng
+  prompt đều không có tác dụng. Muốn xem thân đang gửi thì gọi `/sheets/{id}/prompt-preview`.
 - **`structuredPrompt` bị băm vụn = Flow trả 400.** Mỗi token KHÔNG bind (token lạ, hoặc ảnh đã
   bind rồi khi `dedupe`) cắt đoạn văn làm đôi, nên `_build_structured_parts` phải GỘP mảnh text
   vào part liền trước chứ không tạo part mới. Trang storyboard 30 token từng ra 37 part → 400
