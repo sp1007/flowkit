@@ -156,7 +156,7 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
 - **Panel càng hẹp càng dễ trôi sang một chỗ hẹp hơn.** Đo được một trang mà panel 1/4/5/6 bám
   đúng phố rộng có sạp hoa và mái bạt, riêng panel 2 (trung cảnh) là ngõ hẹp treo đèn lồng —
   chữ của panel đó hoàn toàn sạch, nên không phải lỗi mô tả. Với model, khung hẹp lại = chỗ hẹp
-  lại.  phải nói thẳng: khung hẹp chỉ là CẮT GẦN chính con phố ấy, ở cỡ
+  lại. `location_recap_clause` phải nói thẳng: khung hẹp chỉ là CẮT GẦN chính con phố ấy, ở cỡ
   trung/cận vẫn thấy sạp, mái bạt và đúng bề rộng đường phía sau, chỉ ít hơn và mờ hơn.
 - **`continuity` phải vào cả prompt VẼ TRANG, không chỉ prompt video.** N panel là N trạng thái
   rời; không nói cách đi từ panel trước sang panel này thì model đặt nhân vật ở đâu tuỳ ý — đã
