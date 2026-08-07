@@ -144,6 +144,16 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   CHỌN chứ không phải bộ bài để chia: cỡ được lặp, có cỡ không dùng tới, và dùng mỗi cỡ đúng một
   lần chính là dấu hiệu của khuôn mẫu. Kèm theo: cấm thang wide→tight, và ví dụ JSON KHÔNG được
   mở bằng `toàn cảnh/Wide/24mm` — mẫu đầu tiên model nhìn thấy là mẫu nó bắt chước.
+- **`continuity` phải vào cả prompt VẼ TRANG, không chỉ prompt video.** N panel là N trạng thái
+  rời; không nói cách đi từ panel trước sang panel này thì model đặt nhân vật ở đâu tuỳ ý — đã
+  thấy panel 1 đứng giữa lòng đường, panel 2 đã trên vỉa hè. `sheet_page_prompt` in nó thành câu
+  `It follows straight on from panel N: …` (nhớ `_strip_braces`, không thì ăn mất lượt bind khỏi
+  khối SETTING), và `_SHEET_PAGE` có khối NOBODY TELEPORTS liệt kê đích danh: không đổi vỉa
+  hè/lòng đường, không sang bên kia phố, không quay ngược mặt, không đổi tay cầm đồ.
+- **Vẽ đúp nhân vật trên trang thường là MỘT bóng xa + MỘT người gần trong cùng panel**, không
+  phải hai người đứng cạnh nhau. Model đọc mô tả kiểu "bước dần về phía máy quay" thành hai thời
+  điểm rồi vẽ cả hai. `cast_clause` phải nói thẳng: chữ tả di chuyển mô tả MỘT khoảnh khắc của
+  chuyển động đó, cấm vẽ cùng một người ở hai khoảng cách trong một panel.
 - **`board_panel.continuity` là thứ nối trang thành MỘT cú máy.** Không có nó thì danh sách panel
   chỉ là N trạng thái rời và model video tự đoán đường nối — đúng chỗ nó bịa ra một cú cắt. Cột
   vốn đã có trong schema và `_create_sheet` vốn đã lưu, chỉ prompt autofill là quên hỏi. Và phải

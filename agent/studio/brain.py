@@ -233,6 +233,12 @@ _SHEET_PAGE = (
     "The badges and the one-line captions are the ONLY text on the page: no titles, no headers, "
     "no arrows, no annotations, no watermarks, and never reproduce text or labels that appear in "
     "the reference images. "
+    "NOBODY TELEPORTS BETWEEN PANELS — consecutive panels are a second or two apart in one "
+    "unbroken take, so a character keeps their position in the space unless the panels show them "
+    "travelling. Someone standing in the middle of the road cannot be on the pavement in the next "
+    "panel, cannot cross to the far side, cannot turn to face the other way, cannot swap which "
+    "hand holds a thing, and cannot gain or lose anything they were carrying. Whatever a panel "
+    "says about how it follows on from the one before it is binding. "
     "CONSISTENT ACROSS EVERY PANEL — the panels are consecutive moments of one scene, drawn in "
     "the same pass: the location and its architecture, materials, signage and street furniture; "
     "the time of day, weather, light direction and colour temperature; every character's face, "
@@ -378,6 +384,13 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
         line = f"Panel {i + 1}: {body}." if body else f"Panel {i + 1}."
         if spec:
             line += f" Shoot it {spec.lower()}."
+        # `continuity` PHẢI có mặt trong prompt VẼ, không chỉ trong prompt video. Sáu panel là
+        # sáu trạng thái rời; không nói cách đi từ panel trước sang panel này thì model đặt nhân
+        # vật ở đâu tuỳ ý — đã thấy panel 1 đứng giữa lòng đường, panel 2 đã trên vỉa hè. Câu
+        # này cũng phải BỎ NGOẶC như mô tả, không thì nó ăn mất lượt bind khỏi khối SETTING.
+        cont = _strip_braces(str(p.get("continuity") or "").strip().rstrip("."))
+        if cont and i:
+            line += f" It follows straight on from panel {i}: {cont}."
         if cap:
             line += (f' Its printed caption is the single phrase "{cap}" and nothing else — '
                      "never the camera wording.")
@@ -401,11 +414,17 @@ def cast_clause(names: list[str], *, panels: int = 0) -> str:
     n = len(names)
     where = f"EACH of the {panels} panels" if panels else "this frame"
     return (f"CAST — exactly {n} person{'' if n == 1 else 's'} appear{'s' if n == 1 else ''} in "
-            f"{where}: {who}. Each appears ONCE and only once{' per panel' if panels else ''}. "
-            "Never draw a second copy, twin, mirrored duplicate or reflection-as-a-person of the "
-            "same character, and never split one character's reference views into several people "
-            "standing together. Add no background crowd or bystanders unless the text above "
-            "explicitly asks for them")
+            f"{where}: {who}. Each appears ONCE and only once{' per panel' if panels else ''}, as "
+            "ONE body in ONE place. Never draw a second copy, twin, mirrored duplicate or "
+            "reflection-as-a-person of the same character, and never split one character's "
+            # Kiểu vẽ đúp hay gặp nhất trên trang KHÔNG phải hai người đứng cạnh nhau mà là một
+            # bóng ở xa cuối phố cộng một người ở tiền cảnh — model đọc mô tả kiểu "bước dần về
+            # phía máy quay" thành hai thời điểm rồi vẽ cả hai vào cùng một panel.
+            "reference views into several people standing together. Wording about someone moving "
+            "through the space describes ONE instant of that movement, not two: never show the "
+            "same character twice at different distances in one panel — no distant figure down "
+            "the street plus a near one in the foreground. Add no background crowd or bystanders "
+            "unless the text above explicitly asks for them")
 
 
 def scene_anchor_clause(handle: str) -> str:
