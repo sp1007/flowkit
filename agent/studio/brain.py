@@ -469,16 +469,39 @@ def cast_clause(names: list[str], *, panels: int = 0) -> str:
     vẽ thành hai bản sao của cùng một người đứng cạnh nhau. Câu "không thêm người lạ" trong
     _SINGLE_FRAME không chặn được vì bản sao KHÔNG phải người lạ — phải nói thẳng tổng số.
 
-    `panels > 0` (trang storyboard): đếm theo MỖI PANEL. Nói "cả trang chỉ có 1 người" thì model
-    vẽ nhân vật vào một panel rồi bỏ trống các panel còn lại."""
+    `panels > 0` (trang storyboard): danh sách này là TỔNG CAST của cả trang, và mỗi panel chỉ
+    lấy những người mà DÒNG CỦA CHÍNH NÓ gọi tên.
+
+    Đừng quay lại câu "đúng N người trong MỖI panel". Nó dựng từ cast gộp của cả trang nên với
+    scene có người đến rồi đi thì sai hẳn: trang Hàng Buồm ra câu "exactly 2 persons in EACH of
+    the 6 panels: An, Cụ già" trong khi panel 1/3/4 chỉ nhắc An — model buộc phải nhét bà cụ vào
+    những ô mà chữ không tả bà, và chỗ nào phải bịa thì nó bịa theo khuôn có sẵn chứ không theo
+    ảnh tham chiếu: đo được một trang mà bà cụ (ảnh mẫu: nón lá, áo mưa nhựa, bán hàng) thành bà
+    lão ăn xin quấn khăn ngồi co ro chân đất ở cả sáu ô. Cũng đừng đổi sang "cả trang chỉ có N
+    người" — bản cũ hơn nữa nói thế và model vẽ nhân vật vào một panel rồi bỏ trống các ô còn
+    lại. Phải neo vào DÒNG PANEL, không neo vào con số."""
     names = [n for n in dict.fromkeys(n for n in names if n)]
     if not names:
         return ""
     who = ", ".join(names)
     n = len(names)
-    where = f"EACH of the {panels} panels" if panels else "this frame"
+    if panels:
+        return (f"CAST — the only people who may appear anywhere on this page are: {who}. No one "
+                "else at all. Each panel shows EXACTLY the people its own line names and nobody "
+                "beyond them: a person the line does not name is simply not in that panel, not "
+                "even far off in the background, and a person it does name is present and clearly "
+                "readable. Everyone drawn matches their reference image — identity, age, clothing "
+                "and what they are doing there — never a generic stand-in of the same age. Each "
+                "appears ONCE and only once per panel, as ONE body in ONE place. Never draw a "
+                "second copy, twin, mirrored duplicate or reflection-as-a-person of the same "
+                "character, and never split one character's reference views into several people "
+                "standing together. Wording about someone moving through the space describes ONE "
+                "instant of that movement, not two: never show the same character twice at "
+                "different distances in one panel — no distant figure down the street plus a near "
+                "one in the foreground. Add no background crowd or bystanders unless a panel's "
+                "line explicitly asks for them")
     return (f"CAST — exactly {n} person{'' if n == 1 else 's'} appear{'s' if n == 1 else ''} in "
-            f"{where}: {who}. Each appears ONCE and only once{' per panel' if panels else ''}, as "
+            f"this frame: {who}. Each appears ONCE and only once, as "
             "ONE body in ONE place. Never draw a second copy, twin, mirrored duplicate or "
             "reflection-as-a-person of the same character, and never split one character's "
             # Kiểu vẽ đúp hay gặp nhất trên trang KHÔNG phải hai người đứng cạnh nhau mà là một

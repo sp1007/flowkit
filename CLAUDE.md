@@ -280,3 +280,20 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   thoải mái, chỉ lượt thành công mới tốn.
 - **Bộ lọc nằm TRƯỚC mô hình — đổi model không chữa được.** Cùng request ấy chuyển từ Omni sang
   `NANO_BANANA_2` (resolve ra `NARWHAL`) vẫn 400 y hệt.
+- **`cast_clause` của TRANG không được chốt bằng CON SỐ — phải neo vào DÒNG PANEL.** Bản cũ dựng
+  câu "exactly N persons appear in EACH of the {panels} panels" từ cast GỘP của cả trang. Với
+  scene có người đến rồi đi thì sai hẳn: trang Hàng Buồm ra "exactly 2 persons in EACH of the 6
+  panels: An, Cụ già" trong khi panel 1/2 chỉ nhắc An — model buộc phải nhét bà cụ vào những ô mà
+  chữ không tả bà, và chỗ nào phải bịa thì nó bịa theo khuôn có sẵn chứ không theo ảnh tham
+  chiếu. Đo được: bà cụ (ảnh mẫu là nón lá + áo mưa nhựa + gánh hàng) ra **bà lão ăn xin quấn
+  khăn ngồi co ro chân đất** ở cả sáu ô, còn gánh hàng thành xe đẩy. Nay khối CAST nói: đây là
+  tổng cast của TRANG, mỗi panel chỉ có đúng những người mà DÒNG CỦA CHÍNH NÓ gọi tên, ai không
+  được gọi thì không có mặt kể cả ở hậu cảnh xa. Đo lại hai lượt: bà cụ đúng nón lá/áo mưa/gánh ở
+  cả hai, panel chỉ nhắc An thì chỉ có An, 4/6 panel khớp chính xác danh sách người. Và đừng đổi
+  sang "cả trang chỉ có N người" — bản cũ hơn nữa nói thế, model vẽ nhân vật vào một panel rồi bỏ
+  trống các ô còn lại. `cast_clause` cho ảnh LẺ (`panels=0`) giữ nguyên đếm theo con số.
+- **Mọi đường vẽ trong Node Editor của trang đều qua `POST /sheets/{id}/graph/run`, và endpoint
+  đó LUÔN lưu `graph_json` trước khi chạy.** Nên `graph_json IS NULL` là bằng chứng cứng rằng
+  trang đó chưa từng chạy qua node editor — dùng để phân biệt lỗi của đường tự động với lỗi của
+  node editor thay vì tin vào mô tả. (Đã dùng: một trang bị báo "lỗi trong node editor" thật ra
+  do nút ✦ vẽ ra, vì cả DB không trang nào có `graph_json`.)
