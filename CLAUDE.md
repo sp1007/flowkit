@@ -297,3 +297,20 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   trang đó chưa từng chạy qua node editor — dùng để phân biệt lỗi của đường tự động với lỗi của
   node editor thay vì tin vào mô tả. (Đã dùng: một trang bị báo "lỗi trong node editor" thật ra
   do nút ✦ vẽ ra, vì cả DB không trang nào có `graph_json`.)
+- **Đừng ra lệnh hình học TRANG bằng PIXEL.** `_SHEET_PAGE` từng viết "5px margin, 5px between
+  panels, next row 2px below" (qua tham số `margin/gap/caption_gap` của `sheet_page_guard`). Model
+  khuếch tán không đọc được px trên một khung chưa biết kích thước, nên hình học trang thả nổi:
+  đo được hai trang liền (Hàng Bè, Lãn Ông) lề trắng rộng gấp nhiều lần, ô bé hẳn lại, hai hàng
+  cách nhau một khoảng trống to — trong khi trang khác cùng lúc lại lấp kín khung. Nói bằng QUAN
+  HỆ mới vẽ được: "lưới lấp kín cả ảnh, khe giữa các ô đều nhau và mỏng, lề mọi cạnh đều nhau và
+  mỏng, không viền trắng rộng, không chỗ trống". Ba tham số ấy đã bỏ khỏi `sheet_page_guard`.
+- **Badge số phải có luật "thiếu là SAI" và phải nói rõ NẰM TRONG ô.** Bản cũ chỉ tả suông
+  ("Number each panel with a small round badge in its top-left corner") nên model bỏ hẳn badge khi
+  nó chọn kiểu tờ sạch — đo được hai trang không còn số nào — và ở trang khác badge rơi ra lề
+  ngoài ảnh. Dùng đúng cách đã chữa được lỗi thiếu panel: nói thẳng "trang không có số, hoặc số
+  nằm ngoài ô của nó, là SAI".
+- **Caption chỉ được dặn MỘT chỗ.** `LAYOUT` từng nói "under EACH panel one short line naming its
+  shot size (e.g. toàn cảnh/cận trung/…)" trong khi dòng panel đã nói 'caption đúng là "cận
+  cảnh"'. Hai nguồn cho cùng một dòng chữ và model in cả hai: đo được trang ra `cận cảnh: cận
+  cảnh`, `toàn cảnh: toàn cảnh`. `LAYOUT` giờ chỉ nói CÓ một dòng chữ nhỏ dưới mỗi ô, còn viết gì
+  là việc của dòng panel.

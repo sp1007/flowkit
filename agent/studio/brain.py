@@ -222,10 +222,23 @@ _SHEET_PAGE = (
     "LAYOUT — one storyboard PAGE: EXACTLY {n} panels in a {cols}x{rows} grid, {rows} rows of "
     "{cols} equal panels, read left to right and top to bottom. Draw all {n} listed below, "
     "numbered 1 to {n}, none skipped, merged or added — a missing panel, an uneven row or a gap "
-    "in the numbering is wrong however good the panels are. {margin}px margin, {gap}px between "
-    "panels, and under EACH panel one short line of small type naming its shot size (e.g. "
-    "{sizes}), with the next row starting {caption_gap}px below it. Number each panel with a "
-    "small round badge in its top-left corner, black digit on a white/cream circle. "
+    "in the numbering is wrong however good the panels are. "
+    # Badge phải có luật "thiếu là SAI" y như số panel, và phải nói rõ NẰM TRONG ô. Bản cũ chỉ
+    # có một câu tả suông ở cuối khối nên model bỏ hẳn badge khi nó chọn kiểu "tờ sạch": đo được
+    # hai trang liền (Hàng Bè, Lãn Ông) không còn số nào, và vài trang khác badge rơi ra lề.
+    "EVERY panel carries its number as a small round badge INSIDE its own top-left corner, black "
+    "digit on a white circle, fully within the picture and never out in the margin or the gutter; "
+    "a page with no numbers, or a number sitting outside the panel it belongs to, is wrong. "
+    # ĐỪNG ra lệnh hình học bằng PIXEL. "5px margin, 5px between panels" vô nghĩa với model
+    # khuếch tán trên một khung chưa biết kích thước, nên trang thả nổi: đo được hai trang lề
+    # trắng rộng gấp nhiều lần con số ấy, ô bé hẳn lại và hai hàng cách nhau một khoảng trống to.
+    # Nói bằng quan hệ (lấp đầy khung, khe đều nhau, không viền trắng rộng) thì mới vẽ được.
+    "The grid fills the whole image: the same thin gutter between panels and the same thin margin "
+    "at every edge, with no wide white border and no empty page space anywhere. "
+    # Câu này KHÔNG được nói caption viết GÌ. Trước nó dặn "naming its shot size (e.g. …)" trong
+    # khi dòng panel đã dặn 'caption đúng là "cận cảnh"' — hai nguồn cho cùng một dòng chữ và
+    # model in cả hai: đo được trang ra "cận cảnh: cận cảnh", "toàn cảnh: toàn cảnh".
+    "Under each panel sits one short line of small type, and the next row starts just below it. "
     # ĐỪNG thêm lại "no brackets" vào đây. Hai chữ ấy — chỉ hai chữ ấy — làm Flow trả
     # 400 PUBLIC_ERROR_UNSAFE_GENERATION cho trang có ảnh tham chiếu người thứ hai (đã đo:
     # bisect 20 request thật, câu này một mình 400 ở 3/3 lượt, bỏ nó ra khỏi prompt ĐẦY ĐỦ thì
@@ -274,12 +287,13 @@ def sheet_grid(panels: int | None) -> tuple[int, int]:
     return (2, 2) if n == 4 else (3, 2)
 
 
-def sheet_page_guard(cols: int, rows: int, *, margin: int = 5, gap: int = 5,
-                     caption_gap: int = 2) -> str:
-    """`_SHEET_PAGE` điền theo kích thước lưới của dự án (⚙ Cấu hình dự án)."""
-    return _SHEET_PAGE.format(
-        n=cols * rows, cols=cols, rows=rows, margin=margin, gap=gap,
-        caption_gap=caption_gap, sizes="/".join(PANEL_SHOT_SIZES[:5]))
+def sheet_page_guard(cols: int, rows: int) -> str:
+    """`_SHEET_PAGE` điền theo kích thước lưới của dự án (⚙ Cấu hình dự án).
+
+    Không còn tham số margin/gap/caption_gap: chúng vốn được nội suy thành "5px", mà pixel là
+    thứ model khuếch tán không đọc được trên khung chưa biết kích thước — xem ghi chú trong
+    `_SHEET_PAGE`. Hình học trang giờ nói bằng quan hệ, không bằng số đo."""
+    return _SHEET_PAGE.format(n=cols * rows, cols=cols, rows=rows)
 
 
 _BRACE_TOKEN_RE = re.compile(r"\{([^{}]+)\}")
