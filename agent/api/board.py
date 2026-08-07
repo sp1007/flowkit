@@ -356,7 +356,13 @@ async def preview_sheet_prompt(sid: str):
     prompt = brain.compose_prompt(project, body, cast=cast,
                                   sheet_page=(int(sheet.get("cols") or 3),
                                               int(sheet.get("rows") or 2)))
-    return {"prompt": prompt, "references": [r["handle"] for r in refs], "cast": cast}
+    # `body` = phần THÂN, không có guard/style/footer — đây là thứ Node Editor seed vào node
+    # prompt. Seed bằng `Panel N: <description>` như trước là bỏ mất cỡ cảnh, chuyển động,
+    # caption và continuity (723 ký tự so với 2223), và model tự bịa khung hình rồi xoá phông
+    # cho xong: đo được một trang mà 4/6 panel ra nền mờ trống trong khi hai panel toàn cảnh
+    # bám đúng phố.
+    return {"prompt": prompt, "body": body,
+            "references": [r["handle"] for r in refs], "cast": cast}
 
 
 @router.post("/projects/{pid}/sheets/generate-all")

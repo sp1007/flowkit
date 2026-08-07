@@ -174,13 +174,18 @@ export default function ShotsTab({
                       onPreview={sh.video_path || sh.path ? () => setLightbox(sh) : undefined}
                       onEdit={
                         onEdit
-                          ? () =>
+                          ? async () =>
                               onEdit({
                                 kind: "sheet",
                                 goal: "image",
                                 id: sh.id,
                                 title: sheetLabel(sh),
-                                prompt: sh.prompt || "",
+                                // Như BoardTab: seed bằng ĐÚNG thân nút ✦ gửi đi. Bản rút gọn
+                                // bỏ mất cỡ cảnh/chuyển động/caption và model tự bịa khung hình.
+                                prompt:
+                                  sh.prompt ||
+                                  (await boardApi.promptPreview(sh.id).catch(() => ({ body: "" })))
+                                    .body,
                                 // Xem BoardTab: thiếu cái này thì đồ thị mặc định không có
                                 // node "Nguồn ảnh" và node Tạo ảnh chạy trơ.
                                 refEntityIds: sheetRefEntityIds(sh),

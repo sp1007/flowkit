@@ -157,6 +157,13 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   những thứ ấy mà câu rỗng thì panel đó vốn không có hành động. Đo lại: 0/6 trên ba scene.
   Kèm theo: hai thứ KHÔNG phải nguyên nhân, đã thử và không đổi được kết quả — nhắc lại khối
   bối cảnh trong node editor, và luật "prop không phải bối cảnh".
+- **Node Editor của trang phải seed bằng ĐÚNG thân nút ✦ gửi đi.** Seed cũ ghép tay
+  `Panel N: <description>` — 723 ký tự so với 2223 của `sheet_page_prompt`, mất cỡ cảnh, chuyển
+  động, caption và continuity. Thiếu khung hình thì model tự bịa, và cách nó bịa là xoá phông:
+  đo được một trang mà 4/6 panel ra nền mờ trống trong khi hai panel toàn cảnh bám đúng phố.
+  `/sheets/{id}/prompt-preview` nay trả thêm `body` để `openEditor` (BoardTab + ShotsTab) seed
+  bằng nó; `sh.prompt` do người dùng ghi đè vẫn thắng. Đo lại hai lượt: mọi panel đều giữ sạp
+  hàng và mặt phố.
 - **Prompt trang càng dài, bối cảnh càng loãng — `_SHEET_PAGE` phải ngắn.** Sau nhiều lượt chồng
   luật, khối guard phình lên 4200 ký tự trong khi phần định nghĩa bối cảnh (SETTING + recap) chỉ
   có 1740; prompt tổng 10400. Gộp lại còn 2160 (tổng 8335), **giữ nguyên mọi luật**, chỉ bỏ phần

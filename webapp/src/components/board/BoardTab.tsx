@@ -160,24 +160,34 @@ export default function BoardTab({
     }
   };
 
-  const openEditor = (sh: BoardSheet) =>
+  // Seed node prompt bằng ĐÚNG thân mà nút ✦ gửi đi (`/prompt-preview` → `body`), không phải
+  // bản ghép `Panel N: <description>` như trước. Bản ghép bỏ mất cỡ cảnh, chuyển động, caption
+  // và continuity — 723 ký tự so với 2223 — nên model tự bịa khung hình rồi xoá phông cho xong:
+  // đo được một trang mà 4/6 panel ra nền mờ trống trong khi hai panel toàn cảnh bám đúng phố.
+  const openEditor = async (sh: BoardSheet) => {
+    let prompt = sh.prompt || "";
+    if (!prompt) {
+      try {
+        prompt = (await boardApi.promptPreview(sh.id)).body;
+      } catch {
+        prompt = sh.panels_list
+          .map((p, i) => `Panel ${i + 1}: ${p.description || p.caption || ""}`)
+          .join("\n");
+      }
+    }
     onEdit?.({
       kind: "sheet",
       id: sh.id,
       title: sh.title || `Trang ${sh.idx + 1}`,
       goal: "image",
-      // Prompt trang = thân đã gửi đi, hoặc ghép từ các panel khi chưa vẽ lần nào.
-      prompt:
-        sh.prompt ||
-        sh.panels_list
-          .map((p, i) => `Panel ${i + 1}: ${p.description || p.caption || ""}`)
-          .join("\n"),
+      prompt,
       // Union entity của MỌI panel — thiếu cái này thì đồ thị mặc định không có node
       // "Nguồn ảnh" nào và node Tạo ảnh chạy trơ, không bám ảnh tham chiếu.
       refEntityIds: sheetRefEntityIds(sh),
       imageMediaId: sh.media_id,
       imageSrc: sh.path,
     });
+  };
 
   const byScene = (sid: string) => sheets.filter((s) => s.scene_id === sid);
   const drawn = sheets.filter((s) => s.path).length;

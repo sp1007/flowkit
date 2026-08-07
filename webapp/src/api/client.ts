@@ -820,7 +820,8 @@ export const boardApi = {
       `/projects/${pid}/sheets/generate-all?force=${force}`, { method: "POST" }),
   // Prompt y hệt lúc gửi đi — xem trước để đối chiếu, không tốn credit.
   promptPreview: (id: string) =>
-    req<{ prompt: string; references: string[]; cast: string[] }>(`/sheets/${id}/prompt-preview`),
+    req<{ prompt: string; body: string; references: string[]; cast: string[] }>(
+      `/sheets/${id}/prompt-preview`),
   genPrompt: (id: string) => req<BoardSheet>(`/sheets/${id}/prompt`, { method: "POST" }),
   genVideo: (id: string) => req<BoardSheet>(`/sheets/${id}/video`, { method: "POST" }),
   genAllVideos: (pid: string, force = false) =>
