@@ -144,6 +144,15 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   CHỌN chứ không phải bộ bài để chia: cỡ được lặp, có cỡ không dùng tới, và dùng mỗi cỡ đúng một
   lần chính là dấu hiệu của khuôn mẫu. Kèm theo: cấm thang wide→tight, và ví dụ JSON KHÔNG được
   mở bằng `toàn cảnh/Wide/24mm` — mẫu đầu tiên model nhìn thấy là mẫu nó bắt chước.
+- **Trang vẽ ra một con phố khác thì nghi MÔ TẢ PANEL trước, đừng nghi Node Editor.** Đã đo:
+  cùng trang Hàng Mã, đường tự động và Node Editor cho ra CÙNG một ngõ đèn lồng — nên Node Editor
+  không phải biến số. Biến số là chữ: đếm số panel có tả cảnh (ánh sáng/mặt đường/đèn lồng/ống
+  kính) thì trang hỏng là 6/6, trang bám đúng bối cảnh là 0–3/6. `sheet_autofill_prompt` vốn đã
+  cấm nhưng quá nhẹ; phải liệt kê thẳng danh sách từ cấm (kể cả từ về MÁY QUAY — chúng có field
+  riêng, nhắc lại trong `description` là lý do model in tiêu cự vào ảnh) và nói rõ nếu bỏ hết
+  những thứ ấy mà câu rỗng thì panel đó vốn không có hành động. Đo lại: 0/6 trên ba scene.
+  Kèm theo: hai thứ KHÔNG phải nguyên nhân, đã thử và không đổi được kết quả — nhắc lại khối
+  bối cảnh trong node editor, và luật "prop không phải bối cảnh".
 - **`continuity` phải vào cả prompt VẼ TRANG, không chỉ prompt video.** N panel là N trạng thái
   rời; không nói cách đi từ panel trước sang panel này thì model đặt nhân vật ở đâu tuỳ ý — đã
   thấy panel 1 đứng giữa lòng đường, panel 2 đã trên vỉa hè. `sheet_page_prompt` in nó thành câu

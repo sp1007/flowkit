@@ -563,7 +563,13 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
                     loc = None if "SETTING —" in body else \
                         await _location_ref(inp["references"], pid)
                     if loc:
-                        body = brain.location_setting_clause(loc) + "\n" + body
+                        # HAI khối, y như đường tự động (`brain.sheet_page_prompt`): SETTING ở
+                        # đầu vì lượt bind reference nằm ở lần token xuất hiện đầu tiên, rồi
+                        # nhắc lại ngay trước phần panel vì prompt dài ~10000 ký tự và lời dặn ở
+                        # đầu đã trôi trước khi model đọc tới panel. Chỉ có khối đầu là trang
+                        # vẫn ra một con phố khác — đã đo trên chính đồ thị của người dùng.
+                        body = (brain.location_setting_clause(loc) + "\n"
+                                + brain.location_recap_clause(loc) + "\n" + body)
                 img_prompt = brain.compose_prompt(
                     project, body, single_frame=(kind == "shot"), cast=cast, sheet_page=page)
             # Ảnh nối vào node này là ảnh người dùng CỐ Ý đưa vào, nên phải được bind vào

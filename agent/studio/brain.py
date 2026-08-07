@@ -232,7 +232,9 @@ _SHEET_PAGE = (
     "inner borders, no drop shadows, no rounded corners, no letterboxing, no picture-in-picture. "
     "The badges and the one-line captions are the ONLY text on the page: no titles, no headers, "
     "no arrows, no annotations, no watermarks, and never reproduce text or labels that appear in "
-    "the reference images. "
+    "the reference images. Camera data in particular is never drawn: no focal length in a corner "
+    "('24mm', '85mm'), no shot-size label, no lens or angle wording anywhere inside a panel or "
+    "beside it — that wording is direction for you, not something the page shows. "
     "NOBODY TELEPORTS BETWEEN PANELS — consecutive panels are a second or two apart in one "
     "unbroken take, so a character keeps their position in the space unless the panels show them "
     "travelling. Someone standing in the middle of the road cannot be on the pavement in the next "
@@ -325,6 +327,25 @@ def location_setting_clause(handle: str) -> str:
             "never about what the place looks like.")
 
 
+def location_recap_clause(handle: str) -> str:
+    """Nhắc lại bối cảnh NGAY TRƯỚC danh sách panel, đi kèm `location_setting_clause`.
+
+    Khối SETTING phải đứng ở ĐẦU prompt vì lượt bind reference xảy ra ở lần token xuất hiện đầu
+    tiên. Nhưng prompt trang dài ~10000 ký tự, và tới lúc model đọc tới dòng panel thì lời dặn ấy
+    đã trôi — đo được: cùng một prompt, trang vẽ ra ngõ hẹp generic dù frame 1 là phố rộng có cây.
+    Hai khối mới đủ. Đường tự động có cả hai và bám đúng bối cảnh; node editor từng chỉ có khối
+    đầu và trôi y như cũ, nên cả hai đường phải dùng chung hàm này.
+
+    Gọi bằng TÊN THƯỜNG, KHÔNG ngoặc: lượt bind đã tiêu ở khối SETTING rồi, thêm ngoặc ở đây chỉ
+    ăn mất nó khỏi chỗ có ích hơn (mỗi ảnh chỉ bind được một lần khi `dedupe_refs`)."""
+    return (f"Every panel below is set in that same place. Its background is {handle} exactly as "
+            "frame 1 of the reference shows it — the same road width, the same trees, awnings and "
+            "stalls, the same shopfronts and goods. A panel's wording says what HAPPENS in it; it "
+            "never redescribes the place, and nothing in it licenses a different street. Where a "
+            "panel's words and that reference disagree about how the place looks, the REFERENCE "
+            "wins and the words are treated as being about the action only.")
+
+
 def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str:
     """Phần THÂN của prompt trang storyboard.
 
@@ -358,20 +379,23 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
             "image exactly: "
             + ", ".join("{" + r["handle"] + "}" for r in others)
             + ". Keep their identity, costume, colours and details as the references show them; "
-            "only pose, angle and framing change from panel to panel.")
+            "only pose, angle and framing change from panel to panel. "
+            # Prop là tờ thiết kế MỘT vật trên nền trắng, không phải một cảnh. Khi mô tả panel
+            # viết "hàng {Đèn lồng đỏ}" ở cả 6 panel thì model coi cái đèn là chủ đề của bối cảnh
+            # và dựng ra một ngõ treo đèn kín trời — đo được: cùng lưới location phố rộng có cây
+            # và sạp hoa quả, cả đường tự động lẫn node editor đều ra ngõ đèn lồng. Số lượng và
+            # chỗ đặt của một vật là việc của ẢNH BỐI CẢNH, ảnh prop chỉ nói vật ấy trông ra sao.
+            "An object reference tells you what ONE such object looks like — nothing more. How "
+            "many of them exist, where they hang or stand, and how much of the frame they take "
+            "up is decided by the SETTING image alone. Never multiply an object into rows, "
+            "strings or clusters the setting image does not already show, never let one become "
+            "the subject of the background, and never restyle the place around it: wording like "
+            "'a row of them' or 'strings of them overhead' refers to whatever the setting image "
+            "actually has, not to a new decoration scheme for the street.")
 
     out = list(head_lines)
     if loc:
-        # Nhắc lại NGAY TRƯỚC danh sách panel. Khối SETTING đứng ở đầu một prompt ~9700 ký tự,
-        # và tới lúc model đọc tới panel thì nó đã trôi: đo được trang vẽ ra một ngõ hẹp generic
-        # trong khi frame 1 là phố rộng có cây. Nhắc bằng TÊN THƯỜNG, không ngoặc — lượt bind đã
-        # tiêu ở khối SETTING rồi, thêm ngoặc ở đây chỉ ăn mất nó khỏi chỗ có ích hơn.
-        out.append(
-            f"Every panel below is set on that same street. Its background is {loc['handle']} "
-            "exactly as frame 1 of the reference shows it — the same road width, the same trees, "
-            "awnings and stalls, the same shopfronts and goods. A panel's wording says what "
-            "HAPPENS in it; it never redescribes the place, and nothing in it licenses a "
-            "different street.")
+        out.append(location_recap_clause(loc["handle"]))
     for i, p in enumerate(panels):
         spec = ", ".join(str(p.get(k) or "").strip()
                          for k in ("shot_size", "lens", "movement") if (p.get(k) or "").strip())
@@ -1000,13 +1024,23 @@ def sheet_autofill_prompt(scene_heading: str, scene_body: str, entities: list[di
         "shown. If two panels you want cannot be joined that way, choose a different second "
         "panel — the ONLY jump allowed is between PAGES, never inside one.\n"
         "  · `description`: ONE sentence of ACTION ONLY — what the subject does and how it is "
-        "posed in this panel. The place is supplied to the image model as a reference PICTURE "
-        "and is stated once for the whole page, so describing it again in a panel is not "
-        "harmless repetition: your words compete with that picture and the model redraws the "
-        "street from your words instead. So write NOTHING about the street, buildings, stalls, "
-        "signage, weather, time of day or lighting.\n"
-        "    BAD: \"Mở đầu trên {Phố X} dưới cơn mưa đêm, hàng đèn lồng đỏ rực rỡ phản chiếu "
-        "xuống mặt đường ướt đẫm, cô gái bước đi.\"\n"
+        "posed in this panel. START the sentence with the character. The place is supplied to "
+        "the image model as a reference PICTURE and is stated once for the whole page, so "
+        "describing it again in a panel is not harmless repetition: your words compete with that "
+        "picture and the model redraws the street from your words instead — measured, a page "
+        "whose six descriptions all mentioned lanterns and wet asphalt came back as a narrow "
+        "lantern alley even though the reference was a wide tree-lined market street.\n"
+        "    BANNED from this sentence, with no exceptions: the street or its name, buildings, "
+        "shopfronts, stalls, goods, signage, lanterns or any decoration, trees, the road surface, "
+        "puddles, reflections, rain, weather, time of day, and every word about light "
+        "(ánh sáng, lung linh, rực rỡ, hắt, phản chiếu). Also banned: camera words — shot size, "
+        "angle, lens, focal length, depth of field, bokeh, xóa phông, khung hình, góc quay — "
+        "those already have their own fields and repeating them here is what makes the model "
+        "print them into the picture.\n"
+        "    If removing all of that leaves the sentence with nothing to say, the panel had no "
+        "action in it and you should give it one.\n"
+        "    BAD: \"Góc quay rộng toàn cảnh với ống kính 24mm, ánh sáng ấm hắt trên mặt đường "
+        "ướt đêm, {An} bước đi giữa hàng {Đèn lồng đỏ} tại {Phố X}.\"\n"
         "    GOOD: \"{An} bước chậm về phía máy quay, tay nâng nhẹ {Ô trong suốt}, đầu hơi "
         "nghiêng, ánh mắt dõi sang bên phải.\"\n"
         "    Name entities with {braces}.\n"
