@@ -153,6 +153,13 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   những thứ ấy mà câu rỗng thì panel đó vốn không có hành động. Đo lại: 0/6 trên ba scene.
   Kèm theo: hai thứ KHÔNG phải nguyên nhân, đã thử và không đổi được kết quả — nhắc lại khối
   bối cảnh trong node editor, và luật "prop không phải bối cảnh".
+- **Prompt trang càng dài, bối cảnh càng loãng — `_SHEET_PAGE` phải ngắn.** Sau nhiều lượt chồng
+  luật, khối guard phình lên 4200 ký tự trong khi phần định nghĩa bối cảnh (SETTING + recap) chỉ
+  có 1740; prompt tổng 10400. Gộp lại còn 2160 (tổng 8335), **giữ nguyên mọi luật**, chỉ bỏ phần
+  diễn giải lặp — đo hai lượt liên tiếp trên cùng một trang: cả hai đều bám sát ảnh mẫu (cây,
+  chùm hàng khô, sạp hoa, mái bạt xanh, đường rộng) và đều đủ 6 ô đúng số, thứ mà không lượt nào
+  trước đó đạt. Thêm luật vào đây là đánh đổi trực tiếp với độ bám bối cảnh: mỗi câu thêm đẩy
+  khối SETTING thành một phần nhỏ dần của prompt.
 - **Thêm chữ tả bối cảnh vào prompt trang làm MỌI panel tệ đi — đã đo, đừng thử lại.** Một trang
   có panel 2 (trung cảnh) lạc sang ngõ hẹp trong khi 1/4/5/6 bám đúng phố, chữ panel 2 hoàn toàn
   sạch. Cách chữa nghe rất hợp lý là dặn thêm "panel hẹp vẫn phải thấy sạp hàng, mái bạt, mặt
