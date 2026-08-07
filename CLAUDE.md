@@ -153,11 +153,14 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   những thứ ấy mà câu rỗng thì panel đó vốn không có hành động. Đo lại: 0/6 trên ba scene.
   Kèm theo: hai thứ KHÔNG phải nguyên nhân, đã thử và không đổi được kết quả — nhắc lại khối
   bối cảnh trong node editor, và luật "prop không phải bối cảnh".
-- **Panel càng hẹp càng dễ trôi sang một chỗ hẹp hơn.** Đo được một trang mà panel 1/4/5/6 bám
-  đúng phố rộng có sạp hoa và mái bạt, riêng panel 2 (trung cảnh) là ngõ hẹp treo đèn lồng —
-  chữ của panel đó hoàn toàn sạch, nên không phải lỗi mô tả. Với model, khung hẹp lại = chỗ hẹp
-  lại. `location_recap_clause` phải nói thẳng: khung hẹp chỉ là CẮT GẦN chính con phố ấy, ở cỡ
-  trung/cận vẫn thấy sạp, mái bạt và đúng bề rộng đường phía sau, chỉ ít hơn và mờ hơn.
+- **Thêm chữ tả bối cảnh vào prompt trang làm MỌI panel tệ đi — đã đo, đừng thử lại.** Một trang
+  có panel 2 (trung cảnh) lạc sang ngõ hẹp trong khi 1/4/5/6 bám đúng phố, chữ panel 2 hoàn toàn
+  sạch. Cách chữa nghe rất hợp lý là dặn thêm "panel hẹp vẫn phải thấy sạp hàng, mái bạt, mặt
+  tiền và đúng bề rộng đường" — kết quả: cả SÁU panel trôi khỏi ảnh mẫu, mất sạch màu và hàng
+  hoá, tệ hơn hẳn lúc chưa có câu ấy. Mọi câu tả chỗ đó bằng chữ đều cạnh tranh trực tiếp với
+  ảnh tham chiếu và model theo chữ — kể cả khi câu ấy đang cố mô tả CHÍNH ảnh đó.
+  `location_recap_clause` chỉ được TRỎ về ảnh, không mô tả thay nó. Gỡ câu ấy ra thì bối cảnh
+  trở lại (cây, sạp hàng, đường rộng) và panel 2 tự đồng bộ theo.
 - **`continuity` phải vào cả prompt VẼ TRANG, không chỉ prompt video.** N panel là N trạng thái
   rời; không nói cách đi từ panel trước sang panel này thì model đặt nhân vật ở đâu tuỳ ý — đã
   thấy panel 1 đứng giữa lòng đường, panel 2 đã trên vỉa hè. `sheet_page_prompt` in nó thành câu
