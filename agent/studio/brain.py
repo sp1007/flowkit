@@ -226,9 +226,16 @@ _SHEET_PAGE = (
     "panels, and under EACH panel one short line of small type naming its shot size (e.g. "
     "{sizes}), with the next row starting {caption_gap}px below it. Number each panel with a "
     "small round badge in its top-left corner, black digit on a white/cream circle. "
+    # ĐỪNG thêm lại "no brackets" vào đây. Hai chữ ấy — chỉ hai chữ ấy — làm Flow trả
+    # 400 PUBLIC_ERROR_UNSAFE_GENERATION cho trang có ảnh tham chiếu người thứ hai (đã đo:
+    # bisect 20 request thật, câu này một mình 400 ở 3/3 lượt, bỏ nó ra khỏi prompt ĐẦY ĐỦ thì
+    # chạy; các vế còn lại của cùng câu đều sạch). Bộ lọc nằm TRƯỚC mô hình nên đổi sang Nano
+    # Banana 2 cũng y hệt. Vế ấy vốn để chặn model chép cụm "[Wide, 24mm, tracking back]" xuống
+    # làm caption, mà format `Panel N [...]` đã bỏ từ lâu — đã quét: 0/12 trang còn ngoặc vuông
+    # trong thân prompt. Tức nó vừa vô dụng vừa là thứ duy nhất chặn cả trang.
     "TEXT — the badges and those one-line captions are the ONLY text anywhere on the page. A "
-    "caption is EXACTLY the phrase quoted for its panel: no camera wording, no focal length, no "
-    "brackets, no English, and never text copied out of a reference image. "
+    "caption is EXACTLY the phrase quoted for its panel: no camera wording, no focal length, "
+    "no English, and never text copied out of a reference image. "
     "PANELS — each is a full cinematic frame edge to edge in its cell: no inner border, shadow, "
     "rounded corner, letterbox or inset. They are consecutive moments of ONE take, so only the "
     "camera and the action change; neighbouring panels must differ in framing, pose and gaze. "

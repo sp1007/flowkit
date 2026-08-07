@@ -265,3 +265,18 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   đoán là lỗi cấu trúc prompt trong khi thật ra là `PUBLIC_ERROR_UNSAFE_GENERATION` — bộ lọc nội
   dung. `_image_block_reason` nay bóc `code/status/details.reason/message` ra thành câu
   "Flow từ chối: …". Đếm part vẫn nên kiểm, nhưng đừng mặc định 400 nào cũng là do part.
+- **Hai chữ `no brackets` trong `_SHEET_PAGE` làm Flow chặn cả trang.** Trang Hàng Buồm trả
+  `400 PUBLIC_ERROR_UNSAFE_GENERATION` mọi lượt. Bisect 20 request thật thu về đúng một vế: câu
+  `A panel caption carries no brackets.` một mình đã 400 ở 3/3 lượt, trong khi mọi vế khác của
+  cùng câu (`no camera wording`, `no focal length`, `no English`, `never text copied out of a
+  reference image`) đều chạy sạch; bỏ đúng hai chữ ấy khỏi prompt ĐẦY ĐỦ thì qua. Vế đó vốn để
+  chặn model chép cụm `[Wide, 24mm, tracking back]` xuống làm caption, mà format `Panel N [...]`
+  đã bỏ từ lâu — quét lại: 0/12 trang còn ngoặc vuông trong thân prompt. Bài học chung: bộ lọc
+  an toàn của Flow **không** chỉ bắt nội dung nhạy cảm, nó bắt cả cụm từ vô hại khi request đã
+  gần ngưỡng (trang này chỉ nổ khi có ảnh tham chiếu NGƯỜI thứ hai — bỏ `Cụ già` ra là chạy dù
+  vẫn còn `no brackets`). Đừng đoán câu nào nhạy cảm: đã đoán sai hai lần liên tiếp (`REFERENCES`
+  với "face, hair, skin, age"; rồi "không chép chữ từ ảnh tham chiếu" nghe như xoá watermark) —
+  cả hai đều sạch khi đo. Cách duy nhất là bisect: request bị chặn KHÔNG tốn lượt sinh nên đo
+  thoải mái, chỉ lượt thành công mới tốn.
+- **Bộ lọc nằm TRƯỚC mô hình — đổi model không chữa được.** Cùng request ấy chuyển từ Omni sang
+  `NANO_BANANA_2` (resolve ra `NARWHAL`) vẫn 400 y hệt.
