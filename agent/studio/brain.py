@@ -343,7 +343,17 @@ def location_recap_clause(handle: str) -> str:
             "stalls, the same shopfronts and goods. A panel's wording says what HAPPENS in it; it "
             "never redescribes the place, and nothing in it licenses a different street. Where a "
             "panel's words and that reference disagree about how the place looks, the REFERENCE "
-            "wins and the words are treated as being about the action only.")
+            "wins and the words are treated as being about the action only. "
+            # Panel càng hẹp càng hay trôi: đo được một trang mà panel 1/4/5/6 bám đúng phố rộng
+            # có sạp hoa và mái bạt, riêng panel 2 (trung cảnh) là một ngõ hẹp treo đèn lồng. Với
+            # model, khung hẹp lại = chỗ hẹp lại, trừ khi nói thẳng rằng khung hẹp chỉ là CẮT GẦN
+            # chính con phố ấy.
+            "A tighter panel is a closer view of THAT street, never a narrower street: at medium "
+            "and close range you still see its stalls, its awnings, its shopfronts and the same "
+            "width of road behind the subject — just less of them, and softer. Tighter framing "
+            "never means a tighter alley, a lower ceiling of hanging decorations, or walls moved "
+            "in closer. Check every panel against the reference before you commit to it: if one "
+            "of them could be somewhere else, redraw it as this place.")
 
 
 def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str:
