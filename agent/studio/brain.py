@@ -383,8 +383,11 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
     if loc:
         out.append(location_recap_clause(loc["handle"]))
     for i, p in enumerate(panels):
+        # KHÔNG đưa `lens` vào prompt VẼ. Tiêu cự chẳng nói thêm gì cho một bản vẽ tĩnh mà lại
+        # đúng là thứ model in ra: đo được một lượt in "35mm/50mm/85mm/24mm" vào góc từng panel.
+        # Cột `lens` vẫn giữ nguyên trong DB và vẫn đi vào prompt timeline của video.
         spec = ", ".join(str(p.get(k) or "").strip()
-                         for k in ("shot_size", "lens", "movement") if (p.get(k) or "").strip())
+                         for k in ("shot_size", "movement") if (p.get(k) or "").strip())
         body = _strip_braces(str(p.get("description") or p.get("title") or "").strip().rstrip("."))
         cap = _strip_braces(str(p.get("caption") or "").strip().rstrip("."))
         # Thông số máy KHÔNG đứng cạnh số panel nữa. `Panel 1 [Wide, 24mm, tracking back]:` —

@@ -125,6 +125,10 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   từng làm model kéo cửa cuốn xuống và dọn hết sạp: phố còn đúng cây với mặt đường, mất sạch hàng
   hoá và màu — mà với phố chợ thì hàng hoá CHÍNH LÀ bối cảnh. Phải nói tách bạch: không người,
   nhưng chỗ đó vẫn đang mở cửa buôn bán, sạp đầy ắp, hàng treo, đèn sáng đúng như ảnh mẫu.
+- **Tiêu cự KHÔNG đi vào prompt vẽ trang.** Số mm chẳng nói thêm gì cho một bản vẽ tĩnh nhưng
+  đúng là thứ model in ra: đo được một lượt in `35mm/50mm/85mm/24mm` vào góc từng panel dù
+  `_SHEET_PAGE` đã cấm. Bỏ `lens` khỏi `sheet_page_prompt` (cột vẫn giữ trong DB và vẫn đi vào
+  prompt timeline của video) thì hết — cấm bằng luật không chắc bằng không đưa nó vào.
 - **Đừng để thông số máy đứng cạnh số panel.** `Panel 1 [Wide, 24mm, tracking back]:` trông y như
   một nhãn viết sẵn và model chép nguyên cụm xuống làm caption — trang ra chữ
   `toàn cảnh [Wide, 24mm, tracking back]`. Tách thành câu riêng đặt SAU hành động ("Shoot it
