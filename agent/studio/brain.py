@@ -543,25 +543,18 @@ def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
     else:
         guard = _SINGLE_FRAME if single_frame else ""
         n_panels = 0
-    body = (body or "").strip()
-    cast_txt = cast_clause(cast or [], panels=n_panels)
-    if sheet_page:
-        # TRANG STORYBOARD: `prompt_footer` đi LÊN TRƯỚC body, không đứng cuối.
-        #
-        # Footer là khối style do người dùng viết, ở dự án thật dài 2838 ký tự — một phần tư
-        # prompt — và nó nằm ở chỗ model đọc SAU CÙNG, tức sau cả khối nhắc bối cảnh. Trong đó có
-        # "Avoid noisy backgrounds" và "Avoid visual clutter": với một tờ location là phố chợ chật
-        # hàng hoá thì đó đúng là lệnh dọn phông, và nó thắng ảnh tham chiếu. Đã đo A/B trên cùng
-        # một trang, chỉ khác mỗi footer: có footer ra ngõ đèn lồng generic, bỏ footer ra đúng phố
-        # Hàng Vải (tre, thang dựng, cây, mặt đường ướt). Footer còn chứa CAMERA STYLE và MOTION
-        # STYLE — lời dặn chuyển động, vô nghĩa với một trang tĩnh.
-        #
-        # Không xoá của người dùng, chỉ đổi chỗ: đẩy lên cạnh `lead` (nơi các lệnh style vốn
-        # thuộc về) và trả vị trí cuối lại cho danh sách panel + cast, đúng thứ cần bám nhất.
-        parts = [header, lead, footer, guard, body, cast_txt, _image_text_clause(project)]
-    else:
-        parts = [header, lead, body, scene_anchor_clause(anchor or ""), guard,
-                 cast_txt, footer, _image_text_clause(project)]
+    # THỨ TỰ NÀY CỐ Ý KHÔNG PHÂN BIỆT trang storyboard với ảnh lẻ: `prompt_header` và
+    # `prompt_footer` là chỗ NGƯỜI DÙNG viết, đặt ở đâu là quyết định của họ, và code tự ý đảo
+    # chỗ theo loại prompt thì cùng một cấu hình lại cho hai hành vi khác nhau tuỳ tab.
+    #
+    # Vị trí footer VẪN là biến số lớn nhất của độ bám bối cảnh — đã đo A/B trên cùng một trang
+    # Hàng Vải, chỉ khác mỗi footer: có footer (2838 ký tự, đứng cuối, chứa "Avoid noisy
+    # backgrounds" + "Avoid visual clutter") ra ngõ đèn lồng generic; bỏ footer ra đúng ảnh mẫu
+    # (tre dựng, thang, cây, mặt đường ướt). Vì footer đứng SAU cả `location_recap_clause` nên
+    # nó là lời cuối model đọc. Cách chữa là chuyển khối style ấy sang `prompt_header`, và đó là
+    # việc của người dùng — đừng bù bằng cách xếp lại thứ tự ở đây.
+    parts = [header, lead, (body or "").strip(), scene_anchor_clause(anchor or ""), guard,
+             cast_clause(cast or [], panels=n_panels), footer, _image_text_clause(project)]
     return ". ".join(p for p in parts if p)
 
 

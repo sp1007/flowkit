@@ -234,10 +234,12 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   `Avoid visual clutter`: với tờ location là phố chợ chật hàng hoá thì đó đúng là lệnh dọn phông,
   và nó thắng ảnh tham chiếu. Cùng một trang Hàng Vải, chỉ khác mỗi footer: có footer → ngõ đèn
   lồng generic, không cây không tre; bỏ footer → đúng ảnh mẫu (tre dựng, thang, cây, đường ướt).
-  Cách chữa KHÔNG phải xoá config của người dùng mà là đổi CHỖ: khi `sheet_page`, footer đi lên
-  cạnh `lead` và vị trí cuối trả lại cho danh sách panel + cast. Đo lại: cây và tre trở lại. Phần
-  còn sót (vài cái đèn lồng, phông sạch hơn ảnh mẫu) là nội dung footer, phải người dùng tự bỏ.
-  Footer còn chứa `CAMERA STYLE`/`MOTION STYLE` — lời dặn chuyển động, vô nghĩa với trang tĩnh.
+  Đẩy footer lên trước body cũng chữa được (đo lại: cây và tre trở lại), NHƯNG đừng làm trong
+  `compose_prompt`: header/footer là chỗ người dùng viết, code tự đảo chỗ theo `sheet_page` thì
+  cùng một cấu hình cho hai hành vi khác nhau tuỳ tab. Cách đúng là người dùng chuyển khối style
+  ấy sang `prompt_header`. Footer còn chứa `CAMERA STYLE`/`MOTION STYLE` — lời dặn chuyển động,
+  vô nghĩa với một trang tĩnh. Hệ quả chung: **prompt trang trôi bối cảnh thì kiểm cái gì đứng
+  CUỐI prompt trước đã**, chỗ đó nặng hơn mọi luật thêm vào ở giữa.
 - **`movement` KHÔNG đi vào prompt vẽ trang, giống hệt `lens`.** Câu chuyển động là TIẾNG VIỆT nên
   nó đọc như một caption thứ hai và model in thẳng xuống dưới caption thật — đo được trang có
   "di chuyển mượt mà bám sát góc chính diện" và "lia sang bên hông song song với hướng di chuyển"
