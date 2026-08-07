@@ -236,6 +236,11 @@ _SHEET_PAGE = (
     "show them travelling, so no stepping from road to pavement, no crossing to the far side, no "
     "turning to face the other way, no swapping hands, no gaining or losing what they carry. "
     "Whatever a panel says about following on from the previous one is binding. "
+    # Không có luật tỉ lệ thì model coi cỡ cảnh là lệnh phóng to nhân vật cho vừa ô: đo được một
+    # panel "toàn thân" mà cô gái cao ngang tầng hai của dãy nhà, đứng giữa lòng đường.
+    "SCALE — everyone is drawn at true human size against the place: a doorway, a shopfront, a "
+    "parked bike stay the size they are in the setting reference. A wide panel means the figure "
+    "is SMALL in the frame; it never enlarges a person to fill the panel or to match a building. "
     "REFERENCES — each named character matches its own reference in IDENTITY only (face, hair, "
     "skin, build, age, costume); never blend two characters, never add unnamed people, and "
     "ignore the reference's pose, expression and framing. Never draw a reference SHEET's layout "
@@ -332,6 +337,28 @@ def location_recap_clause(handle: str) -> str:
             "A tighter panel is a closer view of THAT place, never a different, narrower one.")
 
 
+def subjects_recap_clause(names: list[str]) -> str:
+    """Nhắc NHÂN VẬT/ĐẠO CỤ ngay trước danh sách panel — đối xứng với `location_recap_clause`.
+
+    Bối cảnh từng trôi đúng kiểu này và hai khối mới chữa được; nhân vật thì mãi chỉ có khối
+    SUBJECTS ở đầu prompt, cách dòng panel ~2500 ký tự. Triệu chứng khớp hệt: mặt An đổi sang một
+    cô gái khác ở các panel cận, và cái áo dài đảo giữa hai bản reference.
+
+    Chỉ TRỎ về ảnh, tuyệt đối không tả thay nó — đúng luật đã đo ở `location_recap_clause`: mọi
+    câu mô tả bằng chữ đều cạnh tranh với chính ảnh tham chiếu và model theo chữ. Gọi bằng TÊN
+    THƯỜNG, không ngoặc: lượt bind đã tiêu ở khối SUBJECTS."""
+    names = [n for n in dict.fromkeys(n for n in names if n)]
+    if not names:
+        return ""
+    return ("The people and things in those panels are the ones defined above — "
+            + ", ".join(names)
+            + " — and each still looks exactly as its own reference shows, in every panel. "
+              "A panel's words say what they DO; the reference says what they look like, and "
+              "where the two disagree the reference wins. Coming in closer shows the SAME face, "
+              "the same garment and the same pattern in more detail; it never becomes another "
+              "person, another outfit or another version of the pattern.")
+
+
 def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str:
     """Phần THÂN của prompt trang storyboard.
 
@@ -366,6 +393,18 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
             + ", ".join("{" + r["handle"] + "}" for r in others)
             + ". Keep their identity, costume, colours and details as the references show them; "
             "only pose, angle and framing change from panel to panel. "
+            # Hai reference cùng tả MỘT cái áo là mâu thuẫn không giải được nếu không xếp thứ tự.
+            # Sheet nhân vật An đã vẽ sẵn áo dài (một bông sen nhỏ ở ngực, sen ở gấu và cổ tay);
+            # entity prop "Áo dài trắng" vẽ cùng cái áo nhưng hoa to phủ nửa thân váy. Câu "mỗi
+            # thứ phải khớp CHÍNH ảnh của nó" bắt model làm hai việc loại trừ nhau, và đo được nó
+            # đảo qua đảo lại: cùng một trang, panel 1 ra bản prop còn panel 5 ra bản nhân vật.
+            # Cho ảnh NHÂN VẬT thắng vì đó cũng là ảnh định nghĩa khuôn mặt — hai thứ đi cùng nhau
+            # thì nhân vật mới đứng yên qua các trang.
+            "Some of those items are clothing or objects a named character already wears or holds "
+            "in that character's OWN reference. Where that happens the character's reference is "
+            "the one that governs: it decides the cut, the colour and the size and placement of "
+            "any pattern on them, and the separate item sheet only tells you what the item is. "
+            "Never average the two into a third version. "
             # Prop là tờ thiết kế MỘT vật trên nền trắng, không phải một cảnh. Khi mô tả panel
             # viết "hàng {Đèn lồng đỏ}" ở cả 6 panel thì model coi cái đèn là chủ đề của bối cảnh
             # và dựng ra một ngõ treo đèn kín trời — đo được: cùng lưới location phố rộng có cây
@@ -382,12 +421,17 @@ def sheet_page_prompt(panels: list[dict], refs: list[dict] | None = None) -> str
     out = list(head_lines)
     if loc:
         out.append(location_recap_clause(loc["handle"]))
+    if others:
+        out.append(subjects_recap_clause([r["handle"] for r in others]))
     for i, p in enumerate(panels):
-        # KHÔNG đưa `lens` vào prompt VẼ. Tiêu cự chẳng nói thêm gì cho một bản vẽ tĩnh mà lại
-        # đúng là thứ model in ra: đo được một lượt in "35mm/50mm/85mm/24mm" vào góc từng panel.
-        # Cột `lens` vẫn giữ nguyên trong DB và vẫn đi vào prompt timeline của video.
-        spec = ", ".join(str(p.get(k) or "").strip()
-                         for k in ("shot_size", "movement") if (p.get(k) or "").strip())
+        # KHÔNG đưa `lens` lẫn `movement` vào prompt VẼ. Cả hai đều vô nghĩa với một bản vẽ tĩnh
+        # nhưng đúng là thứ model in ra: `lens` đã đo được một lượt in "35mm/50mm/85mm/24mm" vào
+        # góc từng panel, còn `movement` là câu TIẾNG VIỆT nên nó đọc như một caption thứ hai và
+        # in thẳng xuống dưới caption thật — đo được trên một trang có "di chuyển mượt mà bám sát
+        # góc chính diện" và "lia sang bên hông song song với hướng di chuyển" nằm dưới hai panel.
+        # Cấm bằng luật không chắc bằng không đưa nó vào. Hai cột vẫn giữ nguyên trong DB và vẫn
+        # đi vào prompt timeline của video, nơi chuyển động mới thật sự có nghĩa.
+        spec = str(p.get("shot_size") or "").strip()
         body = _strip_braces(str(p.get("description") or p.get("title") or "").strip().rstrip("."))
         cap = _strip_braces(str(p.get("caption") or "").strip().rstrip("."))
         # Thông số máy KHÔNG đứng cạnh số panel nữa. `Panel 1 [Wide, 24mm, tracking back]:` —
@@ -499,8 +543,25 @@ def compose_prompt(project: dict, body: str, *, include_culture: bool = True,
     else:
         guard = _SINGLE_FRAME if single_frame else ""
         n_panels = 0
-    parts = [header, lead, (body or "").strip(), scene_anchor_clause(anchor or ""), guard,
-             cast_clause(cast or [], panels=n_panels), footer, _image_text_clause(project)]
+    body = (body or "").strip()
+    cast_txt = cast_clause(cast or [], panels=n_panels)
+    if sheet_page:
+        # TRANG STORYBOARD: `prompt_footer` đi LÊN TRƯỚC body, không đứng cuối.
+        #
+        # Footer là khối style do người dùng viết, ở dự án thật dài 2838 ký tự — một phần tư
+        # prompt — và nó nằm ở chỗ model đọc SAU CÙNG, tức sau cả khối nhắc bối cảnh. Trong đó có
+        # "Avoid noisy backgrounds" và "Avoid visual clutter": với một tờ location là phố chợ chật
+        # hàng hoá thì đó đúng là lệnh dọn phông, và nó thắng ảnh tham chiếu. Đã đo A/B trên cùng
+        # một trang, chỉ khác mỗi footer: có footer ra ngõ đèn lồng generic, bỏ footer ra đúng phố
+        # Hàng Vải (tre, thang dựng, cây, mặt đường ướt). Footer còn chứa CAMERA STYLE và MOTION
+        # STYLE — lời dặn chuyển động, vô nghĩa với một trang tĩnh.
+        #
+        # Không xoá của người dùng, chỉ đổi chỗ: đẩy lên cạnh `lead` (nơi các lệnh style vốn
+        # thuộc về) và trả vị trí cuối lại cho danh sách panel + cast, đúng thứ cần bám nhất.
+        parts = [header, lead, footer, guard, body, cast_txt, _image_text_clause(project)]
+    else:
+        parts = [header, lead, body, scene_anchor_clause(anchor or ""), guard,
+                 cast_txt, footer, _image_text_clause(project)]
     return ". ".join(p for p in parts if p)
 
 

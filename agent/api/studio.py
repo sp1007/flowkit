@@ -892,6 +892,21 @@ def _image_block_reason(payload: dict) -> Optional[str]:
         v = _deep_find(payload, key)
         if v:
             return str(v)
+    # Flow trả lỗi HTTP dưới dạng {"error": {"code":400, "status":"INVALID_ARGUMENT",
+    # "details":[{"reason":"PUBLIC_ERROR_UNSAFE_GENERATION"}]}} nằm trong `data` — KHÔNG phải
+    # `res["error"]`, nên nhánh trên của _generate_image_verified không thấy và người dùng chỉ
+    # nhận được "Flow không trả media (có thể bị chặn)". Đã mất một buổi đoán là lỗi cấu trúc
+    # prompt trong khi thật ra là bộ lọc nội dung. Bóc mã lỗi thật ra đây.
+    err = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(err, dict):
+        bits = [str(err.get(k)) for k in ("code", "status") if err.get(k)]
+        for d in err.get("details") or []:
+            if isinstance(d, dict) and d.get("reason"):
+                bits.append(str(d["reason"]))
+        if err.get("message"):
+            bits.append(str(err["message"]))
+        if bits:
+            return "Flow từ chối: " + " · ".join(dict.fromkeys(bits))
     return None
 
 

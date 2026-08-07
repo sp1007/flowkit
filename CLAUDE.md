@@ -228,3 +228,38 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
 - The agent holds no state; all generation goes through the connected extension.
   If `extension_connected: false`, open Google Flow in Chrome with the extension loaded.
 - See [README.md](README.md) for the full endpoint table.
+- **`prompt_footer` của dự án là thứ đè chết ảnh bối cảnh — đã đo A/B.** Footer là khối style
+  người dùng viết, ở dự án thật dài 2838 ký tự (một phần tư prompt trang) và `compose_prompt` xưa
+  đặt nó CUỐI, tức sau cả `location_recap_clause`. Trong đó có `Avoid noisy backgrounds` và
+  `Avoid visual clutter`: với tờ location là phố chợ chật hàng hoá thì đó đúng là lệnh dọn phông,
+  và nó thắng ảnh tham chiếu. Cùng một trang Hàng Vải, chỉ khác mỗi footer: có footer → ngõ đèn
+  lồng generic, không cây không tre; bỏ footer → đúng ảnh mẫu (tre dựng, thang, cây, đường ướt).
+  Cách chữa KHÔNG phải xoá config của người dùng mà là đổi CHỖ: khi `sheet_page`, footer đi lên
+  cạnh `lead` và vị trí cuối trả lại cho danh sách panel + cast. Đo lại: cây và tre trở lại. Phần
+  còn sót (vài cái đèn lồng, phông sạch hơn ảnh mẫu) là nội dung footer, phải người dùng tự bỏ.
+  Footer còn chứa `CAMERA STYLE`/`MOTION STYLE` — lời dặn chuyển động, vô nghĩa với trang tĩnh.
+- **`movement` KHÔNG đi vào prompt vẽ trang, giống hệt `lens`.** Câu chuyển động là TIẾNG VIỆT nên
+  nó đọc như một caption thứ hai và model in thẳng xuống dưới caption thật — đo được trang có
+  "di chuyển mượt mà bám sát góc chính diện" và "lia sang bên hông song song với hướng di chuyển"
+  nằm dưới hai panel. Cột vẫn giữ trong DB và vẫn đi vào `sheet_timeline_prompt` của video.
+- **Áo dài của nhân vật và entity "Áo dài trắng" là HAI ảnh tả MỘT cái áo — phải xếp thứ tự.**
+  Sheet nhân vật An đã vẽ sẵn áo dài (sen nhỏ ở ngực, sen ở gấu và cổ tay); entity prop vẽ cùng
+  cái áo nhưng hoa to phủ nửa thân váy. Câu "mỗi thứ phải khớp CHÍNH ảnh của nó" bắt model làm
+  hai việc loại trừ nhau và nó đảo qua đảo lại NGAY TRONG một trang: panel 1 ra bản prop, panel 5
+  ra bản nhân vật. `sheet_page_prompt` nay cho ảnh NHÂN VẬT thắng về cắt may/màu/hoạ tiết — vì đó
+  cũng là ảnh định nghĩa khuôn mặt, hai thứ đi cùng nhau thì nhân vật mới đứng yên qua các trang.
+- **Nhân vật cũng trôi như bối cảnh, và chữa bằng đúng một cách: nhắc lại sát danh sách panel.**
+  Khối SUBJECTS ở đầu prompt cách dòng panel ~2500 ký tự; triệu chứng khớp hệt bối cảnh — mặt đổi
+  sang một cô gái khác ở panel cận. `subjects_recap_clause` đối xứng với `location_recap_clause`
+  và chịu đúng luật ấy: chỉ TRỎ về ảnh, tuyệt đối không tả thay nó, gọi bằng tên thường không
+  ngoặc (lượt bind đã tiêu ở khối SUBJECTS).
+- **Không có luật tỉ lệ thì cỡ cảnh bị hiểu thành lệnh phóng to người cho vừa ô.** Đo được một
+  panel "toàn thân" mà nhân vật cao ngang tầng hai dãy nhà, đứng giữa lòng đường. Khối `SCALE`
+  trong `_SHEET_PAGE` nói thẳng: cửa, mặt tiền, xe máy giữ nguyên kích thước như ảnh bối cảnh, và
+  panel rộng nghĩa là người NHỎ trong khung chứ không phải người to ra.
+- **"Flow không trả media (có thể bị chặn)" che mất mã lỗi thật.** Flow trả lỗi HTTP dưới dạng
+  `{"error":{"code":400,"status":"INVALID_ARGUMENT","details":[{"reason":"..."}]}}` nằm trong
+  `data`, KHÔNG phải `res["error"]`, nên `_generate_image_verified` không thấy. Đã mất một buổi
+  đoán là lỗi cấu trúc prompt trong khi thật ra là `PUBLIC_ERROR_UNSAFE_GENERATION` — bộ lọc nội
+  dung. `_image_block_reason` nay bóc `code/status/details.reason/message` ra thành câu
+  "Flow từ chối: …". Đếm part vẫn nên kiểm, nhưng đừng mặc định 400 nào cũng là do part.
