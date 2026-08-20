@@ -225,6 +225,14 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   `_current_tier_for(project)`; nó rơi về cột `project.paygate_tier`, vốn được
   `_sync_project_tier` cập nhật mỗi lần mở dự án (cột đó chỉ được GHI LÚC TẠO, nên nâng gói
   xong mọi dự án cũ vẫn mang tier cũ nếu không đồng bộ).
+- **Lưới shot KHÔNG nhúng `<video>` — dùng ảnh bìa.** Clip Flow phát ra đều có `moov` ở CUỐI
+  file (kiểm 6/6: `ftyp/uuid/mdat/moov`, không faststart), nên `preload="metadata"` buộc trình
+  duyệt lần tới cuối một file 4–9MB. Dự án 127 clip = hàng trăm MB + 127 phần tử media sống
+  cùng lúc → TREO trình duyệt. Gắn/tháo theo tầm nhìn KHÔNG cứu được: cuộn vài nhịp là churn
+  liên tục. Cách đúng: `GET /shots/{sid}/poster` dựng khung đầu thành JPEG ~35KB (ffmpeg, cache
+  theo tên file video, tối đa 3 tiến trình cùng lúc — 127 tấm hết 10s), thẻ hiện `<img
+  loading="lazy">`, `<video>` chỉ gắn lúc rê chuột nên nhiều nhất một thẻ. Shot có `image_path`
+  thì dùng thẳng ảnh đó, khỏi cần poster. Đừng "tối ưu" bằng cách nhúng lại video vào thẻ.
 - `media_id` is always UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`), never `CAMS...`
 - The agent holds no state; all generation goes through the connected extension.
   If `extension_connected: false`, open Google Flow in Chrome with the extension loaded.

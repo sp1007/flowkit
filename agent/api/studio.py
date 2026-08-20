@@ -3316,6 +3316,36 @@ def _slug(s: str) -> str:
     return s[:60] or "shot"
 
 
+@router.get("/shots/{sid}/poster")
+async def shot_poster(sid: str):
+    """Ảnh đại diện của CLIP shot — khung hình đầu, JPEG nhỏ, dựng một lần rồi cache.
+
+    Lưới shot từng nhúng thẳng `<video>` cho mỗi thẻ. Với dự án 127 clip thì tab treo hẳn, và
+    lý do không phải mạng chậm: clip Flow phát ra đều có `moov` ở CUỐI file (đã kiểm 6/6 file
+    — atoms `ftyp/uuid/mdat/moov`), nên `preload="metadata"` buộc trình duyệt lần tới cuối một
+    file 4–9MB, nhân với 127 phần tử media sống cùng lúc.
+
+    Shot đã có ảnh frame thì KHÔNG cần đường này — thẻ dùng thẳng `image_path`. Endpoint chỉ
+    cho shot chỉ-có-video (vd sinh thẳng bằng text-to-video)."""
+    shot = await _shot_or_404(sid)
+    scene = await _scene_or_404(shot["scene_id"])
+    video = _media_abs(shot.get("video_path") or "")
+    if not video or not video.exists():
+        raise HTTPException(404, "Shot chưa có video")
+
+    # Khoá cache theo TÊN FILE video: render lại shot là file khác → poster mới, không phải
+    # dọn cache tay. Poster cũ của clip bị thay thì nằm lại vô hại (vài chục KB).
+    out = (assembler.STUDIO_MEDIA_DIR / scene["project_id"] / "posters" /
+           (video.stem + ".jpg"))
+    if not (out.exists() and out.stat().st_size > 0):
+        if not await assembler.extract_poster(video, out):
+            raise HTTPException(502, "Không dựng được ảnh đại diện cho clip")
+    # Nội dung gắn với tên file (đổi clip là đổi tên) → cho cache lâu, khỏi hỏi lại mỗi lần
+    # cuộn qua cuộn lại.
+    return FileResponse(out, media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
 @router.get("/shots/{sid}/image/download")
 async def download_shot_image(sid: str, hires_first: bool = True):
     """Tải ảnh của MỘT shot ở độ phân giải cao nhất tài khoản cho phép.

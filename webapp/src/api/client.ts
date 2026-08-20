@@ -856,6 +856,11 @@ export const storyboardExportUrl = (pid: string) =>
 export const shotImageDownloadUrl = (sid: string) =>
   `/api/studio/shots/${sid}/image/download`;
 
+// Ảnh đại diện RẺ cho clip của một shot (khung đầu, JPEG ~35KB, server dựng một lần rồi
+// cache). Dùng cho thẻ trên lưới thay vì nhúng <video>: clip Flow có `moov` ở cuối file nên
+// mỗi thẻ video là một lượt đọc gần hết file 4–9MB. Chỉ cần khi shot chưa có `image_path`.
+export const shotPosterUrl = (sid: string) => `/api/studio/shots/${sid}/poster`;
+
 // Tải nhạc về máy. Ba nguồn, ba đường — điểm chung là đều phải đi qua server: file trên đĩa
 // mang tên id ngẫu nhiên / `bgm.<ext>`, còn bài trên Flow Music thì nằm ở host khác nên
 // `<a download>` bị trình duyệt bỏ qua (cross-origin) và chỉ mở thêm một tab phát nhạc.

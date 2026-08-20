@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, storyboard, shots as shotsApi, type Project, type Scene, type Shot } from "../../api/client";
+import {
+  api, storyboard, shots as shotsApi, shotPosterUrl,
+  type Project, type Scene, type Shot,
+} from "../../api/client";
 import type { EditorTarget } from "../nodeeditor/NodeEditor";
 import MediaCard from "../common/MediaCard";
 import Lightbox from "../common/Lightbox";
@@ -380,6 +383,9 @@ export default function ShotsTab({
                     key={sh.id}
                     imageSrc={sh.image_path}
                     videoSrc={sh.video_path}
+                    // Shot chỉ-có-video (vd sinh thẳng text-to-video) không có ảnh frame —
+                    // xin server một tấm khung đầu thay vì để thẻ nhúng cả clip.
+                    posterSrc={sh.video_path && !sh.image_path ? shotPosterUrl(sh.id) : null}
                     title={sh.title}
                     index={sh.idx}
                     subtitle={sh.video_path ? "▶ video" : sh.status}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Thumb from "../Thumb";
 import DownloadMenu, { type DownloadChoice } from "./DownloadMenu";
 import { downloadFile } from "../../lib/download";
@@ -6,6 +6,9 @@ import { downloadFile } from "../../lib/download";
 interface Props {
   imageSrc?: string | null;
   videoSrc?: string | null;
+  /** Ảnh RẺ thay mặt cho clip trên lưới (khung đầu, JPEG ~35KB) — xem GET /shots/{id}/poster.
+   *  Chỉ cần khi thẻ có `videoSrc` mà không có `imageSrc`. */
+  posterSrc?: string | null;
   title: string;
   index?: number;
   subtitle?: string | null;
@@ -29,6 +32,7 @@ interface Props {
 export default function MediaCard({
   imageSrc,
   videoSrc,
+  posterSrc,
   title,
   index,
   subtitle,
@@ -47,34 +51,18 @@ export default function MediaCard({
   // Hàng nút chỉ hiện khi hover; menu ⬇ đang mở thì phải ghim lại, không thì rê chuột
   // xuống chọn mốc là cả cụm tắt mất.
   const [menuOpen, setMenuOpen] = useState(false);
-  // Thẻ VIDEO chỉ tồn tại khi ở gần tầm nhìn — gắn khi cuộn tới, THÁO khi cuộn xa.
+  // Lưới hiển thị ẢNH, không phải <video>. Thẻ video chỉ được gắn trong lúc RÊ CHUỘT.
   //
-  // `<img loading="lazy">` được trình duyệt hoãn giúp, `<video>` thì không có gì tương đương:
-  // mỗi thẻ vừa gắn là một trình phát + bộ giải mã được cấp phát, cộng một lượt đọc metadata.
-  // Đo trên dự án thật "practice" — 127 shot đều có clip, 660 MB — thì API trả shot hết 24ms
-  // và mỗi lượt đọc đầu file 4–31ms, tức KHÔNG phải mạng chậm: thứ làm lưới trắng vài phút là
-  // 127 phần tử media sống cùng lúc. Bấm ⟳ tháo/gắn lại tất cả nên còn tệ hơn.
+  // Nhúng <video> cho mỗi thẻ nghe thì tiện, nhưng clip Flow phát ra đều có `moov` ở CUỐI
+  // file (kiểm 6/6: ftyp/uuid/mdat/moov), nên `preload="metadata"` buộc trình duyệt lần tới
+  // cuối một file 4–9MB. Lưới 127 clip = hàng trăm MB và 127 phần tử media sống cùng lúc →
+  // treo trình duyệt. Gắn/tháo theo tầm nhìn cũng không cứu được: cuộn vài nhịp là churn
+  // liên tục, mỗi nhịp lại dựng một bộ giải mã và một lượt đọc mới.
   //
-  // Tháo khi ra xa là phần bắt buộc: nếu chỉ gắn thêm mà không bao giờ tháo thì cuộn hết lưới
-  // là quay về đúng 127 thẻ, chỉ chậm hơn một nhịp. Biên 600px để cuộn bình thường không thấy
-  // ô trống. Tab bị ẩn (workspace giữ mọi tab đã mở trong DOM) cũng không giao nhau → các clip
-  // của tab không xem tự nhả ra.
-  const box = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    if (!videoSrc) return;
-    const el = box.current;
-    if (!el || typeof IntersectionObserver === "undefined") {
-      setNear(true);           // môi trường không có IO → giữ hành vi cũ
-      return;
-    }
-    const io = new IntersectionObserver(
-      ([e]) => setNear(e.isIntersecting),
-      { rootMargin: "600px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [videoSrc]);
+  // Ảnh thay mặt (`posterSrc`) là JPEG ~35KB do server dựng sẵn, `<img loading="lazy">` lo
+  // được phần hoãn tải. Rê chuột mới gắn <video>, nên nhiều nhất MỘT thẻ video sống một lúc.
+  const [hover, setHover] = useState(false);
+  const still = imageSrc || posterSrc || null;
 
   return (
     <div
@@ -82,30 +70,29 @@ export default function MediaCard({
         selected ? "border-indigo-500 ring-1 ring-indigo-500" : "border-neutral-800 hover:border-neutral-600"
       }`}
     >
-      <div ref={box} className="relative cursor-pointer" onClick={onClick}>
-        {videoSrc ? (
-          near ? (
-            <video
-              key={videoSrc}
-              src={videoSrc}
-              // `poster` = ảnh frame của shot khi có: vẽ được ngay, khỏi đợi metadata.
-              poster={imageSrc || undefined}
-              className="aspect-video w-full bg-black object-cover"
-              muted
-              playsInline
-              preload="metadata"
-              onMouseEnter={(e) => (e.currentTarget as HTMLVideoElement).play().catch(() => {})}
-              onMouseLeave={(e) => {
-                const v = e.currentTarget as HTMLVideoElement;
-                v.pause();
-                v.currentTime = 0;
-              }}
-            />
-          ) : (
-            <Thumb src={imageSrc} alt={title} rounded="rounded-none" className="aspect-video w-full" />
-          )
-        ) : (
-          <Thumb src={imageSrc} alt={title} rounded="rounded-none" className="aspect-video w-full" />
+      <div
+        className="relative cursor-pointer"
+        onClick={onClick}
+        onMouseEnter={() => videoSrc && setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      >
+        <Thumb src={still} alt={title} rounded="rounded-none" className="aspect-video w-full" />
+        {videoSrc && hover && (
+          <video
+            key={videoSrc}
+            src={videoSrc}
+            poster={still || undefined}
+            className="absolute inset-0 h-full w-full bg-black object-cover"
+            muted
+            playsInline
+            autoPlay
+            preload="metadata"
+          />
+        )}
+        {videoSrc && !hover && (
+          <span className="pointer-events-none absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1 py-0.5 text-[10px] text-neutral-200">
+            ▶
+          </span>
         )}
 
         {busy && (

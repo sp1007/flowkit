@@ -263,6 +263,35 @@ async def extract_last_frame(video: Path, out_jpg: Path) -> bool:
         return False
 
 
+# Ảnh đại diện clip cho lưới shot chỉ để XEM Ở CỠ THẺ, nên để nhỏ và nén mạnh: một tấm
+# ~30KB thay cho việc trình duyệt phải mở cả file mp4.
+_POSTER_SEM = asyncio.Semaphore(int(os.environ.get("FLOWKIT_POSTER_JOBS", "3")))
+
+
+async def extract_poster(video: Path, out_jpg: Path, width: int = 480) -> bool:
+    """Khung hình ĐẦU của clip → JPEG nhỏ, dùng làm ảnh đại diện trên lưới.
+
+    Lý do tồn tại: clip Flow phát ra đều có `moov` ở CUỐI file (không faststart), nên để vẽ
+    được một khung, trình duyệt phải lần tới cuối một file 4–9MB. Với lưới 127 clip thì đó là
+    hàng trăm MB và hàng trăm phần tử media — treo hẳn trình duyệt. Một tấm JPEG thì `<img
+    loading="lazy">` lo được.
+
+    Chạy có giới hạn đồng thời: mở tab là 127 thẻ hỏi ảnh CÙNG LÚC, không chặn thì thành 127
+    tiến trình ffmpeg và treo cả máy thay vì treo mỗi trình duyệt.
+    """
+    async with _POSTER_SEM:
+        if out_jpg.exists() and out_jpg.stat().st_size > 0:
+            return True                      # lượt khác vừa dựng xong trong lúc mình xếp hàng
+        out_jpg.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            await _run(["ffmpeg", "-y", "-i", str(video), "-frames:v", "1",
+                        "-vf", f"scale={width}:-2", "-q:v", "5", str(out_jpg)])
+        except RuntimeError as e:
+            logger.warning("extract_poster failed for %s: %s", video.name, e)
+            return False
+        return out_jpg.exists() and out_jpg.stat().st_size > 0
+
+
 async def apply_bgm(project: dict, final: Path) -> bool:
     """Mix the project's background-music file under the existing audio (narration) of
     `final`, in place. Music is looped to cover the whole video and lowered to
