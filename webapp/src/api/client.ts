@@ -590,6 +590,19 @@ export interface Shot {
 export const storyboard = {
   sceneShots: (sid: string) => req<{ shots: Shot[] }>(`/scenes/${sid}/shots`),
   projectShots: (pid: string) => req<{ shots: Shot[] }>(`/projects/${pid}/shots`),
+  /**
+   * Toàn bộ shot của dự án, đã gom theo scene — MỘT lượt gọi thay vì một lượt mỗi scene.
+   * Storyboard và Shots đều nạp kiểu "for scene → await sceneShots(id)", tức N vòng tuần tự;
+   * dự án 23 scene là 23 vòng, và mỗi lần bấm ⟳ lại chờ hết từng ấy vòng với lưới trắng.
+   * `sceneIds` để scene rỗng vẫn có khoá (mảng rỗng), khỏi lẫn với "chưa nạp xong".
+   */
+  shotsByScene: async (pid: string, sceneIds: string[]): Promise<Record<string, Shot[]>> => {
+    const { shots } = await req<{ shots: Shot[] }>(`/projects/${pid}/shots`);
+    const m: Record<string, Shot[]> = {};
+    for (const id of sceneIds) m[id] = [];
+    for (const sh of shots) (m[sh.scene_id] ||= []).push(sh);
+    return m;
+  },
   // Storytelling (§2.6): build beats + TTS for ONE scene (re-run a scene the project-wide
   // pass missed) as a background job (§9) so the UI doesn't block on slow TTS.
   buildSceneBeats: (sid: string, measure = true) =>

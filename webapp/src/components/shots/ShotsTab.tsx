@@ -107,14 +107,15 @@ export default function ShotsTab({
 
   const reloadAllShots = async () => {
     const sc = scenes.length ? scenes : (await api.listScenes(project.id)).scenes;
-    for (const s of sc) await loadShots(s.id);
+    setByScene(await storyboard.shotsByScene(project.id, sc.map((x) => x.id)));
   };
 
   useEffect(() => {
     (async () => {
       const sc = (await api.listScenes(project.id)).scenes;
       setScenes(sc);
-      for (const s of sc) await loadShots(s.id);
+      // MỘT lượt cho cả dự án, không phải một lượt mỗi scene — xem storyboard.shotsByScene.
+      setByScene(await storyboard.shotsByScene(project.id, sc.map((x) => x.id)));
     })().catch((e) => setErr(e.message));
   }, [project.id]);
 

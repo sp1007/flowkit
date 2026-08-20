@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Thumb from "../Thumb";
 import DownloadMenu, { type DownloadChoice } from "./DownloadMenu";
 import { downloadFile } from "../../lib/download";
@@ -47,28 +47,63 @@ export default function MediaCard({
   // Hàng nút chỉ hiện khi hover; menu ⬇ đang mở thì phải ghim lại, không thì rê chuột
   // xuống chọn mốc là cả cụm tắt mất.
   const [menuOpen, setMenuOpen] = useState(false);
+  // Thẻ VIDEO chỉ tồn tại khi ở gần tầm nhìn — gắn khi cuộn tới, THÁO khi cuộn xa.
+  //
+  // `<img loading="lazy">` được trình duyệt hoãn giúp, `<video>` thì không có gì tương đương:
+  // mỗi thẻ vừa gắn là một trình phát + bộ giải mã được cấp phát, cộng một lượt đọc metadata.
+  // Đo trên dự án thật "practice" — 127 shot đều có clip, 660 MB — thì API trả shot hết 24ms
+  // và mỗi lượt đọc đầu file 4–31ms, tức KHÔNG phải mạng chậm: thứ làm lưới trắng vài phút là
+  // 127 phần tử media sống cùng lúc. Bấm ⟳ tháo/gắn lại tất cả nên còn tệ hơn.
+  //
+  // Tháo khi ra xa là phần bắt buộc: nếu chỉ gắn thêm mà không bao giờ tháo thì cuộn hết lưới
+  // là quay về đúng 127 thẻ, chỉ chậm hơn một nhịp. Biên 600px để cuộn bình thường không thấy
+  // ô trống. Tab bị ẩn (workspace giữ mọi tab đã mở trong DOM) cũng không giao nhau → các clip
+  // của tab không xem tự nhả ra.
+  const box = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    if (!videoSrc) return;
+    const el = box.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setNear(true);           // môi trường không có IO → giữ hành vi cũ
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([e]) => setNear(e.isIntersecting),
+      { rootMargin: "600px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [videoSrc]);
+
   return (
     <div
       className={`group overflow-hidden rounded-xl border bg-neutral-900/50 transition ${
         selected ? "border-indigo-500 ring-1 ring-indigo-500" : "border-neutral-800 hover:border-neutral-600"
       }`}
     >
-      <div className="relative cursor-pointer" onClick={onClick}>
+      <div ref={box} className="relative cursor-pointer" onClick={onClick}>
         {videoSrc ? (
-          <video
-            key={videoSrc}
-            src={videoSrc}
-            className="aspect-video w-full bg-black object-cover"
-            muted
-            playsInline
-            preload="metadata"
-            onMouseEnter={(e) => (e.currentTarget as HTMLVideoElement).play().catch(() => {})}
-            onMouseLeave={(e) => {
-              const v = e.currentTarget as HTMLVideoElement;
-              v.pause();
-              v.currentTime = 0;
-            }}
-          />
+          near ? (
+            <video
+              key={videoSrc}
+              src={videoSrc}
+              // `poster` = ảnh frame của shot khi có: vẽ được ngay, khỏi đợi metadata.
+              poster={imageSrc || undefined}
+              className="aspect-video w-full bg-black object-cover"
+              muted
+              playsInline
+              preload="metadata"
+              onMouseEnter={(e) => (e.currentTarget as HTMLVideoElement).play().catch(() => {})}
+              onMouseLeave={(e) => {
+                const v = e.currentTarget as HTMLVideoElement;
+                v.pause();
+                v.currentTime = 0;
+              }}
+            />
+          ) : (
+            <Thumb src={imageSrc} alt={title} rounded="rounded-none" className="aspect-video w-full" />
+          )
         ) : (
           <Thumb src={imageSrc} alt={title} rounded="rounded-none" className="aspect-video w-full" />
         )}

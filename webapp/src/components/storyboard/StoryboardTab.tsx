@@ -118,7 +118,8 @@ export default function StoryboardTab({
       const sc = (await api.listScenes(project.id)).scenes;
       setScenes(sc);
       setEntities((await api.listEntities(project.id)).entities);
-      for (const s of sc) await loadShots(s.id);
+      // MỘT lượt cho cả dự án, không phải một lượt mỗi scene — xem storyboard.shotsByScene.
+      setShotsByScene(await storyboard.shotsByScene(project.id, sc.map((x) => x.id)));
     })().catch((e) => setErr(e.message));
   }, [project.id]);
 
@@ -317,7 +318,7 @@ export default function StoryboardTab({
   };
 
   const reloadAll = async () => {
-    for (const s of scenes) await loadShots(s.id);
+    setShotsByScene(await storyboard.shotsByScene(project.id, scenes.map((s) => s.id)));
   };
 
   // Stop any narration playback when leaving the tab / switching project.
