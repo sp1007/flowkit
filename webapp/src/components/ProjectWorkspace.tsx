@@ -13,6 +13,7 @@ import AllImages from "./AllImages";
 import NodeEditor, { type EditorTarget } from "./nodeeditor/NodeEditor";
 import SettingsTab from "./settings/SettingsTab";
 import { JobsProvider } from "../jobs/JobsContext";
+import { announceScene } from "../lib/scenebus";
 import JobProgress from "./common/JobProgress";
 
 const TABS = ["Script", "Assets", "Storyboard", "Shots", "Nhạc", "Assemble", "Ảnh",
@@ -88,9 +89,21 @@ export default function ProjectWorkspace({
     setReload((r) => r + 1);          // entity dùng chung cả workspace → nạp lại luôn
   };
 
+  // Tab ẩn được XẾP CHỒNG rồi làm vô hình, KHÔNG dùng `hidden` (display:none). Trình duyệt
+  // huỷ hộp cuộn của một phần tử display:none, nên scrollTop về 0 — tức là lời hứa "các tab
+  // khác giữ nguyên trạng thái lẫn vị trí cuộn" ở trên chỉ đúng nửa đầu. Với
+  // `absolute inset-0 invisible`, hộp cuộn vẫn còn nên quay lại tab là vẫn ở đúng chỗ đang xem.
+  // `pointer-events-none` để tab nằm dưới không ăn cú bấm; `aria-hidden` để trình đọc màn hình
+  // không đọc ba tab cùng lúc.
   const pane = (t: Tab, node: ReactNode) =>
     visited.has(t) ? (
-      <div key={`${t}:${nonce[t] ?? 0}`} className={tab === t ? "h-full" : "hidden"}>
+      <div
+        key={`${t}:${nonce[t] ?? 0}`}
+        className={`absolute inset-0 ${
+          tab === t ? "" : "invisible pointer-events-none"
+        }`}
+        aria-hidden={tab !== t}
+      >
         {node}
       </div>
     ) : null;
@@ -157,7 +170,8 @@ export default function ProjectWorkspace({
           </button>
         </nav>
 
-        <div className="min-w-0 flex-1 overflow-hidden">
+        {/* `relative` là mỏ neo cho các pane xếp chồng bên trong — xem `pane`. */}
+        <div className="relative min-w-0 flex-1 overflow-hidden">
           {pane(
             "Script",
             <ScriptTab
@@ -166,20 +180,22 @@ export default function ProjectWorkspace({
               onScriptChange={(script_raw) => setProject((p) => ({ ...p, script_raw }))}
             />
           )}
-          {pane("Assets", <AssetsTab key={project.id + reload} project={project} onEdit={openEditor} />)}
+          {pane("Assets", <AssetsTab key={project.id} project={project} onEdit={openEditor} />)}
+          {/* KHÔNG kèm `reload` vào key: đổi key là tháo cả tab ra gắn lại, mất vị trí cuộn
+              và mọi trạng thái. Các tab tự nạp lại tại chỗ khi nghe "media-applied". */}
           {pane(
             "Storyboard",
             <StoryboardTab
-              key={project.id + reload}
+              key={project.id}
               project={project}
               onEdit={openEditor}
               onCoverSet={(key) => setProject((p) => ({ ...p, thumb_media_key: key }))}
             />
           )}
-          {pane("Shots", <ShotsTab key={project.id + reload} project={project} onEdit={openEditor} />)}
+          {pane("Shots", <ShotsTab key={project.id} project={project} onEdit={openEditor} />)}
           {pane("Nhạc", <MusicTab key={project.id} project={project} />)}
           {pane("Assemble", <AssembleTab key={project.id + reload} project={project} />)}
-          {pane("Ảnh", <AllImages key={project.id + reload} project={project} />)}
+          {pane("Ảnh", <AllImages key={project.id} project={project} />)}
           {pane(
             "Thiết lập",
             <SettingsTab key={project.id} project={project} onSaved={setProject} />
@@ -198,7 +214,14 @@ export default function ProjectWorkspace({
           projectHeader={project.prompt_header}
           projectFooter={project.prompt_footer}
           onClose={() => setEditor(null)}
-          onApplied={() => setReload((r) => r + 1)}
+          onApplied={() => {
+            // `reload` giờ chỉ còn nuôi danh sách entity của chính Node Editor (và tab
+            // Assemble) — KHÔNG còn nằm trong key của Storyboard/Shots/Assets/Ảnh nữa.
+            setReload((r) => r + 1);
+            // Bốn tab đó nghe tin này rồi tự nạp lại dữ liệu: DOM giữ nguyên nên chỗ đang
+            // cuộn cũng giữ nguyên. Đây là điểm khác cốt lõi so với cách bump key cũ.
+            announceScene({ type: "media-applied", projectId: project.id });
+          }}
         />
       )}
 

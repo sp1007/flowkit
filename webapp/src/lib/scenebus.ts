@@ -10,7 +10,11 @@ import type { Scene, Shot } from "../api/client";
 //   "renamed"      — vá đúng một scene, khỏi gọi lại API (đổi tên là việc làm thường xuyên);
 //   "shot-renamed" — y hệt, cho TÊN SHOT: thẻ shot hiện `title` ở cả hai tab nên nó lệch
 //                    theo đúng kiểu tên scene lệch;
-//   "list-changed" — thêm/xoá scene, người nhận nạp lại cả danh sách (hiếm, nên nạp lại rẻ).
+//   "list-changed" — thêm/xoá scene, người nhận nạp lại cả danh sách (hiếm, nên nạp lại rẻ);
+//   "media-applied" — Node Editor vừa sinh/gán ảnh-video cho một shot hoặc entity. Trước đây
+//                    việc này bump `reload`, mà `reload` nằm trong `key` của tab nên cả tab
+//                    bị THÁO RỒI GẮN LẠI: về đầu danh sách, mất luôn chỗ đang cuộn. Nay tab
+//                    tự nạp lại dữ liệu tại chỗ, DOM giữ nguyên nên vị trí cuộn cũng giữ.
 //
 // Chỉ trong MỘT tab trình duyệt: đây là bộ nhớ của trang, không phải BroadcastChannel. Mở dự
 // án ở hai cửa sổ thì vẫn phải ⟳ như trước — cùng mức đồng bộ như mọi thứ khác trong app.
@@ -18,7 +22,8 @@ import type { Scene, Shot } from "../api/client";
 export type SceneEvent =
   | { type: "renamed"; projectId: string; id: string; heading: string }
   | { type: "shot-renamed"; projectId: string; sceneId: string; id: string; title: string }
-  | { type: "list-changed"; projectId: string };
+  | { type: "list-changed"; projectId: string }
+  | { type: "media-applied"; projectId: string };
 
 type Listener = (e: SceneEvent) => void;
 

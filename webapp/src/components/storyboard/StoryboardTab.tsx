@@ -104,6 +104,16 @@ export default function StoryboardTab({
         : m);
       return;
     }
+    if (e.type === "media-applied") {
+      // Node Editor vừa sinh/gán ảnh — nạp lại shot (một lượt) + entity, TẠI CHỖ. Trước đây
+      // việc này tháo cả tab ra gắn lại nên mở node editor của một shot ở giữa danh sách rồi
+      // thoát ra là về đầu trang, phải cuộn lại từ đầu.
+      api.listEntities(project.id).then((r) => setEntities(r.entities)).catch(() => {});
+      storyboard.shotsByScene(project.id, scenes.map((x) => x.id))
+        .then(setShotsByScene)
+        .catch(() => {});
+      return;
+    }
     api.listScenes(project.id)
       .then(async ({ scenes: list }) => {
         setScenes(list);

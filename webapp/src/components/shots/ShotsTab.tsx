@@ -85,6 +85,13 @@ export default function ShotsTab({
         : m);
       return;
     }
+    if (e.type === "media-applied") {
+      // Nạp lại TẠI CHỖ — xem chú thích cùng chỗ bên StoryboardTab.
+      storyboard.shotsByScene(project.id, scenes.map((x) => x.id))
+        .then(setByScene)
+        .catch(() => {});
+      return;
+    }
     api.listScenes(project.id)
       .then(async ({ scenes: list }) => {
         setScenes(list);

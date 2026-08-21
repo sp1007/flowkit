@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, thumbUrl, type FlowMedia, type Project } from "../api/client";
 import Thumb from "./Thumb";
 import Lightbox from "./common/Lightbox";
+import { useSceneEvents } from "../lib/scenebus";
 
 // Gallery of every image in the currently-open project (its Flow project), with name search.
 export default function AllImages({ project }: { project: Project }) {
@@ -54,6 +55,12 @@ export default function AllImages({ project }: { project: Project }) {
       .catch((e) => setErr(e.message));
   };
   useEffect(load, [project.flow_project_id]);
+
+  // Ảnh mới sinh từ Node Editor phải hiện ra ở đây, nhưng bằng cách nạp lại danh sách —
+  // tháo cả tab (cách cũ: `reload` nằm trong key) là mất chỗ đang cuộn trong một thư viện dài.
+  useSceneEvents(project.id, (e) => {
+    if (e.type === "media-applied") load();
+  });
 
   const filtered = (items || []).filter((m) =>
     !q.trim() ? true : (m.name || "").toLowerCase().includes(q.toLowerCase())

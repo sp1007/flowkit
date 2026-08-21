@@ -9,6 +9,7 @@ import {
   type Project,
 } from "../../api/client";
 import type { EditorTarget } from "../nodeeditor/NodeEditor";
+import { useSceneEvents } from "../../lib/scenebus";
 import Thumb from "../Thumb";
 import Lightbox from "../common/Lightbox";
 import CandidatePicker from "../common/CandidatePicker";
@@ -50,6 +51,13 @@ export default function AssetsTab({
   useEffect(() => {
     load();
   }, [project.id]);
+
+  // Node Editor vừa sinh/gán ảnh cho một entity → nạp lại DANH SÁCH, đừng tháo cả tab.
+  // Trước đây việc này bump `reload` vốn nằm trong `key` của tab, nên mỗi lần đóng node editor
+  // là lưới asset dựng lại từ đầu và mất chỗ đang cuộn.
+  useSceneEvents(project.id, (e) => {
+    if (e.type === "media-applied") load();
+  });
 
   // Refetch entities as the server batch advances so new images appear live, even if
   // this tab was closed/reopened mid-batch (§9).
