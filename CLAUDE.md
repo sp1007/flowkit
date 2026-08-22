@@ -238,7 +238,9 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   cài đặt cũ (`agent_model = "gemini-flash-3.7"`) làm CLI thoát 1 NGAY, nên mọi tác vụ brain
   (kịch bản, scene, shot) hỏng cùng lúc. Danh sách lấy từ `GET /api/agent/models` (chạy
   `models_cmd` của agent, cache 10 phút); giá trị đã lưu mà không còn trong danh sách hiện đỏ
-  ở tab Thiết lập thay vì âm thầm nhảy về mục đầu.
+  ở tab Thiết lập thay vì âm thầm nhảy về mục đầu. Ô để trống KHÔNG có nghĩa "CLI tự chọn":
+  nó rơi về `default_model` của agent (antigravity → `gemini-3.7-flash-high`, vì mặc định của
+  agy là model rẻ nhất còn brain toàn việc suy luận dài); dropdown ghi rõ model đó.
   **Agent chạy dưới PTY thì `stderr` LUÔN rỗng — đọc lỗi ở stdout.** `brain.run_json` từng lấy
   `stderr or f"exit {code}"`, nên "invalid model selection … is not recognized" bị vứt đi và
   người dùng chỉ thấy *"AI-agent không trả JSON hợp lệ: exit 1"* — một câu đổ tội cho model

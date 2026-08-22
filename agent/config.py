@@ -89,6 +89,7 @@ AGENT_PROMPT_ARG_MAX = int(os.environ.get("AGENT_PROMPT_ARG_MAX", "6000"))
 #   skip_perm     — args thêm khi bypass permission
 #   models_cmd    — subcommand liệt kê model ("<key>	<nhãn>" mỗi dòng); hoặc
 #   models        — danh sách tĩnh [{"value","label"}] khi CLI không liệt kê được
+#   default_model — model dùng khi setting `agent_model` để trống (None = để CLI tự chọn)
 def _env_args(name: str, default: list[str]) -> list[str]:
     raw = os.environ.get(name)
     return json.loads(raw) if raw else default
@@ -123,6 +124,10 @@ AI_AGENTS = {
         # nào còn dùng được. Tên đổi theo bản cập nhật CLI (1.1.18 bỏ `gemini-flash-*`,
         # thay bằng `gemini-3.7-flash-{high,medium,low}`), nên đừng chép cứng vào đây.
         "models_cmd": _env_args("AGENT_ANTIGRAVITY_MODELS_CMD", ["models"]),
+        # Dùng khi setting `agent_model` để trống. Không để CLI tự chọn: mặc định của agy là
+        # model rẻ nhất, còn brain toàn việc suy luận dài (tách beat, chia shot, viết prompt).
+        "default_model": os.environ.get("AGENT_ANTIGRAVITY_DEFAULT_MODEL",
+                                        "gemini-3.7-flash-high"),
     },
 }
 

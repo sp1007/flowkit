@@ -25,6 +25,7 @@ export default function AppSettingsSection({
   // `gemini-flash-3.7` → `gemini-3.7-flash-medium`) và gõ sai thì CLI thoát 1, làm hỏng
   // mọi tác vụ brain. Rỗng = không hỏi được CLI → rơi về ô nhập tay.
   const [agentModels, setAgentModels] = useState<Record<string, { value: string; label: string }[]>>({});
+  const [agentDefaults, setAgentDefaults] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     api.options().then(setOpts).catch(() => {});
@@ -32,7 +33,9 @@ export default function AppSettingsSection({
     getTtsConfig().then((c) => setTtsUrl(c.base_url || "")).catch(() => {});
     api.listFonts().then((r) => setFonts(r.fonts)).catch(() => {});
     listVoices().then(setVoices).catch(() => {});
-    listAgentModels().then(setAgentModels).catch(() => {});
+    listAgentModels()
+      .then((r) => { setAgentModels(r.models); setAgentDefaults(r.defaults); })
+      .catch(() => {});
   }, []);
 
   // Thanh Lưu nằm ở tab cha, nên phần này chỉ đăng ký hàm lưu của mình lên đó.
@@ -55,6 +58,8 @@ export default function AppSettingsSection({
   // nó ra kèm cảnh báo thay vì âm thầm nhảy về mục đầu — người dùng phải THẤY nó hỏng.
   const modelStale = !!s.agent_model && models.length > 0
     && !models.some((m) => m.value === s.agent_model);
+  const fallback = agentDefaults[agentKey];
+  const fallbackLabel = models.find((m) => m.value === fallback)?.label || fallback;
   const deps = [
     { ok: agents.some((a: any) => a.available), label: "AI agent CLI (claude / antigravity)" },
     { ok: !!opts, label: "Studio API" },
@@ -80,7 +85,9 @@ export default function AppSettingsSection({
               <>
                 <select value={s.agent_model || ""} onChange={(e) => set("agent_model", e.target.value)}
                   className={inp}>
-                  <option value="">(mặc định của CLI)</option>
+                  <option value="">
+                    {fallbackLabel ? `(mặc định: ${fallbackLabel})` : "(mặc định của CLI)"}
+                  </option>
                   {models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   {modelStale && <option value={s.agent_model}>{s.agent_model} — không còn tồn tại</option>}
                 </select>

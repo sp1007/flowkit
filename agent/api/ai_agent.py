@@ -200,13 +200,16 @@ async def agent_models(key: str, cfg: dict, *, refresh: bool = False) -> list[di
 async def list_models(agent: Optional[str] = None, refresh: bool = False):
     """Model dùng được của từng agent — nguồn cho dropdown ở tab Thiết lập."""
     keys = [agent] if agent else list(AI_AGENTS)
-    out = {}
+    out, defaults = {}, {}
     for k in keys:
         cfg = AI_AGENTS.get(k)
         if cfg is None:
             raise HTTPException(404, f"Agent '{k}' không tồn tại")
         out[k] = await agent_models(k, cfg, refresh=refresh)
-    return {"models": out}
+        defaults[k] = cfg.get("default_model")
+    # `defaults` để UI ghi rõ mục "để trống" thật ra chạy model nào — không thì nó trông như
+    # "CLI tự chọn" trong khi app có mặc định riêng.
+    return {"models": out, "defaults": defaults}
 
 
 @router.post("/run")

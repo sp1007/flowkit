@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from agent.api.ai_agent import RunRequest, run_agent
+from agent.config import AI_AGENTS
 from agent.studio import db, vntext
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,13 @@ _AGENT_TIMEOUT = float(os.environ.get("AGENT_CLI_TIMEOUT", "600"))
 
 async def _agent_cfg() -> tuple[str, str | None]:
     """(agent key, model). Model comes from the `agent_model` setting (or env AGENT_MODEL);
-    None → let the CLI use its own default. Passing a fast model (e.g. gemini-flash) here
-    speeds up every brain call — script/scene/shot generation."""
+    để trống thì rơi về `default_model` của agent trong config, cuối cùng mới là None (để CLI
+    tự chọn). Không để CLI tự chọn với antigravity: mặc định của nó là model rẻ nhất, còn brain
+    toàn việc suy luận dài (tách beat, chia shot, viết prompt) — xem AI_AGENTS."""
     settings = await db.kv_get_all()
     agent = settings.get("agent") or "claude"
-    model = (settings.get("agent_model") or os.environ.get("AGENT_MODEL") or "").strip() or None
-    return agent, model
+    model = (settings.get("agent_model") or os.environ.get("AGENT_MODEL") or "").strip()
+    return agent, model or AI_AGENTS.get(agent, {}).get("default_model") or None
 
 
 async def _agent_name() -> str:
