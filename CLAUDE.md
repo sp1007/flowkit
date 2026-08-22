@@ -247,6 +247,20 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   trong khi CLI còn chưa chạy. `brain._cli_error` moi dòng có chữ error/invalid ra; lỗi cấu
   hình (`_FATAL_CLI_RE`: sai model, chưa đăng nhập, hết quota) ném thẳng, không thử lại —
   `run_json` × `run_json_valid` là 9 lần chạy, mỗi lần một timeout 600s.
+- **Prompt gửi antigravity đi bằng NDJSON qua STDIN, đừng quay lại đường `-p "<prompt>"`.**
+  `agy -p` nhận prompt làm tham số dòng lệnh, mà Windows giới hạn độ dài (~32k, ConPTY còn
+  thấp hơn) — prompt trích entity từ một chương dài **41.524 ký tự**. Cách lách cũ là ghi
+  prompt ra file tạm rồi bảo agent "đọc file này", tức biến một việc chỉ cần text-vào-JSON-ra
+  thành việc phải GỌI TOOL. Đo trên máy thật: một plugin telemetry của agy
+  (`googlecloudtools.datacloud_telemetry`) có `PreToolUse` hook lỗi đường dẫn trên Windows →
+  **mọi** tool bị chặn → agy không đọc được file tạm và trả về một bài hướng dẫn sửa plugin
+  bằng markdown, nên brain báo *"no JSON found in agent output"*. Với `prompt_mode
+  "stream-json"` (`--input-format/--output-format stream-json`, một dòng
+  `{"event":"user","message":{"content": …}}` đẩy vào stdin) thì không giới hạn độ dài, không
+  đụng tool, không cần PTY, và nhanh hơn (~5s so với ~17s). Khoá là `content`, không phải
+  `text`. Kết quả đọc ở event `result` — `status`/`error` cho biết hỏng hay không, vì **agy có
+  thể thoát 0 mà `status: ERROR`**; đừng gộp các `step_update` lại, chúng là delta của cùng
+  nội dung đó.
 
 - `media_id` is always UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`), never `CAMS...`
 - The agent holds no state; all generation goes through the connected extension.

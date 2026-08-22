@@ -84,6 +84,7 @@ AGENT_PROMPT_ARG_MAX = int(os.environ.get("AGENT_PROMPT_ARG_MAX", "6000"))
 # khi binary/cờ của CLI thay đổi.
 #   bin           — tên/đường dẫn binary (PATH-resolved)
 #   prompt_mode   — "stdin" (an toàn, tránh escaping) | "arg" (nối prompt cuối)
+#                   | "stream-json" (NDJSON qua stdin, đọc kết quả ở event "result")
 #   base_args     — args luôn kèm theo (chế độ headless/print)
 #   model_flag    — cờ chọn model (None nếu CLI không hỗ trợ)
 #   skip_perm     — args thêm khi bypass permission
@@ -110,16 +111,22 @@ AI_AGENTS = {
                    {"value": "haiku", "label": "Haiku"}],
     },
     "antigravity": {
-        # Antigravity CLI = binary `agy`. Cú pháp giống Claude Code:
-        # `agy -p "<prompt>" [--model X] [--dangerously-skip-permissions]`.
-        # `-p` nhận prompt làm giá trị đi kèm → prompt_mode "arg" (nối ngay sau).
+        # Antigravity CLI = binary `agy`. Prompt đi bằng NDJSON qua stdin
+        # (`--input-format stream-json`), KHÔNG phải `-p "<prompt>"`: đường arg vướng giới
+        # hạn độ dài dòng lệnh Windows, mà cách lách (ghi prompt ra file rồi bảo agent đọc)
+        # lại biến một việc chỉ cần text-vào-text-ra thành việc phải GỌI TOOL — hỏng ngay khi
+        # một PreToolUse hook nào đó của agy lỗi. stdin không giới hạn độ dài và không đụng
+        # tool. Kết quả nằm ở event "result" của luồng NDJSON ra.
         "bin": os.environ.get("AGENT_ANTIGRAVITY_BIN", "agy"),
-        "prompt_mode": os.environ.get("AGENT_ANTIGRAVITY_PROMPT_MODE", "arg"),
-        "base_args": _env_args("AGENT_ANTIGRAVITY_ARGS", ["-p"]),
+        "prompt_mode": os.environ.get("AGENT_ANTIGRAVITY_PROMPT_MODE", "stream-json"),
+        "base_args": _env_args("AGENT_ANTIGRAVITY_ARGS",
+                               ["--input-format", "stream-json",
+                                "--output-format", "stream-json", "-p", ""]),
         "model_flag": os.environ.get("AGENT_ANTIGRAVITY_MODEL_FLAG", "--model") or None,
         "skip_perm": _env_args("AGENT_ANTIGRAVITY_SKIP_ARGS", ["--dangerously-skip-permissions"]),
-        # agy là TUI — print mode chỉ render ra terminal, phải chạy dưới PTY.
-        "pty": os.environ.get("AGENT_ANTIGRAVITY_PTY", "1") == "1",
+        # stream-json ghi thẳng stdout và CẦN stdin → không PTY. (PTY chỉ cần cho đường
+        # `-p <prompt>` của các bản agy cũ, vốn chỉ render ra terminal.)
+        "pty": os.environ.get("AGENT_ANTIGRAVITY_PTY", "0") == "1",
         # `agy models` in ra "<key>	<nhãn>" mỗi dòng — nguồn DUY NHẤT để biết tên model
         # nào còn dùng được. Tên đổi theo bản cập nhật CLI (1.1.18 bỏ `gemini-flash-*`,
         # thay bằng `gemini-3.7-flash-{high,medium,low}`), nên đừng chép cứng vào đây.

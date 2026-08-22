@@ -9,6 +9,7 @@ Registry agent + cờ mặc định nằm ở agent/config.py (AI_AGENTS), overr
 qua env nếu binary/cờ của CLI thay đổi.
 """
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -80,6 +81,13 @@ def _build_command(cfg: dict, body: RunRequest,
 
     argv += cfg.get("base_args", [])
 
+    if cfg.get("prompt_mode") == "stream-json":
+        # Một dòng NDJSON = một lượt. `content` chứ không phải `text` — agy trả
+        # 'stream input "user" message has no content' nếu đặt sai khoá.
+        line = json.dumps({"event": "user", "message": {"content": body.prompt}},
+                          ensure_ascii=False)
+        return argv, line + "\n", None
+
     if cfg.get("prompt_mode") == "arg":
         if len(body.prompt) > AGENT_PROMPT_ARG_MAX:
             fd, path = tempfile.mkstemp(prefix="flowkit_prompt_", suffix=".txt", dir=cwd)
@@ -96,6 +104,30 @@ def _build_command(cfg: dict, body: RunRequest,
         argv.append(body.prompt)
         return argv, None, None
     return argv, body.prompt, None  # stdin mode
+
+
+def _parse_stream_json(raw: str) -> tuple[bool, str, str]:
+    """(ok, response, error) từ luồng NDJSON của agy.
+
+    Chỉ event "result" mới mang câu trả lời đầy đủ; các event "step_update" là delta của
+    cùng nội dung đó, gộp lại sẽ NHÂN ĐÔI. Dòng không phải JSON (banner, cảnh báo) bỏ qua.
+    """
+    result = None
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            evt = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if evt.get("event") == "result":
+            result = evt.get("result") or {}
+    if result is None:
+        # CLI chết trước khi kịp trả result — giữ nguyên raw để _cli_error còn đọc được.
+        return False, raw, ""
+    err = result.get("error") or ""
+    return result.get("status") == "SUCCESS", result.get("response") or "", err
 
 
 async def _run_via_pty(body: "RunRequest", argv: list[str],
@@ -268,10 +300,16 @@ async def run_agent(body: RunRequest):
         duration = round(time.monotonic() - started, 2)
         out = stdout.decode("utf-8", "replace") if stdout else ""
         err = stderr.decode("utf-8", "replace") if stderr else ""
-        logger.info("agent/run done: %s exit=%s in %ss", body.agent, proc.returncode, duration)
+        ok = proc.returncode == 0
+        if cfg.get("prompt_mode") == "stream-json":
+            # agy có thể thoát 0 mà result.status = ERROR → exit code KHÔNG đủ để kết luận.
+            ok, out, stream_err = _parse_stream_json(out)
+            err = "\n".join(x for x in (stream_err, err.strip()) if x)
+        logger.info("agent/run done: %s exit=%s ok=%s in %ss",
+                    body.agent, proc.returncode, ok, duration)
 
         return {
-            "ok": proc.returncode == 0,
+            "ok": ok,
             "agent": body.agent,
             "exit_code": proc.returncode,
             "stdout": out,
