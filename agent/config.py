@@ -87,6 +87,8 @@ AGENT_PROMPT_ARG_MAX = int(os.environ.get("AGENT_PROMPT_ARG_MAX", "6000"))
 #   base_args     — args luôn kèm theo (chế độ headless/print)
 #   model_flag    — cờ chọn model (None nếu CLI không hỗ trợ)
 #   skip_perm     — args thêm khi bypass permission
+#   models_cmd    — subcommand liệt kê model ("<key>	<nhãn>" mỗi dòng); hoặc
+#   models        — danh sách tĩnh [{"value","label"}] khi CLI không liệt kê được
 def _env_args(name: str, default: list[str]) -> list[str]:
     raw = os.environ.get(name)
     return json.loads(raw) if raw else default
@@ -101,6 +103,10 @@ AI_AGENTS = {
         "skip_perm": _env_args("AGENT_CLAUDE_SKIP_ARGS", ["--dangerously-skip-permissions"]),
         # claude -p ghi thẳng stdout — không cần PTY.
         "pty": os.environ.get("AGENT_CLAUDE_PTY", "0") == "1",
+        # claude không có lệnh liệt kê model → danh sách alias tĩnh.
+        "models": [{"value": "opus", "label": "Opus"},
+                   {"value": "sonnet", "label": "Sonnet"},
+                   {"value": "haiku", "label": "Haiku"}],
     },
     "antigravity": {
         # Antigravity CLI = binary `agy`. Cú pháp giống Claude Code:
@@ -113,6 +119,10 @@ AI_AGENTS = {
         "skip_perm": _env_args("AGENT_ANTIGRAVITY_SKIP_ARGS", ["--dangerously-skip-permissions"]),
         # agy là TUI — print mode chỉ render ra terminal, phải chạy dưới PTY.
         "pty": os.environ.get("AGENT_ANTIGRAVITY_PTY", "1") == "1",
+        # `agy models` in ra "<key>	<nhãn>" mỗi dòng — nguồn DUY NHẤT để biết tên model
+        # nào còn dùng được. Tên đổi theo bản cập nhật CLI (1.1.18 bỏ `gemini-flash-*`,
+        # thay bằng `gemini-3.7-flash-{high,medium,low}`), nên đừng chép cứng vào đây.
+        "models_cmd": _env_args("AGENT_ANTIGRAVITY_MODELS_CMD", ["models"]),
     },
 }
 

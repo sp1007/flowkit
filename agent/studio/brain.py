@@ -149,6 +149,31 @@ def _scrub(obj, allow: set[str] | None = None):
     return obj
 
 
+# ─── Lỗi CLI: đọc cho ra chữ, và đừng thử lại lỗi cấu hình ──
+# agy chạy dưới PTY nên stderr LUÔN rỗng — mọi thứ CLI in ra nằm ở stdout. Chỉ đọc stderr
+# thì mọi lần CLI chết đều rút gọn thành "exit 1", đúng thứ người dùng nhìn thấy khi
+# antigravity đổi tên model (`gemini-flash-3.7` → `gemini-3.7-flash-medium`): thông báo
+# thật — "invalid model selection … is not recognized" — bị vứt cùng stdout.
+CLI_CONFIG_ERR = "AI-agent lỗi cấu hình CLI"
+
+# Những lỗi này thử lại 3 lần vẫn thế, chỉ tốn mỗi lần một timeout — dừng ngay.
+_FATAL_CLI_RE = re.compile(
+    r"invalid model selection|not recognized as a known model|unknown flag|"
+    r"flag provided but not defined|not logged ?in|authentication (?:failed|required)|"
+    r"unauthorized|quota exceeded", re.I)
+
+
+def _cli_error(res: dict) -> str:
+    """Câu lỗi ĐỌC ĐƯỢC từ một lần chạy CLI hỏng (ưu tiên dòng có chữ error/invalid)."""
+    raw = (res.get("stderr") or "").strip() or (res.get("stdout") or "").strip()
+    if not raw:
+        return f"exit {res.get('exit_code')}"
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    hits = [ln for ln in lines
+            if re.search(r"error|invalid|not recognized|denied|failed|unauthorized", ln, re.I)]
+    return " | ".join(hits[:3] or lines[-3:])[:400]
+
+
 async def run_json(prompt: str, *, timeout: float = _AGENT_TIMEOUT, retries: int = 2):
     """Run the agent and return parsed JSON. Raises HTTPException(502) on failure.
 
@@ -168,7 +193,10 @@ async def run_json(prompt: str, *, timeout: float = _AGENT_TIMEOUT, retries: int
         res = await run_agent(RunRequest(agent=agent, prompt=prompt + nudge, timeout=timeout,
                                          model=model))
         if not res.get("ok"):
-            last_err = res.get("stderr") or f"exit {res.get('exit_code')}"
+            last_err = _cli_error(res)
+            logger.warning("brain: CLI %s thoát %s: %s", agent, res.get("exit_code"), last_err)
+            if _FATAL_CLI_RE.search(last_err):
+                raise HTTPException(502, f"{CLI_CONFIG_ERR} ({agent}): {last_err}")
             continue
         try:
             return _scrub(_extract_json(res.get("stdout", "")), allow)
@@ -195,6 +223,8 @@ async def run_json_valid(prompt: str, validate, *, label: str = "AI",
         except HTTPException as e:
             last = e.detail
             logger.warning("%s try %d: %s", label, attempt + 1, last)
+            if isinstance(last, str) and last.startswith(CLI_CONFIG_ERR):
+                raise   # sai tên model / chưa đăng nhập — lặp lại chỉ tốn thêm timeout
         except Exception as e:  # noqa: BLE001 — keep retrying through transient agent errors
             last = str(e)
             logger.warning("%s try %d: %s", label, attempt + 1, last)

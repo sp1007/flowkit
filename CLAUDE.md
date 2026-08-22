@@ -233,6 +233,19 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   theo tên file video, tối đa 3 tiến trình cùng lúc — 127 tấm hết 10s), thẻ hiện `<img
   loading="lazy">`, `<video>` chỉ gắn lúc rê chuột nên nhiều nhất một thẻ. Shot có `image_path`
   thì dùng thẳng ảnh đó, khỏi cần poster. Đừng "tối ưu" bằng cách nhúng lại video vào thẻ.
+- **Tên model của agent CLI đổi theo bản cập nhật — ô model là DROPDOWN hỏi CLI, không phải ô
+  gõ tay.** `agy` 1.1.18 bỏ `gemini-flash-*` và thay bằng `gemini-3.7-flash-{high,medium,low}`;
+  cài đặt cũ (`agent_model = "gemini-flash-3.7"`) làm CLI thoát 1 NGAY, nên mọi tác vụ brain
+  (kịch bản, scene, shot) hỏng cùng lúc. Danh sách lấy từ `GET /api/agent/models` (chạy
+  `models_cmd` của agent, cache 10 phút); giá trị đã lưu mà không còn trong danh sách hiện đỏ
+  ở tab Thiết lập thay vì âm thầm nhảy về mục đầu.
+  **Agent chạy dưới PTY thì `stderr` LUÔN rỗng — đọc lỗi ở stdout.** `brain.run_json` từng lấy
+  `stderr or f"exit {code}"`, nên "invalid model selection … is not recognized" bị vứt đi và
+  người dùng chỉ thấy *"AI-agent không trả JSON hợp lệ: exit 1"* — một câu đổ tội cho model
+  trong khi CLI còn chưa chạy. `brain._cli_error` moi dòng có chữ error/invalid ra; lỗi cấu
+  hình (`_FATAL_CLI_RE`: sai model, chưa đăng nhập, hết quota) ném thẳng, không thử lại —
+  `run_json` × `run_json_valid` là 9 lần chạy, mỗi lần một timeout 600s.
+
 - `media_id` is always UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`), never `CAMS...`
 - The agent holds no state; all generation goes through the connected extension.
   If `extension_connected: false`, open Google Flow in Chrome with the extension loaded.

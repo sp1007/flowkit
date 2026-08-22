@@ -872,6 +872,17 @@ export const musicSongDownloadUrl = (audioUrl: string, title = "") =>
   `/api/music/download?url=${encodeURIComponent(audioUrl)}&title=${encodeURIComponent(title)}`;
 
 // OmniVoice base URL config lives on the tts router (not /studio).
+/** Model từng agent CLI chấp nhận. Tên model đổi theo bản cập nhật CLI, nên ô chọn model
+ *  phải hỏi CLI chứ không để người dùng gõ tay — gõ sai thì agent thoát 1 và MỌI tác vụ
+ *  brain (kịch bản, scene, shot) hỏng cùng lúc. */
+export async function listAgentModels(
+  refresh = false,
+): Promise<Record<string, { value: string; label: string }[]>> {
+  const res = await fetch(`/api/agent/models${refresh ? "?refresh=true" : ""}`);
+  if (!res.ok) throw new Error("Không đọc được danh sách model của agent");
+  return (await res.json()).models || {};
+}
+
 export async function getTtsConfig(): Promise<{ base_url: string }> {
   const res = await fetch("/api/tts/config");
   if (!res.ok) throw new Error("Không đọc được OmniVoice URL");

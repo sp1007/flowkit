@@ -154,6 +154,61 @@ async def list_agents():
     }
 
 
+# ─── Danh sách model của từng CLI ────────────────────────────
+# Tên model của CLI ĐỔI THEO BẢN CẬP NHẬT (agy 1.1.18 bỏ `gemini-flash-*`, thay bằng
+# `gemini-3.7-flash-{high,medium,low}`), và `--model <tên cũ>` làm CLI thoát 1 ngay lập
+# tức — mọi tác vụ brain hỏng cùng lúc với một thông báo vô nghĩa. Nên ô "AI Agent model"
+# ở Thiết lập phải là DANH SÁCH lấy từ chính CLI, không phải ô chữ tự gõ.
+_MODELS_TTL = 600.0
+_models_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+async def agent_models(key: str, cfg: dict, *, refresh: bool = False) -> list[dict]:
+    """[{"value","label"}] các model CLI chấp nhận. Rỗng = không hỏi được (bin chưa cài,
+    CLI không có lệnh liệt kê) → UI rơi về ô nhập tay."""
+    static = cfg.get("models")
+    if static:
+        return list(static)
+    cmd = cfg.get("models_cmd")
+    if not cmd or _resolve_bin(cfg) is None:
+        return []
+    hit = _models_cache.get(key)
+    if hit and not refresh and time.monotonic() - hit[0] < _MODELS_TTL:
+        return hit[1]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            cfg["bin"], *cmd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except (asyncio.TimeoutError, OSError) as e:
+        logger.warning("agent/models: không liệt kê được model của %s: %s", key, e)
+        return hit[1] if hit else []
+    out = []
+    for line in stdout.decode("utf-8", "replace").splitlines():
+        if "	" not in line:
+            continue                       # bỏ dòng trạng thái ("Fetching available models...")
+        value, _, label = line.partition("	")
+        value, label = value.strip(), label.strip()
+        if value:
+            out.append({"value": value, "label": label or value})
+    if out:
+        _models_cache[key] = (time.monotonic(), out)
+    return out
+
+
+@router.get("/models")
+async def list_models(agent: Optional[str] = None, refresh: bool = False):
+    """Model dùng được của từng agent — nguồn cho dropdown ở tab Thiết lập."""
+    keys = [agent] if agent else list(AI_AGENTS)
+    out = {}
+    for k in keys:
+        cfg = AI_AGENTS.get(k)
+        if cfg is None:
+            raise HTTPException(404, f"Agent '{k}' không tồn tại")
+        out[k] = await agent_models(k, cfg, refresh=refresh)
+    return {"models": out}
+
+
 @router.post("/run")
 async def run_agent(body: RunRequest):
     """Chạy một agent CLI headless và trả về stdout/stderr/exit_code.

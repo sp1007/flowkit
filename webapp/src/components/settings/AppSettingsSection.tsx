@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, getTtsConfig, setTtsConfig, listVoices, type Voice } from "../../api/client";
+import { api, getTtsConfig, setTtsConfig, listVoices, listAgentModels, type Voice } from "../../api/client";
 import VoiceManager from "./VoiceManager";
 import { Field, Group, inp } from "./ui";
 
@@ -21,6 +21,10 @@ export default function AppSettingsSection({
   const [ttsUrl, setTtsUrl] = useState("");
   const [fonts, setFonts] = useState<{ name: string; path: string }[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
+  // Model của agent lấy TỪ CHÍNH CLI: tên model đổi theo bản cập nhật (agy 1.1.18 đổi
+  // `gemini-flash-3.7` → `gemini-3.7-flash-medium`) và gõ sai thì CLI thoát 1, làm hỏng
+  // mọi tác vụ brain. Rỗng = không hỏi được CLI → rơi về ô nhập tay.
+  const [agentModels, setAgentModels] = useState<Record<string, { value: string; label: string }[]>>({});
 
   useEffect(() => {
     api.options().then(setOpts).catch(() => {});
@@ -28,6 +32,7 @@ export default function AppSettingsSection({
     getTtsConfig().then((c) => setTtsUrl(c.base_url || "")).catch(() => {});
     api.listFonts().then((r) => setFonts(r.fonts)).catch(() => {});
     listVoices().then(setVoices).catch(() => {});
+    listAgentModels().then(setAgentModels).catch(() => {});
   }, []);
 
   // Thanh Lưu nằm ở tab cha, nên phần này chỉ đăng ký hàm lưu của mình lên đó.
@@ -44,6 +49,12 @@ export default function AppSettingsSection({
   };
 
   const agents = opts?.agents || [];
+  const agentKey = s.agent || "claude";
+  const models = agentModels[agentKey] || [];
+  // Giá trị đã lưu mà không còn trong danh sách = tên model cũ sau khi CLI cập nhật. Hiện
+  // nó ra kèm cảnh báo thay vì âm thầm nhảy về mục đầu — người dùng phải THẤY nó hỏng.
+  const modelStale = !!s.agent_model && models.length > 0
+    && !models.some((m) => m.value === s.agent_model);
   const deps = [
     { ok: agents.some((a: any) => a.available), label: "AI agent CLI (claude / antigravity)" },
     { ok: !!opts, label: "Studio API" },
@@ -64,9 +75,26 @@ export default function AppSettingsSection({
               ))}
             </select>
           </Field>
-          <Field label="AI Agent model" hint="Để trống = mặc định của CLI. Truyền qua --model; chọn model nhanh (gemini-flash) để tăng tốc sinh script/scene/shot. Phải đúng tên model mà CLI chấp nhận.">
-            <input value={s.agent_model || ""} onChange={(e) => set("agent_model", e.target.value)}
-              placeholder="vd: gemini-flash-3-5" className={inp} />
+          <Field label="AI Agent model" hint="Để trống = mặc định của CLI. Danh sách lấy thẳng từ CLI; chọn model nhanh (Flash) để tăng tốc sinh script/scene/shot.">
+            {models.length > 0 ? (
+              <>
+                <select value={s.agent_model || ""} onChange={(e) => set("agent_model", e.target.value)}
+                  className={inp}>
+                  <option value="">(mặc định của CLI)</option>
+                  {models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  {modelStale && <option value={s.agent_model}>{s.agent_model} — không còn tồn tại</option>}
+                </select>
+                {modelStale && (
+                  <div className="mt-1.5 text-xs text-rose-400">
+                    CLI không còn nhận model "{s.agent_model}" — chọn lại một model trong danh
+                    sách, nếu không mọi tác vụ AI sẽ báo lỗi.
+                  </div>
+                )}
+              </>
+            ) : (
+              <input value={s.agent_model || ""} onChange={(e) => set("agent_model", e.target.value)}
+                placeholder="để trống = mặc định của CLI" className={inp} />
+            )}
           </Field>
         </div>
         <Field label="OmniVoice base URL (TTS)" hint="URL Colab xoay vòng. Phải đặt trước khi test/quản lý giọng.">
