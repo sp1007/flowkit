@@ -1668,6 +1668,9 @@ function Editor({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQ, setPaletteQ] = useState("");
   const paletteRef = useRef<HTMLDivElement | null>(null);
+  // Menu "⋯" — chỗ cất các nút phụ (lưu, preset) để thanh tiêu đề luôn gọn MỘT dòng.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2038,7 +2041,7 @@ function Editor({
       const tag = (e.target as HTMLElement)?.tagName;
       const typing =
         tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
-      if (e.key === "Escape") { setMenu(null); setPaletteOpen(false); return; }
+      if (e.key === "Escape") { setMenu(null); setPaletteOpen(false); setMoreOpen(false); return; }
       if (!(e.ctrlKey || e.metaKey)) return;
       if (typing) return; // let inputs do their own undo / copy / paste
       const k = e.key.toLowerCase();
@@ -2057,13 +2060,15 @@ function Editor({
   // Bấm ra ngoài thì đóng dropdown palette. Dùng mousedown chứ không phải click: kéo một
   // chip xuống canvas bắt đầu bằng mousedown TRONG panel nên không bị coi là click ngoài.
   useEffect(() => {
-    if (!paletteOpen) return;
+    if (!paletteOpen && !moreOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (!paletteRef.current?.contains(e.target as HTMLElement)) setPaletteOpen(false);
+      const t = e.target as HTMLElement;
+      if (!paletteRef.current?.contains(t)) setPaletteOpen(false);
+      if (!moreRef.current?.contains(t)) setMoreOpen(false);
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
-  }, [paletteOpen]);
+  }, [paletteOpen, moreOpen]);
 
   useEffect(() => {
     api.options().then((o) => setImageModels(o.image_models || [])).catch(() => {});
@@ -2725,8 +2730,10 @@ function Editor({
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-neutral-950">
       <div className="relative z-20 flex items-center gap-3 border-b border-neutral-800 px-4 py-2.5">
-        <span className="shrink-0 font-medium">Node Editor — {target.title}</span>
-        <div className="relative ml-2 shrink-0" ref={paletteRef}>
+        <span className="min-w-0 truncate font-medium" title={`Node Editor — ${target.title}`}>
+          <span className="text-neutral-500">🕸 </span>{target.title}
+        </span>
+        <div className="relative shrink-0" ref={paletteRef}>
           <button
             onClick={() => { setPaletteOpen((v) => !v); setPaletteQ(""); }}
             title="Kho node — bấm để thêm, hoặc kéo thả chip xuống canvas"
@@ -2799,9 +2806,12 @@ function Editor({
             </div>
           )}
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {done && <span className="text-xs text-emerald-400">✓ Đã tạo & áp dụng</span>}
-          {saveMsg && <span className="text-xs text-emerald-400">{saveMsg}</span>}
+        {/* Thanh phải phải VỪA MỘT DÒNG ở cửa sổ nửa màn hình: nút phụ dùng icon trần
+            (nhãn nằm ở tooltip), còn lưu/preset cất trong menu "⋯". Không dùng flex-wrap —
+            xuống dòng là ăn mất chiều cao canvas, đúng thứ vừa dọn xong. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {done && <span className="hidden text-xs text-emerald-400 xl:inline">✓ Đã áp dụng</span>}
+          {saveMsg && <span className="hidden text-xs text-emerald-400 xl:inline">{saveMsg}</span>}
           <div className="flex items-center gap-1">
             <button onClick={undo} disabled={!canUndo} title="Hoàn tác (Ctrl+Z)"
               className="rounded-lg border border-neutral-700 px-2 py-1.5 text-xs hover:bg-neutral-800 disabled:opacity-30">
@@ -2811,65 +2821,92 @@ function Editor({
               className="rounded-lg border border-neutral-700 px-2 py-1.5 text-xs hover:bg-neutral-800 disabled:opacity-30">
               ↷
             </button>
-            <button onClick={autoLayout} title="Tự sắp xếp node theo luồng"
+            <button onClick={autoLayout} title="⤢ Tự sắp xếp node theo luồng"
               className="rounded-lg border border-neutral-700 px-2 py-1.5 text-xs hover:bg-neutral-800">
-              ⤢ Sắp xếp
+              ⤢
             </button>
             <button
               onClick={() => setBoxSelect((b) => !b)}
-              title="Kéo chuột trái để khoanh vùng chọn nhiều node (giữ Shift cũng được). Ctrl+C/V/X/D · Del · kéo để di chuyển cả nhóm"
+              title="▭ Chọn vùng — kéo chuột trái để khoanh nhiều node (giữ Shift cũng được). Ctrl+C/V/X/D · Del · kéo để di chuyển cả nhóm"
               className={`rounded-lg border px-2 py-1.5 text-xs ${
                 boxSelect
                   ? "border-indigo-500 bg-indigo-600/20 text-indigo-300"
                   : "border-neutral-700 hover:bg-neutral-800"
               }`}
             >
-              ▭ Chọn vùng
+              ▭
             </button>
             {selectedIds.size > 1 && (
-              <span className="px-1 text-[11px] text-indigo-300">{selectedIds.size} node</span>
+              <span className="px-0.5 text-[11px] text-indigo-300">{selectedIds.size}</span>
             )}
           </div>
-          <div className="flex items-center gap-1">
-            <select
-              value={presetSel}
-              onChange={(e) => { setPresetSel(e.target.value); if (e.target.value) loadPreset(e.target.value); }}
-              title="Nạp một preset sơ đồ node đã lưu"
-              className="rounded-lg border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-300 outline-none"
+          <div className="relative" ref={moreRef}>
+            <button
+              onClick={() => setMoreOpen((v) => !v)}
+              title="Lưu sơ đồ · Preset"
+              className={`rounded-lg border px-2 py-1.5 text-xs ${
+                moreOpen
+                  ? "border-indigo-500 bg-indigo-600/20 text-indigo-300"
+                  : "border-neutral-700 hover:bg-neutral-800"
+              }`}
             >
-              <option value="">Preset…</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}{t.goal ? ` (${t.goal})` : ""}</option>
-              ))}
-            </select>
-            {presetSel && (
-              <button onClick={() => deletePreset(presetSel)} title="Xóa preset đang chọn"
-                className="rounded-lg border border-neutral-700 px-2 py-1.5 text-xs text-rose-300 hover:bg-rose-950/40">
-                🗑
-              </button>
-            )}
-            <button onClick={saveAsPreset} title="Lưu sơ đồ hiện tại thành preset"
-              className="rounded-lg border border-neutral-700 px-2 py-1.5 text-xs hover:bg-neutral-800">
-              💾 Preset
+              ⋯
             </button>
+            {moreOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1.5 w-[260px] rounded-xl border border-neutral-700 bg-neutral-900 p-2 shadow-2xl shadow-black/60">
+                <button
+                  onClick={() => { save(); setMoreOpen(false); }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-neutral-800"
+                >
+                  <span className="w-4 text-center">💾</span> Lưu sơ đồ
+                  <span className="ml-auto text-[10px] text-neutral-500">tự lưu sẵn</span>
+                </button>
+                <div className="my-2 border-t border-neutral-800" />
+                <div className="px-2 pb-1 text-[10px] uppercase tracking-wide text-neutral-500">
+                  🗂 Preset
+                </div>
+                <select
+                  value={presetSel}
+                  onChange={(e) => { setPresetSel(e.target.value); if (e.target.value) { loadPreset(e.target.value); setMoreOpen(false); } }}
+                  title="Nạp một preset sơ đồ node đã lưu"
+                  className="mb-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-300 outline-none"
+                >
+                  <option value="">Nạp preset…</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}{t.goal ? ` (${t.goal})` : ""}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => { saveAsPreset(); setMoreOpen(false); }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-neutral-800"
+                >
+                  <span className="w-4 text-center">➕</span> Lưu sơ đồ này thành preset
+                </button>
+                {presetSel && (
+                  <button
+                    onClick={() => { deletePreset(presetSel); setMoreOpen(false); }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-rose-300 hover:bg-rose-950/40"
+                  >
+                    <span className="w-4 text-center">🗑</span> Xóa preset đang chọn
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <button onClick={save} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800">
-            Lưu
-          </button>
           <button
             onClick={applyOutput}
             disabled={busy || !outputMedia}
-            title="Đưa ảnh/video ở node Output vào dự án (không tạo lại)"
-            className="rounded-lg border border-emerald-700/60 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-950/40 disabled:opacity-40"
+            title="✓ Áp dụng Output — đưa ảnh/video ở node Output vào dự án (không tạo lại)"
+            className="rounded-lg border border-emerald-700/60 px-2.5 py-1.5 text-xs text-emerald-300 hover:bg-emerald-950/40 disabled:opacity-40"
           >
-            ✓ Áp dụng Output
+            ✓ <span className="hidden lg:inline">Áp dụng</span>
           </button>
           <button
             onClick={run}
             disabled={busy}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+            className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
           >
-            {busy ? "Đang chạy…" : "▶ Run"}
+            {busy ? "⏳ Đang chạy…" : "▶ Run"}
           </button>
           <button
             // Flush before leaving: an edit made inside the autosave debounce window would
@@ -2878,9 +2915,10 @@ function Editor({
               graphApi.save(target.kind, target.id, serialize(), goal).catch(() => {});
               onClose();
             }}
-            className="rounded-lg px-3 py-1.5 text-sm text-neutral-400 hover:bg-neutral-800"
+            title="Đóng Node Editor"
+            className="rounded-lg px-2 py-1.5 text-sm text-neutral-400 hover:bg-neutral-800"
           >
-            Đóng
+            ✕
           </button>
         </div>
       </div>
