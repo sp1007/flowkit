@@ -87,7 +87,19 @@ const META: Record<string, { label: string; icon: string; color: string }> = {
 };
 
 // "refs" intentionally dropped — use one "Nguồn ảnh" (source) node per reference image.
-const PALETTE = ["source", "prompt", "promptHeader", "promptFooter", "image", "editImage", "removebg", "replacebg", "filter", "colorgrade", "text", "upscale", "crop", "vignette", "border", "blend", "collage", "watermark", "video", "note", "output"];
+// Gộp theo nhóm vì cả 21 chip nằm thẳng trên thanh tiêu đề: cửa sổ hẹp lại là chúng xuống
+// dòng 4-5 hàng, ăn đúng phần chiều cao canvas đang thiếu. Giờ chúng nằm trong dropdown
+// "+ Thêm node", vẫn kéo-thả xuống canvas được như cũ.
+const PALETTE_GROUPS: { title: string; icon: string; types: string[] }[] = [
+  { title: "Đầu vào", icon: "📥", types: ["source", "prompt", "promptHeader", "promptFooter"] },
+  { title: "AI", icon: "✨", types: ["image", "editImage", "removebg", "replacebg", "video"] },
+  {
+    title: "Xử lý cục bộ", icon: "🛠",
+    types: ["filter", "colorgrade", "text", "upscale", "crop", "vignette", "border", "blend", "collage", "watermark"],
+  },
+  { title: "Khác", icon: "📌", types: ["note", "output"] },
+];
+const PALETTE = PALETTE_GROUPS.flatMap((g) => g.types);
 
 // ─── Handles ("định danh") ──────────────────────────────────
 // Every node that PRODUCES a picture/clip carries a handle: writing "{handle}" in a
@@ -1652,6 +1664,10 @@ function Editor({
   >(null);
   // Box-select mode: left-drag draws a selection rectangle instead of panning the canvas.
   const [boxSelect, setBoxSelect] = useState(false);
+  // Dropdown "+ Thêm node" — thay cho hàng 21 chip từng chiếm nhiều dòng trên thanh tiêu đề.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQ, setPaletteQ] = useState("");
+  const paletteRef = useRef<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2022,7 +2038,7 @@ function Editor({
       const tag = (e.target as HTMLElement)?.tagName;
       const typing =
         tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
-      if (e.key === "Escape") { setMenu(null); return; }
+      if (e.key === "Escape") { setMenu(null); setPaletteOpen(false); return; }
       if (!(e.ctrlKey || e.metaKey)) return;
       if (typing) return; // let inputs do their own undo / copy / paste
       const k = e.key.toLowerCase();
@@ -2037,6 +2053,17 @@ function Editor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo, selectAll, copySelection, deleteSelection, pasteClipboard]);
+
+  // Bấm ra ngoài thì đóng dropdown palette. Dùng mousedown chứ không phải click: kéo một
+  // chip xuống canvas bắt đầu bằng mousedown TRONG panel nên không bị coi là click ngoài.
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!paletteRef.current?.contains(e.target as HTMLElement)) setPaletteOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [paletteOpen]);
 
   useEffect(() => {
     api.options().then((o) => setImageModels(o.image_models || [])).catch(() => {});
@@ -2697,27 +2724,82 @@ function Editor({
 
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-neutral-950">
-      <div className="flex items-center gap-3 border-b border-neutral-800 px-4 py-2.5">
-        <span className="font-medium">Node Editor — {target.title}</span>
-        <div className="ml-2 flex flex-wrap gap-1">
-          {PALETTE.map((p) => (
-            <button
-              key={p}
-              onClick={() => addNode(p)}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("application/flowkit-node", p);
-                e.dataTransfer.effectAllowed = "move";
-              }}
-              title="Bấm để thêm, hoặc kéo thả xuống canvas"
-              className="cursor-grab rounded-md border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 active:cursor-grabbing"
-              style={{ borderLeftColor: META[p].color, borderLeftWidth: 3 }}
-            >
-              + {META[p].label}
-            </button>
-          ))}
+      <div className="relative z-20 flex items-center gap-3 border-b border-neutral-800 px-4 py-2.5">
+        <span className="shrink-0 font-medium">Node Editor — {target.title}</span>
+        <div className="relative ml-2 shrink-0" ref={paletteRef}>
+          <button
+            onClick={() => { setPaletteOpen((v) => !v); setPaletteQ(""); }}
+            title="Kho node — bấm để thêm, hoặc kéo thả chip xuống canvas"
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+              paletteOpen
+                ? "border-indigo-500 bg-indigo-600/20 text-indigo-300"
+                : "border-neutral-700 hover:bg-neutral-800"
+            }`}
+          >
+            <span>➕</span>
+            <span>Thêm node</span>
+            <span className="text-[9px] opacity-70">▾</span>
+          </button>
+          {paletteOpen && (
+            <div className="absolute left-0 top-full z-50 mt-1.5 max-h-[75vh] w-[300px] overflow-auto rounded-xl border border-neutral-700 bg-neutral-900 p-2 shadow-2xl shadow-black/60">
+              <input
+                autoFocus
+                value={paletteQ}
+                onChange={(e) => setPaletteQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const hit = PALETTE.find((t) =>
+                    META[t].label.toLowerCase().includes(paletteQ.trim().toLowerCase())
+                  );
+                  if (hit) { addNode(hit); setPaletteOpen(false); }
+                }}
+                placeholder="🔎 Tìm node…"
+                className="mb-2 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs outline-none focus:border-indigo-500"
+              />
+              {PALETTE_GROUPS.map((g) => {
+                const types = g.types.filter((t) =>
+                  META[t].label.toLowerCase().includes(paletteQ.trim().toLowerCase())
+                );
+                if (!types.length) return null;
+                return (
+                  <div key={g.title} className="mb-2 last:mb-0">
+                    <div className="px-1 pb-1 text-[10px] uppercase tracking-wide text-neutral-500">
+                      {g.icon} {g.title}
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      {types.map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => { addNode(t); setPaletteOpen(false); }}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("application/flowkit-node", t);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          // Thả xuống canvas xong mới đóng — đóng ngay lúc dragstart là gỡ
+                          // phần tử đang kéo, Chrome huỷ luôn thao tác kéo.
+                          onDragEnd={() => setPaletteOpen(false)}
+                          title="Bấm để thêm, hoặc kéo thả xuống canvas"
+                          className="flex cursor-grab items-center gap-2 rounded-md border border-neutral-700/70 px-2 py-1.5 text-xs hover:bg-neutral-800 active:cursor-grabbing"
+                          style={{ borderLeftColor: META[t].color, borderLeftWidth: 3 }}
+                        >
+                          <span className="w-4 text-center">{META[t].icon}</span>
+                          <span>{META[t].label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {!PALETTE.some((t) =>
+                META[t].label.toLowerCase().includes(paletteQ.trim().toLowerCase())
+              ) && (
+                <div className="px-1 py-2 text-xs text-neutral-500">Không có node nào khớp.</div>
+              )}
+            </div>
+          )}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {done && <span className="text-xs text-emerald-400">✓ Đã tạo & áp dụng</span>}
           {saveMsg && <span className="text-xs text-emerald-400">{saveMsg}</span>}
           <div className="flex items-center gap-1">
