@@ -17,6 +17,8 @@ export default function AssembleTab({ project }: { project: Project }) {
     clips: number; captions: number; bgm: boolean; missing: number; missingTitles: string[];
     width: number; height: number; fps: number; duration: number;
     hdLeftover: number; hdLeftoverTitles: string[];
+    music: { songs: number; loops: number; gap: number; duration: number;
+             shots_duration: number } | null;
   } | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [kenBurns, setKenBurns] = useState(true);
@@ -98,6 +100,7 @@ export default function AssembleTab({ project }: { project: Project }) {
         missing: r.missing, missingTitles: r.missing_titles,
         width: r.width, height: r.height, fps: r.fps, duration: r.duration,
         hdLeftover: r.hd_leftover, hdLeftoverTitles: r.hd_leftover_titles,
+        music: r.music,
       });
     });
 
@@ -180,6 +183,17 @@ export default function AssembleTab({ project }: { project: Project }) {
               {Math.floor(xmlInfo.duration / 60)}′{String(Math.round(xmlInfo.duration % 60)).padStart(2, "0")}″
               {xmlInfo.captions ? ` · ${xmlInfo.captions} caption` : ""}
               {xmlInfo.bgm ? " · có nhạc nền" : ""}
+            </div>
+          )}
+          {xmlInfo?.music && (
+            <div className="mb-2 text-indigo-300">
+              🎵 Chế độ music video: {xmlInfo.music.songs} bài là tiếng chính
+              {xmlInfo.music.gap > 0 ? ` (cách nhau ${xmlInfo.music.gap}s)` : ""} —
+              độ dài timeline lấy theo playlist ({xmlInfo.music.duration.toFixed(1)}s).{" "}
+              {xmlInfo.music.loops > 1
+                ? `Dãy shot dài ${xmlInfo.music.shots_duration.toFixed(1)}s nên được lặp ${xmlInfo.music.loops} vòng cho phủ kín, vòng cuối cắt đúng lúc nhạc dứt.`
+                : `Dãy shot dài ${xmlInfo.music.shots_duration.toFixed(1)}s nên phần thừa đã cắt ở lúc nhạc dứt.`}
+              {" "}Lời đọc, caption và nhạc nền bị bỏ qua.
             </div>
           )}
           {/* Khung sequence do media THẬT quyết định: một shot còn bản HD là cả timeline

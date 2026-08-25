@@ -44,6 +44,10 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   hình dự án). Bảng `music_track` = playlist nhiều bài của chế độ music video
   (`project.music_mode`): nhạc là tiếng duy nhất, các bài cách nhau `music_gap` giây, và tổng
   thời lượng playlist quyết định độ dài video — hình được lặp cho phủ kín, thừa thì cắt.
+  Luật này áp cho CẢ HAI đường xuất: bản ghép sẵn (`assembler.apply_soundtrack`, ffmpeg)
+  và timeline DaVinci (`davinci_xml.build` — playlist thành track tiếng, dãy shot lặp
+  bằng nhiều clipitem cùng `file id`, clip cuối cắt bằng `out`). Ở chế độ này lời đọc,
+  caption và `bgm_path` bị bỏ hẳn, đừng chồng thêm.
   Xem [agent/studio/music.py](agent/studio/music.py) + tab "Nhạc" trong workspace.
 - **⚡ tạo nhanh CHẠY chính đồ thị của shot/entity** (`_gen_via_graph` → `run_graph` với
   `only_node` = node sinh nối vào Output), nên nó và Node Editor ra kết quả y hệt nhau. Chỉ

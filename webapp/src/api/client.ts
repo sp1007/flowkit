@@ -834,6 +834,10 @@ export const assemble = {
     req<{ web_path: string; clips: number; captions_srt: string | null; captions: number;
           bgm: boolean; missing: number; missing_titles: string[];
           width: number; height: number; fps: number; duration: number;
+          // Chế độ music video: playlist là tiếng chính, độ dài của nó quyết định độ
+          // dài timeline (`loops` = số vòng dãy shot phải lặp để phủ kín). null = tắt.
+          music: { songs: number; loops: number; gap: number; duration: number;
+                   shots_duration: number } | null;
           hd_leftover: number; hd_leftover_titles: string[] }>(`/projects/${pid}/export/davinci-xml`, {
       method: "POST",
     }),

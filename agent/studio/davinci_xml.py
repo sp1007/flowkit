@@ -406,6 +406,10 @@ async def build(project_id: str) -> dict:
     dv_dir.mkdir(parents=True, exist_ok=True)
 
     items, titles, srt, start_f, total, tnum = [], [], [], 0, 0, 0
+    # (tên hiển thị, file đã staging, số khung) theo đúng thứ tự scene/shot — chế độ
+    # music video dựng lại dòng hình từ đây (lặp cho phủ hết playlist) thay vì dùng
+    # `items` vốn đã đóng cứng vị trí trên timeline.
+    clip_meta: list[tuple[str, Path, int]] = []
     audio_runs = []   # one clip per scene: (narration WAV, scene start_f, scene end_f, lead_f, measured)
     skipped = []      # shots with media in the DB but no usable file (even after re-download)
     i = 0
@@ -470,6 +474,7 @@ async def build(project_id: str) -> dict:
             staged = await asyncio.to_thread(_stage_image_jpg, path, name, dv_dir) if is_img \
                 else _stage(path, name, dv_dir)
             items.append(_clipitem(i, sh.get("title") or f"Shot {i+1}", staged, start_f, dur_f, w, h))
+            clip_meta.append((sh.get("title") or f"Shot {i+1}", staged, dur_f))
             # 3rd field = this beat's TRUE offset into the scene WAV (shot.start_time, which
             # includes the leading edge-pad silence). The audio slice must read from here, NOT
             # from the cumulative image position (start_f - scene_start_f) which omits that pad.
@@ -514,6 +519,66 @@ async def build(project_id: str) -> dict:
     if not items:
         raise RuntimeError("Chưa có shot nào có ảnh hoặc video để export")
 
+    # ── Chế độ music video ────────────────────────────────────
+    # Playlist là tiếng DUY NHẤT và TỔNG thời lượng của nó quyết định độ dài timeline: hình
+    # ngắn hơn thì lặp lại cả dãy shot cho phủ kín, dài hơn thì cắt giữa chừng ở đúng lúc
+    # nhạc dứt — y như `assembler.apply_soundtrack` làm cho bản ghép sẵn. Lời đọc, caption
+    # và bgm bị bỏ hẳn: ở chế độ này chúng không tồn tại trong bản render.
+    music_info = None
+    music_track_xml: list[str] = []
+    if project.get("music_mode"):
+        from agent.studio import music as music_mod
+        rows = [r for r in await music_mod.tracks(project_id)
+                if (r.get("path") or "").strip() and Path(r["path"]).exists()]
+        if rows:
+            gap_f = round(music_mod.gap_of(project) * FPS)
+            songs, cursor = [], 0
+            for k, r in enumerate(rows):
+                ap = Path(r["path"])
+                dur = float(r.get("duration") or 0.0)
+                if dur <= 0:
+                    dur = await assembler.probe_duration(ap)
+                song_f = max(1, round(dur * FPS))
+                songs.append((r, ap, cursor, song_f))
+                cursor += song_f + (gap_f if k < len(rows) - 1 else 0)
+            music_total = cursor
+
+            # Dòng hình: chạy vòng qua dãy shot cho tới khi phủ hết playlist. Mỗi shot khai
+            # <file> đúng MỘT lần, các vòng sau tham chiếu lại id đó (Resolve nhận cùng một
+            # media, không import trùng); clip cuối cắt ngắn bằng `out` thay vì kéo dài.
+            items, defined, pos, k = [], set(), 0, 0
+            n_shot = len(clip_meta)
+            # Thiếu dưới `FIT_TOLERANCE` giây thì coi như đã phủ kín — cùng ngưỡng với
+            # `music.fit_video_to_soundtrack`, để khỏi đẻ ra một mẩu clip vài khung ở cuối.
+            tol_f = round(music_mod.FIT_TOLERANCE * FPS)
+            while k < 5000 and pos < music_total and (music_total - pos > tol_f or not items):
+                slot = k % n_shot          # shot nào của dãy — TÍNH MỘT LẦN: lấy lại
+                name, cpath, dur_f = clip_meta[slot]   # len(items) sau khi append là lệch
+                take = min(dur_f, music_total - pos)
+                items.append(_clipitem_slice(
+                    k, name, cpath, pos, 0, take, w, h, f"mvclip{slot}",
+                    define_file=slot not in defined, file_dur_f=dur_f))
+                defined.add(slot)
+                pos += take
+                k += 1
+            loops = -(-len(items) // n_shot)      # ceil: số vòng dãy shot phải chạy
+
+            music_items = []
+            for k, (r, ap, start, song_f) in enumerate(songs):
+                staged_song = _stage(ap, f"song{_alpha(k)}", dv_dir)
+                music_items.append(_audio_item(
+                    2000 + k, r.get("title") or f"Bài {k+1}", staged_song, start, song_f,
+                    file_dur_f=song_f))
+            music_info = {
+                "songs": len(songs), "loops": loops,
+                "gap": round(gap_f / FPS, 2),
+                "duration": round(music_total / FPS, 2),
+                "shots_duration": round(total / FPS, 2),
+            }
+            total = music_total
+            titles, srt, audio_runs = [], [], []
+            music_track_xml = music_items
+
     # narration audio track — ONE fully-defined clip per scene (see the scene loop above for why
     # per-beat slicing was dropped).
     audio_items = []
@@ -542,7 +607,9 @@ async def build(project_id: str) -> dict:
     # background-music track: the project's music tiled across the whole timeline (Resolve
     # has no loop in XML, so repeat the clip) on its OWN audio track, under the narration.
     bgm_items = []
-    bgm = (project.get("bgm_path") or "").strip()
+    # `bgm_path` là bài trộn CHÌM dưới lời đọc — ở chế độ music video không có lời đọc và
+    # playlist đã là tiếng chính, nên chồng thêm bgm là hai dòng nhạc đè nhau.
+    bgm = "" if music_info else (project.get("bgm_path") or "").strip()
     if bgm and Path(bgm).exists() and total > 0:
         bgm_src = Path(bgm)
         bgm_secs = await assembler.probe_duration(bgm_src)
@@ -558,6 +625,8 @@ async def build(project_id: str) -> dict:
 
     title_track = f"\n        <track>\n{chr(10).join(titles)}\n        </track>" if titles else ""
     audio_tracks_xml = ""
+    if music_track_xml:
+        audio_tracks_xml += f"\n        <track>\n{chr(10).join(music_track_xml)}\n        </track>"
     if audio_items:
         audio_tracks_xml += f"\n        <track>\n{chr(10).join(audio_items)}\n        </track>"
     if bgm_items:
@@ -610,5 +679,6 @@ async def build(project_id: str) -> dict:
             "audio_tracks": len(audio_items), "bgm": bool(bgm_items),
             "missing": len(skipped), "missing_titles": skipped[:20],
             "width": w, "height": h, "fps": FPS, "duration": round(total / FPS, 2),
+            "music": music_info,
             "hd_leftover": len(hd_leftover),
             "hd_leftover_titles": [s.get("title") or s["id"] for s in hd_leftover][:20]}
