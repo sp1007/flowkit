@@ -13,7 +13,11 @@ export default function AssembleTab({ project }: { project: Project }) {
   const [musicInfo, setMusicInfo] = useState<
     { duration: number; target: number; source_duration: number; loops: number } | null
   >(null);
-  const [xmlInfo, setXmlInfo] = useState<{ clips: number; captions: number; bgm: boolean; missing: number; missingTitles: string[] } | null>(null);
+  const [xmlInfo, setXmlInfo] = useState<{
+    clips: number; captions: number; bgm: boolean; missing: number; missingTitles: string[];
+    width: number; height: number; fps: number; duration: number;
+    hdLeftover: number; hdLeftoverTitles: string[];
+  } | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [kenBurns, setKenBurns] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -89,7 +93,12 @@ export default function AssembleTab({ project }: { project: Project }) {
       const r = await asm.davinci(project.id);
       setXmlUrl(r.web_path + "?t=" + Date.now());
       setSrtUrl(r.captions_srt ? r.captions_srt + "?t=" + Date.now() : null);
-      setXmlInfo({ clips: r.clips, captions: r.captions, bgm: r.bgm, missing: r.missing, missingTitles: r.missing_titles });
+      setXmlInfo({
+        clips: r.clips, captions: r.captions, bgm: r.bgm,
+        missing: r.missing, missingTitles: r.missing_titles,
+        width: r.width, height: r.height, fps: r.fps, duration: r.duration,
+        hdLeftover: r.hd_leftover, hdLeftoverTitles: r.hd_leftover_titles,
+      });
     });
 
   return (
@@ -167,8 +176,23 @@ export default function AssembleTab({ project }: { project: Project }) {
         <div className="mb-6 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 text-sm">
           {xmlInfo && (
             <div className="mb-1 text-emerald-400">
-              ✓ Đã tạo timeline: {xmlInfo.clips} clip · {xmlInfo.captions} caption
+              ✓ Đã tạo timeline: {xmlInfo.clips} clip · {xmlInfo.width}×{xmlInfo.height} @{xmlInfo.fps}fps ·{" "}
+              {Math.floor(xmlInfo.duration / 60)}′{String(Math.round(xmlInfo.duration % 60)).padStart(2, "0")}″
+              {xmlInfo.captions ? ` · ${xmlInfo.captions} caption` : ""}
               {xmlInfo.bgm ? " · có nhạc nền" : ""}
+            </div>
+          )}
+          {/* Khung sequence do media THẬT quyết định: một shot còn bản HD là cả timeline
+              xuống 720p. Không nói ra thì người dùng upscale 85 clip xong vẫn nhận
+              timeline 720p mà không hiểu vì sao. */}
+          {xmlInfo && xmlInfo.hdLeftover > 0 && (
+            <div className="mb-2 text-amber-400">
+              ⚠ {xmlInfo.hdLeftover} shot chưa có bản upscale/hi-res nên timeline để ở{" "}
+              {xmlInfo.height}p — chỉ cần MỘT shot còn bản HD là cả sequence xuống 720p.
+              Upscale nốt (tab Thiết lập → Upscale) rồi export lại để có timeline 1080p.
+              {xmlInfo.hdLeftoverTitles.length > 0 && (
+                <span className="text-amber-400/70"> Ví dụ: {xmlInfo.hdLeftoverTitles.slice(0, 5).join(" · ")}</span>
+              )}
             </div>
           )}
           {xmlInfo && xmlInfo.missing > 0 && (
@@ -182,7 +206,7 @@ export default function AssembleTab({ project }: { project: Project }) {
           <a href={xmlUrl} download className="text-indigo-400 hover:text-indigo-300">
             ⭳ timeline.xml
           </a>
-          <span className="ml-2 text-neutral-500">Import Timeline trong Resolve, media relink từ ./media</span>
+          <span className="ml-2 text-neutral-500">Import Timeline trong Resolve; media đã được gom sẵn vào ./dv_media cạnh file XML</span>
           {srtUrl && (
             <div className="mt-2 text-neutral-300">
               Caption từ khoá:{" "}

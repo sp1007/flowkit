@@ -828,9 +828,13 @@ export const assemble = {
       `/projects/${pid}/export`,
       { method: "POST" }
     ),
+  // width/height = khung của SEQUENCE, do media thật quyết định: chỉ cần MỘT shot thiếu
+  // bản upscale là cả timeline tụt về 720p (`hd_leftover` đếm đúng những shot đó).
   davinci: (pid: string) =>
     req<{ web_path: string; clips: number; captions_srt: string | null; captions: number;
-          bgm: boolean; missing: number; missing_titles: string[] }>(`/projects/${pid}/export/davinci-xml`, {
+          bgm: boolean; missing: number; missing_titles: string[];
+          width: number; height: number; fps: number; duration: number;
+          hd_leftover: number; hd_leftover_titles: string[] }>(`/projects/${pid}/export/davinci-xml`, {
       method: "POST",
     }),
 };

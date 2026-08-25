@@ -60,7 +60,14 @@ def _stage(src: Path, name: str, dv_dir: Path) -> Path:
             dst.unlink()
         os.link(src, dst)
     except OSError:
-        shutil.copy2(src, dst)
+        try:
+            shutil.copy2(src, dst)
+        except OSError as e:
+            # Export lại trong lúc Resolve đang mở đúng timeline này: Windows khoá file đang
+            # phát nên vừa xoá vừa ghi đè đều hỏng. Nói ra lý do, đừng để rơi thành 500.
+            raise RuntimeError(
+                f"Không ghi được {dst.name} vào dv_media ({e}) — file đang bị chương trình "
+                "khác giữ. Đóng timeline/dự án trong DaVinci Resolve rồi export lại.") from e
     return dst
 
 
@@ -383,7 +390,15 @@ async def build(project_id: str) -> dict:
     all_shots = await db.query_all(
         "SELECT sh.* FROM shot sh JOIN scene sc ON sh.scene_id=sc.id WHERE sc.project_id=?",
         (project_id,))
-    w, h = assembler._res(project["aspect_ratio"], assembler.timeline_short_side(all_shots))
+    short_side = assembler.timeline_short_side(all_shots)
+    w, h = assembler._res(project["aspect_ratio"], short_side)
+    # MỘT shot thiếu bản hi-res là kéo CẢ timeline xuống 720p (xem timeline_short_side).
+    # Với 85 shot thì một lượt upscale hỏng lặng lẽ làm cả bản export mềm đi mà không có
+    # dấu hiệu nào, nên đếm ra đây để trả về cho UI nói thẳng.
+    hd_leftover = [s for s in all_shots
+                   if (s.get("video_path") and not hires.video_path_for(s))
+                   or (not s.get("video_path") and s.get("image_path")
+                       and not hires.path_for(s))]
     # Stage media under sequence-safe (letters-only) names in one folder next to the XML, so
     # Resolve never mis-reads a UUID's digits as an image-sequence frame range.
     dv_dir = STUDIO_MEDIA_DIR / project_id / "dv_media"
@@ -593,4 +608,7 @@ async def build(project_id: str) -> dict:
     return {"path": str(out), "web_path": f"/studio-media/{project_id}/timeline.xml",
             "clips": len(items), "captions_srt": srt_web, "captions": len(srt),
             "audio_tracks": len(audio_items), "bgm": bool(bgm_items),
-            "missing": len(skipped), "missing_titles": skipped[:20]}
+            "missing": len(skipped), "missing_titles": skipped[:20],
+            "width": w, "height": h, "fps": FPS, "duration": round(total / FPS, 2),
+            "hd_leftover": len(hd_leftover),
+            "hd_leftover_titles": [s.get("title") or s["id"] for s in hd_leftover][:20]}
