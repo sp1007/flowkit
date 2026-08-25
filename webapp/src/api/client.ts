@@ -723,9 +723,14 @@ export const shots = {
     req<{ tier: string; resolution: string; label: string; total: number; done: number;
           missing: number; skipped_chained: number;
           choices: { value: string; label: string }[] }>(`/projects/${pid}/upscale/status`),
-  upscaleAll: (pid: string, force = false) =>
+  // `resolution` = mức đang chọn trên UI (tier TWO chọn 1080p cho nhẹ/miễn phí thay vì 4K).
+  // Gửi thẳng lên thay vì trông vào `project.upscale_res` để lô chạy đúng mức người dùng
+  // vừa chọn, kể cả khi họ chưa bấm Lưu.
+  upscaleAll: (pid: string, force = false, resolution?: string) =>
     req<{ job_id: string; total: number; resolution: string }>(
-      `/projects/${pid}/upscale/generate-all?force=${force}`, { method: "POST" }),
+      `/projects/${pid}/upscale/generate-all?force=${force}` +
+        (resolution ? `&resolution=${encodeURIComponent(resolution)}` : ""),
+      { method: "POST" }),
   genAllVideos: (pid: string) =>
     req<{ job_id: string; total: number }>(`/projects/${pid}/shots/generate-all`, { method: "POST" }),
   // Đếm trước ✦ sẽ render bao nhiêu shot, chưa chạy gì cả — để hỏi credit và để báo ĐÚNG lý do

@@ -90,6 +90,18 @@ export default function SettingsTab({
   const [upInfo, setUpInfo] = useState<
     { label: string; resolution: string; done: number; total: number; missing: number;
       choices: { value: string; label: string }[] } | null>(null);
+  // Mức upscale ĐANG CHỌN, không phải mức server tính lúc mở tab: `upInfo` chỉ được hỏi
+  // một lần theo project.id nên sau khi đổi ô "Mức upscale" (và cả sau khi Lưu) nó vẫn
+  // mang mức cũ — nhãn, cảnh báo credit và hộp thoại của nút upscale hàng loạt đều đọc
+  // theo đây để không bao giờ nói 4K trong khi người dùng đã chọn 1080p.
+  // `choices` xếp TĂNG DẦN nên phần tử cuối là trần của tier — ô "Cao nhất tier cho
+  // phép" (giá trị rỗng) quy về đúng mức đó, không phải mức server tính theo cột cũ.
+  const upCap = upInfo?.choices?.length
+    ? upInfo.choices[upInfo.choices.length - 1].value
+    : upInfo?.resolution ?? "";
+  const upRes = upInfo?.choices?.some((c) => c.value === upscaleRes) ? upscaleRes : upCap;
+  const upLabel = upInfo?.choices?.find((c) => c.value === upRes)?.label
+    ?? upInfo?.label ?? "";
   const [voices, setVoices] = useState<Voice[]>([]);
   const [presets, setPresets] = useState<SettingsPreset[]>([]);
   const [presetSel, setPresetSel] = useState("");
@@ -154,6 +166,9 @@ export default function SettingsTab({
         ...Object.fromEntries(PROMPT_KEYS.map((k) => [`tpl_${k}`, tpl[k] ?? ""])),
       });
       onSaved(updated);
+      // Mức upscale vừa lưu đổi cả nhãn lẫn số đếm phía server → hỏi lại, đừng để
+      // tab hiện mức của lần mở trước.
+      shotsApi.upscaleStatus(project.id).then(setUpInfo).catch(() => {});
       if (appDirty && appSave.current) {
         await appSave.current();
         setAppDirty(false);
@@ -182,16 +197,18 @@ export default function SettingsTab({
     const n = upInfo?.missing ?? 0;
     // 4K tốn ~50 credit/video (đo thực tế) — đắt hơn cả một lượt render clip mới, nên báo
     // thẳng tổng tiền chứ không nói chung chung "có thể tốn credit"; 1080p đo được là 0.
-    const per = upscaleVideoCost(upInfo?.resolution);
+    const per = upscaleVideoCost(upRes);
     if (!window.confirm(
-      `Upscale ${n} video lên ${upInfo?.label}?\n\n` +
+      `Upscale ${n} video lên ${upLabel}?\n\n` +
       `Mỗi video là một lượt render thật trên Flow (~1 phút/video)` +
       (per ? ` và tốn ~${per} credit — tổng ~${n * per} credit.`
            : ", đo được là không tốn credit.")
     )) return;
     setBusy(true); setErr(null); setMsg(null);
     try {
-      const r = await shotsApi.upscaleAll(project.id);
+      // Gửi kèm mức đang chọn: đổi ô "Mức upscale" rồi bấm ngay (chưa kịp Lưu) vẫn
+      // chạy đúng mức đang hiện trên nút, không rơi về mức cũ đang nằm trong DB.
+      const r = await shotsApi.upscaleAll(project.id, false, upscaleRes || undefined);
       setMsg(r.total ? `Đang upscale ${r.total} video lên ${r.resolution} (chạy nền).`
                      : "Mọi video đã có bản độ phân giải cao.");
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
@@ -711,11 +728,11 @@ export default function SettingsTab({
                     <input type="checkbox" checked={autoUpVideo}
                       onChange={(e) => setAutoUpVideo(e.target.checked)}
                       className="h-4 w-4 accent-indigo-500" />
-                    Tự upscale {upInfo?.label ? `(${upInfo.label})` : "(1080p/4K)"} sau mỗi lần render
+                    Tự upscale {upLabel ? `(${upLabel})` : "(1080p/4K)"} sau mỗi lần render
                   </label>
                   {/* Bật ô này với mức 4K là mỗi shot render xong tự trừ thêm ~50 credit, âm
                       thầm, nhiều hơn cả tiền render clip. Phải nói ra ngay cạnh ô tick. */}
-                  {autoUpVideo && upscaleVideoCost(upInfo?.resolution) > 0 && (
+                  {autoUpVideo && upscaleVideoCost(upRes) > 0 && (
                     <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-neutral-400">
                       ⚠ Mức <b>4K</b> tốn <b className="text-amber-500/90">~50 credit mỗi video</b> —
                       bật tự động nghĩa là mỗi shot render xong lại trừ thêm chừng đó. Chọn
@@ -735,13 +752,13 @@ export default function SettingsTab({
                   {upInfo && (
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-neutral-500">
-                        {upInfo.done}/{upInfo.total} video đã có bản {upInfo.label}
+                        {upInfo.done}/{upInfo.total} video đã có bản upscale
                       </span>
                       {upInfo.missing > 0 && (
                         <button onClick={upscaleMissingVideos} disabled={busy}
                           title="Upscale bù các video đã render trước đó"
                           className="rounded-lg border border-neutral-700 px-2.5 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40">
-                          ⬆ Upscale {upInfo.missing} video
+                          ⬆ Upscale {upInfo.missing} video{upLabel ? ` lên ${upLabel}` : ""}
                         </button>
                       )}
                     </div>

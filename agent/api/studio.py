@@ -4005,8 +4005,13 @@ async def upscale_video_status(pid: str):
 
 
 @router.post("/projects/{pid}/upscale/generate-all")
-async def upscale_all_videos(pid: str, force: bool = False):
-    """Upscale bù mọi video chưa có bản độ phân giải cao (~1 phút/video)."""
+async def upscale_all_videos(pid: str, force: bool = False,
+                             resolution: Optional[str] = None):
+    """Upscale bù mọi video chưa có bản độ phân giải cao (~1 phút/video).
+
+    `resolution` là mức người dùng vừa chọn trên UI — dùng nó thay vì `project.upscale_res`
+    để lô chạy ĐÚNG mức đang hiện trên nút, kể cả khi thiết lập chưa kịp lưu. Bỏ trống →
+    lấy theo dự án (rỗng = kịch trần tier). Mức cao hơn trần tier bị hạ xuống trần."""
     project = await _project_or_404(pid)
     _require_extension()
     shots = await db.query_all(
@@ -4015,11 +4020,11 @@ async def upscale_all_videos(pid: str, force: bool = False):
     todo = [s for s in shots
             if hires.video_upscalable(s) and (force or hires.video_is_stale(s))]
     tier = await _current_tier_for(project)
-    label = hires.video_res_label(
-        hires.video_res_for_tier(tier, project.get("upscale_res"))).upper()
+    target = hires.video_res_for_tier(tier, resolution or project.get("upscale_res"))
+    label = hires.video_res_label(target).upper()
 
     async def _worker(s):
-        await hires.upscale_video(s, project, tier, _poll_video)
+        await hires.upscale_video(s, project, tier, _poll_video, target)
 
     # Mỗi upscale là một lượt render thật (submit + poll ~1 phút) → tuần tự, giãn như
     # generate-all video để không dính anti-abuse.
