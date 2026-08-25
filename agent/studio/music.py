@@ -12,6 +12,7 @@ bài một nhóm scene riêng sẽ buộc phải chia lại storyboard mỗi l�
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 from agent.studio import db
@@ -142,10 +143,50 @@ async def add_track(project_id: str, src: Path, *, title: str, source: str,
 
 
 async def delete_track(track: dict) -> None:
+    """Bỏ bài khỏi playlist: xoá HÀNG trong DB trước, file sau.
+
+    Trên Windows, file đang được phát vẫn bị giữ (thẻ `<audio>` của tab Nhạc kéo file qua
+    chính agent này), nên `unlink` ném PermissionError. Xoá file trước như cũ nghĩa là lỗi
+    đó bay thẳng lên thành 500 và bài KHÔNG BAO GIỜ xoá được chừng nào trình duyệt còn mở —
+    đúng triệu chứng "Internal Server Error khi xoá bài". Giờ hàng đi trước, file kẹt lại chỉ
+    ghi log rồi để `sweep_orphan_files` dọn ở lượt sau.
+    """
+    await db.delete("music_track", track["id"])
     p = (track.get("path") or "").strip()
     if p:
-        Path(p).unlink(missing_ok=True)
-    await db.delete("music_track", track["id"])
+        try:
+            Path(p).unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("chưa xoá được file nhạc %s (%s) — dọn ở lượt sau", p, e)
+    await sweep_orphan_files(track.get("project_id"))
+
+
+# File vừa ghi xong mà chưa kịp có hàng trong DB (đang tải bài mới về) thì đừng đụng tới.
+ORPHAN_GRACE_S = 120.0
+
+
+async def sweep_orphan_files(project_id: str | None) -> int:
+    """Xoá các file trong thư mục music không còn bài nào trỏ tới — thứ sót lại từ những lần
+    xoá mà Windows còn giữ file. File vẫn bị giữ thì bỏ qua, lượt sau dọn tiếp."""
+    if not project_id:
+        return 0
+    d = track_dir(project_id)
+    if not d.exists():
+        return 0
+    keep = {Path(r["path"]).name for r in await tracks(project_id) if (r.get("path") or "")}
+    now = time.time()
+    removed = 0
+    for f in d.iterdir():
+        if not f.is_file() or f.name in keep:
+            continue
+        try:
+            if now - f.stat().st_mtime < ORPHAN_GRACE_S:
+                continue
+            f.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 async def reorder(project_id: str, ids: list[str]) -> None:
