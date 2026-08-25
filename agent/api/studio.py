@@ -1795,16 +1795,43 @@ def _first_location_id(frames: list[dict], by_name: dict) -> Optional[str]:
     return None
 
 
+def _named_entities(text: str, ref_names, by_name: dict) -> list[dict]:
+    """Entity rows that `text` actually names in {braces} (or that `ref_names` lists), THEO
+    THỨ TỰ xuất hiện và đã bỏ trùng.
+
+    Thứ tự có nghĩa: nó là thứ tự ảnh tham chiếu bind vào lượt sinh (và thứ tự node "Nguồn
+    ảnh" mọc ra trong Node Editor). Trước đây chỗ gọi duyệt một `set`, nên hai lần chạy cùng
+    một prompt có thể ra hai thứ tự khác nhau — hash của str được ngẫu nhiên hoá mỗi tiến
+    trình."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for n in list(ref_names or []) + _BRACE_RE.findall(text or ""):
+        e = by_name.get(_norm(n))
+        if e and e["id"] not in seen:
+            seen.add(e["id"])
+            out.append(e)
+    return out
+
+
+def _unknown_brace_names(text: str, by_name: dict) -> list[str]:
+    """Tên trong {ngoặc} mà dự án KHÔNG có thực thể nào tên vậy — token chết, không bind được
+    ảnh nào. Giữ nguyên văn người dùng gõ để báo lại cho họ sửa."""
+    seen, out = set(), []
+    for n in _BRACE_RE.findall(text or ""):
+        n = n.strip()
+        k = _norm(n)
+        if n and k not in by_name and k not in seen:
+            seen.add(k)
+            out.append(n)
+    return out
+
+
 def _resolve_shot_refs(text: str, ref_names, by_name: dict, scene_loc_id: Optional[str]) -> list[str]:
     """A shot references EXACTLY one location (the scene's) plus every NON-location entity
     actually named in the prompt ({braces}) or ref_entity_names. Any other location is dropped
     so a shot never mixes places, and an entity mentioned in the prompt is always referenced."""
-    names = set(ref_names or []) | _brace_names(text)
-    other_ids: list[str] = []
-    for n in names:
-        e = by_name.get(_norm(n))
-        if e and e["type"] != "location" and e["id"] not in other_ids:
-            other_ids.append(e["id"])
+    other_ids = [e["id"] for e in _named_entities(text, ref_names, by_name)
+                 if e["type"] != "location"]
     return ([scene_loc_id] if scene_loc_id else []) + other_ids
 
 
@@ -3001,8 +3028,19 @@ async def add_shots_bulk(sid: str, body: BulkShotsRequest):
     """Thêm NHIỀU shot vào cuối scene, mỗi dòng của `text` là một prompt.
 
     Tiêu đề lấy theo đầu prompt chứ không phải "Shot 7": thẻ trên lưới hiện `title`, mà một
-    lưới 20 thẻ đánh số thì chẳng nói lên gì — chỗ duy nhất phân biệt được chúng là prompt."""
-    await _scene_or_404(sid)
+    lưới 20 thẻ đánh số thì chẳng nói lên gì — chỗ duy nhất phân biệt được chúng là prompt.
+
+    Token `{tên}` trong prompt được TRA ngay lúc thêm: tên nào khớp một thực thể của dự án thì
+    thực thể ấy vào `ref_entity_ids`, nên Node Editor mọc sẵn node "Nguồn ảnh" nối vào node tạo
+    ảnh/tạo video (client tự làm việc đó từ `ref_entity_ids`, xem `ensureRefSources`), và ⚡ tạo
+    nhanh bind đúng những ảnh ấy. Trước đây shot thêm hàng loạt luôn ra `[]`, nên prompt viết
+    `{Mai}` vẫn chạy như thể không có ảnh tham chiếu nào.
+
+    Khác `_resolve_shot_refs` một điểm: bối cảnh lấy từ CHÍNH prompt, không phải của scene. Mỗi
+    dòng người dùng dán vào là một prompt độc lập chứ không phải shot AI viết cho đúng một cảnh,
+    nên prompt không gọi tên bối cảnh nào thì shot không có ảnh bối cảnh. Vẫn chỉ MỘT bối cảnh
+    (cái được gọi tên đầu tiên) — một shot không trộn hai nơi chốn."""
+    scene = await _scene_or_404(sid)
     if body.field not in {"description", "motion_prompt"}:
         raise HTTPException(400, f"field phải là description hoặc motion_prompt, "
                                  f"không phải {body.field!r}")
@@ -3013,19 +3051,38 @@ async def add_shots_bulk(sid: str, body: BulkShotsRequest):
         raise HTTPException(400, f"{len(prompts)} dòng là quá nhiều "
                                  f"(tối đa {BULK_SHOTS_MAX} shot một lượt)")
 
+    erows = await db.query_all(
+        "SELECT id, name, type, media_id FROM entity WHERE project_id=?", (scene["project_id"],))
+    by_name = _index_by_name(erows)
+
     ts = db.now()
     start = await _next_shot_idx(sid)
     ids = []
+    linked: dict[str, str] = {}      # id → tên, các thực thể đã bind (báo lại cho UI)
+    no_image: dict[str, str] = {}    # khớp tên nhưng CHƯA có ảnh → không thành node Nguồn ảnh
+    unknown: list[str] = []          # {tên} không khớp thực thể nào
     for i, prompt in enumerate(prompts):
+        ents = _named_entities(prompt, None, by_name)
+        ref_ids = ([e["id"] for e in ents if e["type"] == "location"][:1]
+                   + [e["id"] for e in ents if e["type"] != "location"])
+        for e in ents:
+            if e["id"] in ref_ids:
+                (linked if e.get("media_id") else no_image)[e["id"]] = e["name"]
+        for n in _unknown_brace_names(prompt, by_name):
+            if n not in unknown:
+                unknown.append(n)
         shot_id = db.new_id()
         ids.append(shot_id)
         await db.insert("shot", {
             "id": shot_id, "scene_id": sid, "idx": start + i,
             "title": _short_title(prompt) or f"Shot {start + i + 1}",
-            "description": "", "ref_entity_ids": "[]", "duration": 8,
+            "description": "", "ref_entity_ids": json.dumps(ref_ids), "duration": 8,
             "status": "pending", "created_at": ts, "updated_at": ts,
             body.field: prompt})
     return {"added": len(ids), "ids": ids,
+            "refs": {"linked": sorted(linked.values()),
+                     "no_image": sorted(no_image.values()),
+                     "unknown": unknown},
             "shots": await db.query_all(
                 "SELECT * FROM shot WHERE scene_id=? ORDER BY idx", (sid,))}
 

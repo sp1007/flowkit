@@ -638,8 +638,21 @@ export const storyboard = {
   // Thêm hàng loạt: MỖI DÒNG của `text` là một prompt → một shot, nối vào cuối scene.
   // `field` phải khớp tab gọi nó: "description" = prompt ẢNH (Storyboard), "motion_prompt"
   // = prompt VIDEO (Shots). Server lo phần tách dòng (bỏ dòng trống, cắt "1."/"-"/"•").
+  //
+  // Server cũng TRA luôn token `{tên}` trong prompt: khớp thực thể nào thì thực thể ấy vào
+  // `ref_entity_ids` của shot (→ Node Editor mọc sẵn node "Nguồn ảnh"). `refs` là bản báo
+  // cáo của lượt tra đó — client chỉ HIỂN THỊ, không tự khớp lại theo luật riêng.
   addShotsBulk: (sid: string, text: string, field: "description" | "motion_prompt") =>
-    req<{ added: number; ids: string[]; shots: Shot[] }>(`/scenes/${sid}/shots/bulk`, {
+    req<{
+      added: number;
+      ids: string[];
+      shots: Shot[];
+      refs: {
+        linked: string[];    // thực thể đã bind (có ảnh) — sẽ thành ảnh tham chiếu
+        no_image: string[];  // khớp tên nhưng CHƯA sinh ảnh → chưa bind được gì
+        unknown: string[];   // {tên} không khớp thực thể nào trong dự án
+      };
+    }>(`/scenes/${sid}/shots/bulk`, {
       method: "POST",
       body: JSON.stringify({ text, field }),
     }),

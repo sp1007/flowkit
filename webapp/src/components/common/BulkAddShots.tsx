@@ -19,6 +19,20 @@ export function previewPrompts(text: string): string[] {
     .filter(Boolean);
 }
 
+type Refs = { linked: string[]; no_image: string[]; unknown: string[] };
+
+function ChipRow({ names, cls }: { names: string[]; cls: string }) {
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {names.map((n) => (
+        <span key={n} className={`rounded px-1.5 py-0.5 text-[11px] ${cls}`}>
+          {"{"}{n}{"}"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function BulkAddShots({
   sceneId,
   sceneTitle,
@@ -36,6 +50,10 @@ export default function BulkAddShots({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Báo cáo tra token `{tên}` của SERVER. Có gì đáng nói (bind được ảnh, hay có token chết)
+  // thì giữ hộp thoại lại để báo, thay vì đóng cái rụp — token gõ sai tên là lỗi âm thầm:
+  // shot vẫn tạo, chỉ không có ảnh tham chiếu, và chỉ lòi ra khi ảnh render xong đã sai.
+  const [done, setDone] = useState<(Refs & { added: number }) | null>(null);
   const lines = useMemo(() => previewPrompts(text), [text]);
   const isVideo = field === "motion_prompt";
 
@@ -54,7 +72,10 @@ export default function BulkAddShots({
     try {
       const r = await storyboard.addShotsBulk(sceneId, text, field);
       onDone(r);
-      onClose();
+      const refs = r.refs;
+      if (refs && (refs.linked.length || refs.no_image.length || refs.unknown.length))
+        setDone({ ...refs, added: r.added });
+      else onClose();
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -83,6 +104,52 @@ export default function BulkAddShots({
           </button>
         </div>
 
+        {done ? (
+        <>
+        <div className="flex-1 space-y-3 overflow-auto p-5 text-sm">
+          <div className="rounded-lg bg-emerald-950/30 px-3 py-2 text-emerald-300">
+            Đã thêm <b>{done.added}</b> shot vào cuối scene.
+          </div>
+          {done.linked.length > 0 && (
+            <div>
+              <div className="text-neutral-400">
+                Đã gắn <b className="text-neutral-200">{done.linked.length}</b> thực thể làm ảnh
+                tham chiếu cho các shot có nhắc tới chúng:
+              </div>
+              <ChipRow names={done.linked} cls="bg-emerald-900/40 text-emerald-200" />
+            </div>
+          )}
+          {done.no_image.length > 0 && (
+            <div>
+              <div className="text-neutral-400">
+                Khớp tên nhưng thực thể <b className="text-amber-300">chưa có ảnh</b> — shot đã
+                trỏ tới chúng, sinh ảnh ở tab Thực thể là dùng được ngay:
+              </div>
+              <ChipRow names={done.no_image} cls="bg-amber-900/40 text-amber-200" />
+            </div>
+          )}
+          {done.unknown.length > 0 && (
+            <div>
+              <div className="text-neutral-400">
+                <b className="text-rose-300">Không có thực thể nào tên như vậy</b> — token đi
+                thẳng vào prompt chứ không bind ảnh nào. Sửa tên trong prompt hoặc tạo thực thể
+                rồi mở lại shot:
+              </div>
+              <ChipRow names={done.unknown} cls="bg-rose-900/40 text-rose-200" />
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3 border-t border-neutral-800 px-5 py-3">
+          <button
+            onClick={onClose}
+            className="ml-auto shrink-0 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+          >
+            Xong
+          </button>
+        </div>
+        </>
+        ) : (
+        <>
         <div className="flex-1 space-y-3 overflow-auto p-5">
           <p className="text-sm text-neutral-400">
             Dán vào đây, <b>mỗi dòng một prompt</b> — mỗi dòng thành một shot, nối vào cuối
@@ -92,6 +159,12 @@ export default function BulkAddShots({
             </b>
             . Dòng trống bị bỏ qua, đầu dòng kiểu danh sách (<code>1.</code>, <code>-</code>,{" "}
             <code>•</code>) được cắt.
+          </p>
+          <p className="text-sm text-neutral-400">
+            Viết tên thực thể trong ngoặc nhọn — <code>{"{cô gái Hà Nội}"}</code> — là shot tự
+            nhận ảnh của thực thể đó làm <b>ảnh tham chiếu</b> (Node Editor mở ra đã có sẵn node
+            “Nguồn ảnh” nối vào node tạo ảnh/tạo video). Tên không khớp thực thể nào sẽ được báo
+            lại sau khi thêm.
           </p>
 
           {err && (
@@ -144,6 +217,8 @@ export default function BulkAddShots({
             {busy ? "Đang thêm…" : `Thêm ${lines.length || ""} shot`}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
