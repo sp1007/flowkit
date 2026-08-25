@@ -4721,6 +4721,10 @@ class MusicSettingsRequest(BaseModel):
 class AddTrackRequest(BaseModel):
     audio_url: str
     title: Optional[str] = None
+    # Conversation Flow Music mà bài này ra đời trong đó — hiện kèm trong playlist để nhận
+    # mặt, vì tên bài do Flow Music tự đặt hay trùng nhau.
+    conversation_id: Optional[str] = None
+    conversation_title: Optional[str] = None
 
 
 class SaveMusicVideoRequest(BaseModel):
@@ -4972,14 +4976,59 @@ async def build_music_video(pid: str, body: BuildMusicVideoRequest):
             "size_mb": round(out.stat().st_size / 1e6, 1)}
 
 
+# `.../clips/<uuid>.m4a` — clip_id nằm ngay trong tên file, đủ để đối chiếu một bài với
+# conversation đã đẻ ra nó mà không phải gọi thêm `/clips`. Cùng biểu thức với
+# `clipIdFromAudioUrl` của webapp; đòi đúng UUID để không nhận nhầm URL nguồn khác.
+_CLIP_ID_RE = re.compile(r"/clips/([0-9a-f-]{36})\.", re.I)
+
+
+def _clip_id_of(audio_url: str | None) -> str | None:
+    m = _CLIP_ID_RE.search(str(audio_url or ""))
+    return m.group(1) if m else None
+
+
+def _convo_clip_ids(convo: dict) -> set[str]:
+    """Mọi clip_id do `audio__create_song` sinh ra trong một conversation (A/B là hai id)."""
+    ids: set[str] = set()
+    for m in (convo or {}).get("messages") or []:
+        for part in m.get("parts") or []:
+            if part.get("part_kind") != "tool-return" or part.get("tool_name") != "audio__create_song":
+                continue
+            content = part.get("content") or {}
+            for key in ("clip_id", "clip_id_b"):
+                if content.get(key):
+                    ids.add(content[key])
+    return ids
+
+
+async def _conversation_title(conversation_id: str | None) -> str | None:
+    """Tên conversation Flow Music, hoặc None. Best-effort: chỉ để hiển thị cho dễ nhận mặt,
+    hỏng thì bài vẫn được thêm bình thường."""
+    if not conversation_id:
+        return None
+    try:
+        data = await get_music_client().get_conversation(conversation_id)
+    except Exception:  # noqa: BLE001 — không bao giờ chặn việc thêm bài
+        return None
+    convo = (data or {}).get("data", data)
+    if not isinstance(convo, dict):
+        return None
+    return (convo.get("title") or "").strip() or None
+
+
 @router.post("/projects/{pid}/music/add")
 async def add_track_from_url(pid: str, body: AddTrackRequest):
     """Thêm vào playlist một bài đã biết `audio_url` — bản A/B vừa sinh, hoặc bài cũ trong
     thư viện flowmusic.app (`GET /api/music/conversations/{id}`)."""
     await _project_or_404(pid)
     dest = await _download_track(pid, body.audio_url)
+    # Biết id mà chưa biết tên (bản A/B chọn sau lượt sinh) thì hỏi Flow Music luôn —
+    # không có tên thì cột này vô dụng, mà lần sau muốn lấy phải quét cả thư viện.
     await music_mod.add_track(pid, dest, title=body.title or dest.stem,
-                              source="flowmusic", audio_url=body.audio_url)
+                              source="flowmusic", audio_url=body.audio_url,
+                              conversation_id=body.conversation_id,
+                              conversation_title=(body.conversation_title
+                                                  or await _conversation_title(body.conversation_id)))
     return await music_status(pid)
 
 
@@ -5003,10 +5052,52 @@ async def generate_track(pid: str, body: GenerateTrackRequest):
                 "conversation_id": result.get("conversation_id"), "songs": songs}
     song = songs[0]
     dest = await _download_track(pid, song["audio_url"])
+    cid = result.get("conversation_id")
     await music_mod.add_track(pid, dest, title=body.title or song.get("title") or dest.stem,
-                              source="flowmusic", audio_url=song["audio_url"], meta=song)
+                              source="flowmusic", audio_url=song["audio_url"], meta=song,
+                              conversation_id=cid,
+                              conversation_title=await _conversation_title(cid))
     return {**(await music_status(pid)), "generated": song,
-            "conversation_id": result.get("conversation_id")}
+            "conversation_id": cid}
+
+
+@router.post("/projects/{pid}/music/link-conversations")
+async def link_track_conversations(pid: str, limit: int = 30):
+    """Điền tên conversation cho những bài thêm vào TRƯỚC khi có cột này.
+
+    Đối chiếu bằng clip_id lấy từ chính `audio_url` (không cần gọi `/clips`), nên mỗi
+    conversation chỉ tốn một lượt đọc. Bài tải lên từ máy không có audio_url → bỏ qua."""
+    await _project_or_404(pid)
+    rows = [r for r in await music_mod.tracks(pid)
+            if not r.get("conversation_id") and _clip_id_of(r.get("audio_url"))]
+    if not rows:
+        return {**await music_status(pid), "linked": 0, "scanned": 0}
+    client = get_music_client()
+    if not client.connected:
+        raise HTTPException(503, "Extension Flow Music chưa kết nối")
+    want = {_clip_id_of(r["audio_url"]): r for r in rows}
+
+    listed = await client.list_conversations(limit=limit)
+    convos = listed.get("data", listed)
+    if isinstance(convos, dict):
+        convos = convos.get("conversations") or convos.get("items") or []
+    linked = 0
+    for c in convos or []:
+        if not want:
+            break
+        cid = c.get("id")
+        if not cid:
+            continue
+        got = await client.get_conversation(cid)
+        convo = got.get("data", got)
+        if not isinstance(convo, dict):
+            continue
+        title = (c.get("title") or convo.get("title") or "").strip() or None
+        for clip_id in _convo_clip_ids(convo) & set(want):
+            await db.update("music_track", want.pop(clip_id)["id"],
+                            {"conversation_id": cid, "conversation_title": title})
+            linked += 1
+    return {**await music_status(pid), "linked": linked, "scanned": len(convos or [])}
 
 
 @router.post("/projects/{pid}/music/reorder")

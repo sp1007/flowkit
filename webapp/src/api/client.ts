@@ -134,6 +134,11 @@ export interface MusicTrack {
   duration: number;
   source: string; // flowmusic | upload
   audio_url: string | null;
+  /** Conversation Flow Music đã đẻ ra bài này — tên bài hay trùng nên đây mới là thứ nhận
+   *  mặt được. null với bài tải lên từ máy, hoặc bài thêm trước khi có cột này
+   *  (bấm "Nhận diện conversation" để điền bù). */
+  conversation_id: string | null;
+  conversation_title: string | null;
   /** /studio-media/... — phát trực tiếp trong trình duyệt. */
   web_path: string | null;
 }
@@ -306,11 +311,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ prompt, conversation_id: conversationId ?? null }),
     }),
-  addTrack: (id: string, audioUrl: string, title?: string | null) =>
+  addTrack: (
+    id: string, audioUrl: string, title?: string | null,
+    conversation?: { id?: string | null; title?: string | null } | null,
+  ) =>
     req<MusicStatus>(`/projects/${id}/music/add`, {
       method: "POST",
-      body: JSON.stringify({ audio_url: audioUrl, title }),
+      body: JSON.stringify({
+        audio_url: audioUrl, title,
+        conversation_id: conversation?.id ?? null,
+        conversation_title: conversation?.title ?? null,
+      }),
     }),
+  // Điền tên conversation cho các bài thêm vào trước khi có cột này (đối chiếu bằng clip_id
+  // trong audio_url). Cần extension Flow Music đang kết nối.
+  linkTrackConversations: (id: string) =>
+    req<MusicStatus & { linked: number; scanned: number }>(
+      `/projects/${id}/music/link-conversations`, { method: "POST" }),
   reorderTracks: (id: string, ids: string[]) =>
     req<MusicStatus>(`/projects/${id}/music/reorder`, {
       method: "POST",

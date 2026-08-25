@@ -188,6 +188,11 @@ _MIGRATIONS = [
     # như cũ. >0 = lặp lại playlist cho tới mốc gần đích nhất — cắt ở RANH GIỚI BÀI,
     # không bao giờ cắt ngang một bài, nên độ dài thật chỉ xấp xỉ con số này.
     ("project", "music_target_min", "REAL"),
+    # Conversation của Flow Music đã đẻ ra bài này. Tên bài do Flow Music tự đặt hay bị
+    # trùng/mơ hồ ("Paper Rain"), còn tên conversation là thứ người dùng gõ ra nên nhận
+    # mặt dễ hơn — hiện kèm trong playlist. NULL với bài tải lên từ máy.
+    ("music_track", "conversation_id", "TEXT"),
+    ("music_track", "conversation_title", "TEXT"),
     # Chủ sở hữu dự án = tài khoản Flow đã tạo nó (account.id). Media/media_id của Flow chỉ
     # resolve được bằng token của đúng account đó, nên dự án không dùng chung được giữa các
     # account. NULL = dự án có từ trước khi có phân tài khoản (được nhận về cho account đầu

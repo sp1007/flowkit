@@ -39,6 +39,8 @@ export default function MusicManager({
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [candidates, setCandidates] = useState<MusicSong[] | null>(null);
+  // Conversation của lượt sinh vừa rồi — bản A/B được chọn sau nên phải giữ lại để lưu kèm.
+  const [candConvo, setCandConvo] = useState<string | null>(null);
 
   const generate = async () => {
     if (!prompt.trim()) return;
@@ -53,6 +55,7 @@ export default function MusicManager({
           : await api.generateBgm(project.id, prompt.trim(), null, volume);
       if ("pending_selection" in r) {
         setCandidates(r.songs);
+        setCandConvo(r.conversation_id ?? null);
       } else if (mode === "playlist") {
         onTracks?.(r as MusicStatus);
         setAdded((r as any).generated?.title || "Bài vừa sinh");
@@ -67,13 +70,16 @@ export default function MusicManager({
     }
   };
 
-  const pick = async (song: MusicSong) => {
+  // `convo` = đoạn chat Flow Music mà bài này ra đời trong đó. Tên bài do Flow Music tự đặt
+  // hay trùng nhau ("Paper Rain"), nên playlist hiện kèm tên conversation để nhận mặt — lưu
+  // ngay lúc thêm, vì sau đó không còn đường nào lần ngược ra ngoài việc quét cả thư viện.
+  const pick = async (song: MusicSong, convo?: { id?: string | null; title?: string | null }) => {
     setBusy(true);
     setErr(null);
     try {
       if (mode === "playlist") {
         // Không đóng: thêm xong thường muốn thêm luôn bài kế cho đủ playlist.
-        onTracks?.(await api.addTrack(project.id, song.audio_url, song.title));
+        onTracks?.(await api.addTrack(project.id, song.audio_url, song.title, convo));
         setAdded(song.title || "(không tên)");
       } else {
         onApplied?.(await api.selectBgm(project.id, song.audio_url, volume));
@@ -208,7 +214,7 @@ export default function MusicManager({
                   </p>
                   {candidates.map((s) => (
                     <SongCard key={s.clip_id} song={s} busy={busy} mode={mode}
-                      onPick={() => pick(s)} />
+                      onPick={() => pick(s, { id: candConvo, title: null })} />
                   ))}
                 </div>
               )}
@@ -253,7 +259,7 @@ export default function MusicManager({
                       )}
                       {expandedSongs?.map((s) => (
                         <SongCard key={s.clip_id} song={s} busy={busy} mode={mode}
-                          onPick={() => pick(s)} />
+                          onPick={() => pick(s, { id: c.id, title: c.title })} />
                       ))}
                     </div>
                   )}

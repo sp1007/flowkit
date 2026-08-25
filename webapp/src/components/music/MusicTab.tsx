@@ -23,6 +23,7 @@ function mmss(s: number): string {
 export default function MusicTab({ project }: { project: Project }) {
   const [st, setSt] = useState<MusicStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [linkMsg, setLinkMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [picker, setPicker] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -81,6 +82,9 @@ export default function MusicTab({ project }: { project: Project }) {
   const gap = st?.gap ?? 3;
   const short = st?.shortfall ?? 0;
   const targetMin = st?.target_min ?? 0;
+  // Bài sinh từ Flow Music mà chưa biết đoạn chat — chỉ những bài này mới điền bù được
+  // (bài tải lên từ máy vốn không thuộc đoạn chat nào).
+  const unlinked = tracks.filter((t) => t.source === "flowmusic" && !t.conversation_title).length;
   // Điểm cắt luôn rơi vào ranh giới BÀI nên độ dài thật lệch đích một ít — nói ra con số
   // lệch, đừng để người dùng tự đoán vì sao đặt 60 phút mà ra 61′03″.
   const off = targetMin > 0 ? (st?.music_duration ?? 0) - targetMin * 60 : 0;
@@ -186,6 +190,26 @@ export default function MusicTab({ project }: { project: Project }) {
         </div>
 
         {/* Playlist */}
+        {unlinked > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/40 px-4 py-2 text-xs text-neutral-500">
+            <span>{unlinked} bài chưa biết thuộc đoạn chat nào (thêm trước khi có mục này).</span>
+            <button
+              onClick={() => run(async () => {
+                const r = await api.linkTrackConversations(project.id);
+                setLinkMsg(r.linked
+                  ? `Đã nhận diện ${r.linked} bài (quét ${r.scanned} đoạn chat).`
+                  : `Không khớp bài nào trong ${r.scanned} đoạn chat gần nhất — có thể đoạn chat đã bị xoá.`);
+                return r;
+              })}
+              disabled={busy}
+              className="rounded-lg border border-neutral-700 px-2.5 py-1 hover:bg-neutral-800 disabled:opacity-40"
+              title="Đối chiếu clip_id trong audio_url với các đoạn chat gần nhất trên Flow Music"
+            >
+              🔗 Nhận diện đoạn chat
+            </button>
+            {linkMsg && <span className="text-neutral-400">{linkMsg}</span>}
+          </div>
+        )}
         <div className="space-y-2">
           {tracks.length === 0 && (
             <p className="rounded-xl border border-dashed border-neutral-800 px-4 py-8 text-center text-sm text-neutral-500">
@@ -230,6 +254,13 @@ export default function MusicTab({ project }: { project: Project }) {
                   }}
                   className="w-full truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-sm text-neutral-200 hover:border-neutral-700 focus:border-indigo-500 focus:outline-none"
                 />
+                {t.conversation_title ? (
+                  <p className="truncate px-1 text-xs text-neutral-500" title={t.conversation_title}>
+                    💬 {t.conversation_title}
+                  </p>
+                ) : t.source === "flowmusic" ? (
+                  <p className="px-1 text-xs text-neutral-700">💬 chưa rõ đoạn chat</p>
+                ) : null}
                 {t.web_path && <audio controls src={t.web_path} className="mt-1 h-8 w-full" />}
               </div>
               <span className="shrink-0 text-xs tabular-nums text-neutral-500">

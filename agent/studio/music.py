@@ -123,7 +123,9 @@ async def next_idx(project_id: str) -> int:
 
 
 async def add_track(project_id: str, src: Path, *, title: str, source: str,
-                    audio_url: str | None = None, meta: dict | None = None) -> dict:
+                    audio_url: str | None = None, meta: dict | None = None,
+                    conversation_id: str | None = None,
+                    conversation_title: str | None = None) -> dict:
     """Ghi một file nhạc đã nằm sẵn trong thư mục music của dự án thành một track."""
     dur = await probe_duration(src)
     row = {
@@ -131,6 +133,8 @@ async def add_track(project_id: str, src: Path, *, title: str, source: str,
         "title": title or src.stem, "path": str(src), "duration": dur,
         "source": source, "audio_url": audio_url,
         "meta_json": json.dumps(meta) if meta else None,
+        "conversation_id": conversation_id,
+        "conversation_title": (conversation_title or "").strip() or None,
         "created_at": db.now(),
     }
     await db.insert("music_track", row)
