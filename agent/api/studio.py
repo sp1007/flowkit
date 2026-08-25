@@ -4714,6 +4714,8 @@ async def select_bgm(pid: str, body: SelectBgmRequest):
 class MusicSettingsRequest(BaseModel):
     music_mode: Optional[bool] = None
     gap: Optional[float] = None
+    # Độ dài mong muốn của cả video music, PHÚT. 0 = playlist chạy đúng một lượt.
+    target_min: Optional[float] = None
 
 
 class AddTrackRequest(BaseModel):
@@ -4798,6 +4800,8 @@ async def music_settings(pid: str, body: MusicSettingsRequest):
         fields["music_mode"] = 1 if body.music_mode else 0
     if body.gap is not None:
         fields["music_gap"] = max(0.0, float(body.gap))
+    if body.target_min is not None:
+        fields["music_target_min"] = max(0.0, float(body.target_min)) or None
     if fields:
         fields["updated_at"] = db.now()
         await db.update("project", pid, fields)

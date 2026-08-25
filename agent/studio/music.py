@@ -65,6 +65,57 @@ def total_duration(rows: list[dict], gap: float) -> float:
     return songs + gap * (len(rows) - 1)
 
 
+def target_seconds(project: dict) -> float:
+    """Độ dài mong muốn của cả video music, GIÂY (cột lưu bằng phút). 0 = không đặt đích."""
+    try:
+        return max(0.0, float(project.get("music_target_min") or 0.0) * 60.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# Trần số lượt phát, chặn playlist toàn bài hỏng (duration 0) làm vòng lặp chạy mãi.
+MAX_PLAYS = 2000
+
+
+def playlist_plan(rows: list[dict], gap: float, target_s: float = 0.0) -> list[dict]:
+    """Thứ tự phát THẬT của playlist: [{track, start, duration}] tính bằng giây.
+
+    Không đặt đích (`target_s <= 0`) → đúng một lượt qua danh sách, y như trước.
+
+    Có đích → lặp lại cả playlist cho tới khi CHẠM MỐC GẦN ĐÍCH NHẤT. Điểm cắt luôn nằm ở
+    ranh giới giữa hai bài: bài hát không bao giờ bị cắt ngang, nên tổng chỉ XẤP XỈ đích —
+    thà lệch vài chục giây còn hơn kết thúc giữa một câu hát. Luôn có ít nhất một bài, kể cả
+    khi đích ngắn hơn bài đầu tiên.
+    """
+    rows = [r for r in rows if float(r.get("duration") or 0.0) > 0]
+    if not rows:
+        return []
+    plan: list[dict] = []
+    pos = 0.0
+    k = 0
+    while k < MAX_PLAYS:
+        r = rows[k % len(rows)]
+        dur = float(r["duration"])
+        start = pos + (gap if plan else 0.0)
+        end = start + dur
+        if plan:
+            if target_s <= 0:
+                if k >= len(rows):        # hết một lượt → dừng
+                    break
+            # Dừng khi thêm bài này làm tổng RỜI XA đích hơn là dừng ngay tại đây.
+            elif abs(pos - target_s) <= abs(end - target_s):
+                break
+        plan.append({"track": r, "start": start, "duration": dur})
+        pos = end
+        k += 1
+    return plan
+
+
+def plan_duration(plan: list[dict]) -> float:
+    """Tổng thời lượng của một kế hoạch phát (tới lúc bài cuối dứt, không có khoảng lặng đuôi)."""
+    return (plan[-1]["start"] + plan[-1]["duration"]) if plan else 0.0
+
+
 async def next_idx(project_id: str) -> int:
     row = await db.query_one(
         "SELECT MAX(idx) AS m FROM music_track WHERE project_id=?", (project_id,))
@@ -117,22 +168,44 @@ async def build_soundtrack(project: dict) -> tuple[Path, float] | None:
     if not rows:
         return None
     gap = gap_of(project)
+    plan = playlist_plan(rows, gap, target_seconds(project))
+    if not plan:
+        return None
     out_dir = STUDIO_MEDIA_DIR / pid
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "soundtrack.m4a"
 
+    # Mỗi FILE vào đúng một lần rồi `asplit` ra đủ số lượt phát: đặt đích 60 phút với bài 30
+    # giây là 120 lượt, mở 120 input chỉ để phát lại cùng một file sẽ đội dòng lệnh lên quá
+    # giới hạn của Windows.
+    files: list[str] = []
+    uses: dict[str, int] = {}
+    for e in plan:
+        f = str(Path(e["track"]["path"]))
+        if f not in uses:
+            files.append(f)
+            uses[f] = 0
+        uses[f] += 1
+
     args: list[str] = ["ffmpeg", "-y"]
-    for r in rows:
-        args += ["-i", str(Path(r["path"]))]
-    parts, labels = [], []
-    for i in range(len(rows)):
+    for f in files:
+        args += ["-i", f]
+    parts: list[str] = []
+    for i, f in enumerate(files):
+        outs = "".join(f"[a{i}_{j}]" for j in range(uses[f]))
         parts.append(f"[{i}:a]aresample=44100,aformat=sample_fmts=fltp:"
-                     f"channel_layouts=stereo[a{i}]")
-        labels.append(f"[a{i}]")
-        if gap > 0 and i < len(rows) - 1:
+                     f"channel_layouts=stereo,asplit={uses[f]}{outs}")
+    taken: dict[str, int] = {f: 0 for f in files}
+    labels: list[str] = []
+    for k, e in enumerate(plan):
+        f = str(Path(e["track"]["path"]))
+        i = files.index(f)
+        labels.append(f"[a{i}_{taken[f]}]")
+        taken[f] += 1
+        if gap > 0 and k < len(plan) - 1:
             parts.append(f"anullsrc=channel_layout=stereo:sample_rate=44100,"
-                         f"atrim=duration={gap:.3f}[g{i}]")
-            labels.append(f"[g{i}]")
+                         f"atrim=duration={gap:.3f}[g{k}]")
+            labels.append(f"[g{k}]")
     parts.append(f"{''.join(labels)}concat=n={len(labels)}:v=0:a=1[out]")
     args += ["-filter_complex", ";".join(parts), "-map", "[out]",
              "-c:a", "aac", "-b:a", "192k", str(out)]
@@ -184,7 +257,12 @@ async def status(project: dict) -> dict:
     pid = project["id"]
     rows = await tracks(pid)
     gap = gap_of(project)
-    music = total_duration(rows, gap)
+    # `music` = độ dài THẬT của dải nhạc sẽ dựng (đã tính lặp theo đích), vì đó mới là con số
+    # quyết định độ dài video; `playlist` = một lượt qua danh sách, để đối chiếu.
+    target = target_seconds(project)
+    plan = playlist_plan(rows, gap, target)
+    music = plan_duration(plan)
+    playlist = total_duration(rows, gap)
 
     final = STUDIO_MEDIA_DIR / pid / "final.mp4"
     video, measured = 0.0, False
@@ -201,6 +279,11 @@ async def status(project: dict) -> dict:
         "gap": gap,
         "music_mode": bool(project.get("music_mode")),
         "music_duration": music,
+        # Đích người dùng đặt (phút, 0 = không đặt) + kế hoạch phát thật để UI nói rõ playlist
+        # phải lặp mấy lượt và lệch đích bao nhiêu (điểm cắt luôn rơi vào ranh giới bài).
+        "target_min": round(target / 60.0, 2),
+        "playlist_duration": playlist,
+        "plays": len(plan),
         "video_duration": video,
         "video_measured": measured,
         # >0 = hình còn thiếu bấy nhiêu giây so với nhạc (sẽ được lặp để bù khi ghép).

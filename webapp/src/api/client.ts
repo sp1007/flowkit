@@ -51,6 +51,9 @@ export interface Project {
   music_mode?: number | null;
   // Khoảng lặng giữa hai bài liên tiếp trong playlist (giây).
   music_gap?: number | null;
+  // Đích độ dài cả video music (PHÚT). Trống/0 = playlist chạy một lượt; >0 = lặp playlist
+  // tới mốc gần đích nhất, cắt ở ranh giới BÀI nên độ dài thật chỉ xấp xỉ.
+  music_target_min?: number | null;
   // Ghi đè các PROMPT NGẦM (xem PROMPT_KEYS): trống = mặc định của agent, "-" = tắt khối đó.
   tpl_single_frame?: string | null;
   tpl_single_frame_grid?: string | null;
@@ -145,6 +148,12 @@ export interface MusicStatus {
   video_measured: boolean;
   /** Hình còn thiếu bao nhiêu giây so với nhạc (sẽ lặp hình để bù khi ghép). */
   shortfall: number;
+  /** Đích độ dài cả video music (phút). 0 = playlist chạy đúng một lượt. */
+  target_min: number;
+  /** Một lượt qua danh sách (không tính lặp) — để đối chiếu với music_duration. */
+  playlist_duration: number;
+  /** Số LƯỢT phát trong kế hoạch (playlist lặp lại thì lớn hơn số bài). */
+  plays: number;
 }
 
 export type GenerateTrackResult =
@@ -274,7 +283,7 @@ export const api = {
   // Nhiều bài phát nối tiếp, cách nhau `gap` giây; tổng thời lượng playlist quyết định độ dài
   // video (hình được lặp cho phủ kín khi ghép). Khác hẳn bgm ở trên — một bài chìm dưới lời đọc.
   musicStatus: (id: string) => req<MusicStatus>(`/projects/${id}/music`),
-  musicSettings: (id: string, body: { music_mode?: boolean; gap?: number }) =>
+  musicSettings: (id: string, body: { music_mode?: boolean; gap?: number; target_min?: number }) =>
     req<MusicStatus>(`/projects/${id}/music/settings`, {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -836,8 +845,8 @@ export const assemble = {
           width: number; height: number; fps: number; duration: number;
           // Chế độ music video: playlist là tiếng chính, độ dài của nó quyết định độ
           // dài timeline (`loops` = số vòng dãy shot phải lặp để phủ kín). null = tắt.
-          music: { songs: number; loops: number; gap: number; duration: number;
-                   shots_duration: number } | null;
+          music: { songs: number; plays: number; loops: number; gap: number;
+                   target_min: number; duration: number; shots_duration: number } | null;
           hd_leftover: number; hd_leftover_titles: string[] }>(`/projects/${pid}/export/davinci-xml`, {
       method: "POST",
     }),

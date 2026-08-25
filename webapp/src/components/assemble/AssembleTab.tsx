@@ -17,8 +17,8 @@ export default function AssembleTab({ project }: { project: Project }) {
     clips: number; captions: number; bgm: boolean; missing: number; missingTitles: string[];
     width: number; height: number; fps: number; duration: number;
     hdLeftover: number; hdLeftoverTitles: string[];
-    music: { songs: number; loops: number; gap: number; duration: number;
-             shots_duration: number } | null;
+    music: { songs: number; plays: number; loops: number; gap: number;
+             target_min: number; duration: number; shots_duration: number } | null;
   } | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [kenBurns, setKenBurns] = useState(true);
@@ -188,8 +188,11 @@ export default function AssembleTab({ project }: { project: Project }) {
           {xmlInfo?.music && (
             <div className="mb-2 text-indigo-300">
               🎵 Chế độ music video: {xmlInfo.music.songs} bài là tiếng chính
-              {xmlInfo.music.gap > 0 ? ` (cách nhau ${xmlInfo.music.gap}s)` : ""} —
-              độ dài timeline lấy theo playlist ({xmlInfo.music.duration.toFixed(1)}s).{" "}
+              {xmlInfo.music.gap > 0 ? ` (cách nhau ${xmlInfo.music.gap}s)` : ""}
+              {xmlInfo.music.plays > xmlInfo.music.songs
+                ? ` — playlist lặp thành ${xmlInfo.music.plays} lượt phát cho gần đích ${xmlInfo.music.target_min} phút`
+                : ""} —
+              độ dài timeline lấy theo nhạc ({xmlInfo.music.duration.toFixed(1)}s).{" "}
               {xmlInfo.music.loops > 1
                 ? `Dãy shot dài ${xmlInfo.music.shots_duration.toFixed(1)}s nên được lặp ${xmlInfo.music.loops} vòng cho phủ kín, vòng cuối cắt đúng lúc nhạc dứt.`
                 : `Dãy shot dài ${xmlInfo.music.shots_duration.toFixed(1)}s nên phần thừa đã cắt ở lúc nhạc dứt.`}

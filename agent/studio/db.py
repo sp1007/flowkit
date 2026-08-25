@@ -184,6 +184,10 @@ _MIGRATIONS = [
     ("project", "music_mode", "INTEGER DEFAULT 0"),
     # Khoảng lặng chèn GIỮA hai bài liên tiếp (giây). Không cộng vào sau bài cuối.
     ("project", "music_gap", "REAL DEFAULT 3.0"),
+    # Độ dài MONG MUỐN của cả video music (PHÚT). Trống/0 = playlist chạy đúng một lượt
+    # như cũ. >0 = lặp lại playlist cho tới mốc gần đích nhất — cắt ở RANH GIỚI BÀI,
+    # không bao giờ cắt ngang một bài, nên độ dài thật chỉ xấp xỉ con số này.
+    ("project", "music_target_min", "REAL"),
     # Chủ sở hữu dự án = tài khoản Flow đã tạo nó (account.id). Media/media_id của Flow chỉ
     # resolve được bằng token của đúng account đó, nên dự án không dùng chung được giữa các
     # account. NULL = dự án có từ trước khi có phân tài khoản (được nhận về cho account đầu

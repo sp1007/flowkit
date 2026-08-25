@@ -48,6 +48,13 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   và timeline DaVinci (`davinci_xml.build` — playlist thành track tiếng, dãy shot lặp
   bằng nhiều clipitem cùng `file id`, clip cuối cắt bằng `out`). Ở chế độ này lời đọc,
   caption và `bgm_path` bị bỏ hẳn, đừng chồng thêm.
+  **Thứ tự phát THẬT do `music.playlist_plan` quyết định, cả hai đường đều hỏi nó.**
+  `project.music_target_min` (phút, trống = một lượt) bắt playlist LẶP tới mốc gần đích
+  nhất, và điểm cắt luôn ở RANH GIỚI BÀI — bài hát không bao giờ bị cắt ngang, nên độ
+  dài thật chỉ xấp xỉ đích (đặt 10 phút với bài 2′56″ ra 8′55″: 3 lượt gần 600s hơn 4
+  lượt). Đừng tự tính lại vòng lặp ở khâu gọi; `build_soundtrack` cũng `asplit` một
+  input thành nhiều lượt thay vì mở lại cùng file N lần (đích 60 phút với bài 30 giây
+  là 120 input, quá dòng lệnh Windows).
   Xem [agent/studio/music.py](agent/studio/music.py) + tab "Nhạc" trong workspace.
 - **⚡ tạo nhanh CHẠY chính đồ thị của shot/entity** (`_gen_via_graph` → `run_graph` với
   `only_node` = node sinh nối vào Output), nên nó và Node Editor ra kết quả y hệt nhau. Chỉ

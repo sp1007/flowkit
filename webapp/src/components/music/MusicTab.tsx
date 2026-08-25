@@ -80,6 +80,10 @@ export default function MusicTab({ project }: { project: Project }) {
   const tracks = st?.tracks ?? [];
   const gap = st?.gap ?? 3;
   const short = st?.shortfall ?? 0;
+  const targetMin = st?.target_min ?? 0;
+  // Điểm cắt luôn rơi vào ranh giới BÀI nên độ dài thật lệch đích một ít — nói ra con số
+  // lệch, đừng để người dùng tự đoán vì sao đặt 60 phút mà ra 61′03″.
+  const off = targetMin > 0 ? (st?.music_duration ?? 0) - targetMin * 60 : 0;
 
   return (
     <div className="h-full overflow-auto px-6 py-5">
@@ -126,6 +130,35 @@ export default function MusicTab({ project }: { project: Project }) {
               className="w-20 rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm outline-none focus:border-indigo-500"
             />
             <span className="text-sm text-neutral-500">giây im lặng (không cộng sau bài cuối)</span>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-3">
+            <span className="text-sm text-neutral-400">Độ dài cả video</span>
+            <input
+              type="number"
+              min={0}
+              max={600}
+              step={1}
+              defaultValue={targetMin || ""}
+              key={targetMin}
+              placeholder="0"
+              disabled={busy}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value || "0");
+                if (!isNaN(v) && v !== targetMin) run(() => api.musicSettings(project.id, { target_min: v }));
+              }}
+              className="w-20 rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm outline-none focus:border-indigo-500"
+            />
+            <span className="text-sm text-neutral-500">phút — 0 = playlist chạy đúng một lượt</span>
+            {targetMin > 0 && (
+              <p className="w-full text-xs text-neutral-500">
+                Playlist lặp lại cho tới mốc gần {targetMin} phút nhất, <b>không bao giờ cắt ngang
+                một bài</b> — nên độ dài thật là <b className="text-indigo-300">{mmss(st?.music_duration ?? 0)}</b>
+                {" "}({st?.plays ?? 0} lượt phát của {tracks.length} bài
+                {Math.abs(off) >= 1 ? `, ${off > 0 ? "dài hơn" : "ngắn hơn"} đích ${mmss(Math.abs(off))}` : ""}).
+                Hình cũng được lặp cho phủ kín rồi cắt ở đúng lúc nhạc dứt.
+              </p>
+            )}
           </div>
         </div>
 

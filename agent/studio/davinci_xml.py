@@ -530,18 +530,19 @@ async def build(project_id: str) -> dict:
         from agent.studio import music as music_mod
         rows = [r for r in await music_mod.tracks(project_id)
                 if (r.get("path") or "").strip() and Path(r["path"]).exists()]
-        if rows:
-            gap_f = round(music_mod.gap_of(project) * FPS)
-            songs, cursor = [], 0
-            for k, r in enumerate(rows):
-                ap = Path(r["path"])
-                dur = float(r.get("duration") or 0.0)
-                if dur <= 0:
-                    dur = await assembler.probe_duration(ap)
-                song_f = max(1, round(dur * FPS))
-                songs.append((r, ap, cursor, song_f))
-                cursor += song_f + (gap_f if k < len(rows) - 1 else 0)
-            music_total = cursor
+        for r in rows:                       # bài chưa đo được thì đo, plan cần duration
+            if float(r.get("duration") or 0.0) <= 0:
+                r["duration"] = await assembler.probe_duration(Path(r["path"]))
+        gap = music_mod.gap_of(project)
+        # Thứ tự phát THẬT (có lặp playlist khi dự án đặt đích độ dài) tính ở music.py, để
+        # timeline Resolve và bản ghép ffmpeg không bao giờ ra hai kế hoạch khác nhau.
+        plan = music_mod.playlist_plan(rows, gap, music_mod.target_seconds(project))
+        if plan:
+            gap_f = round(gap * FPS)
+            songs = [(e["track"], Path(e["track"]["path"]),
+                      round(e["start"] * FPS), max(1, round(e["duration"] * FPS)))
+                     for e in plan]
+            music_total = songs[-1][2] + songs[-1][3]
 
             # Dòng hình: chạy vòng qua dãy shot cho tới khi phủ hết playlist. Mỗi shot khai
             # <file> đúng MỘT lần, các vòng sau tham chiếu lại id đó (Resolve nhận cùng một
@@ -563,15 +564,22 @@ async def build(project_id: str) -> dict:
                 k += 1
             loops = -(-len(items) // n_shot)      # ceil: số vòng dãy shot phải chạy
 
-            music_items = []
-            for k, (r, ap, start, song_f) in enumerate(songs):
-                staged_song = _stage(ap, f"song{_alpha(k)}", dv_dir)
+            # Bài lặp lại chỉ staging MỘT lần và mọi lượt phát dùng chung `file id` đó —
+            # staging lại thành songa/songb… của cùng một file là Resolve import trùng.
+            music_items, staged_songs, song_slot = [], {}, {}
+            for j, (r, ap, start, song_f) in enumerate(songs):
+                key = str(ap)
+                first = key not in staged_songs
+                if first:
+                    staged_songs[key] = _stage(ap, f"song{_alpha(len(staged_songs))}", dv_dir)
+                    song_slot[key] = j
                 music_items.append(_audio_item(
-                    2000 + k, r.get("title") or f"Bài {k+1}", staged_song, start, song_f,
-                    file_dur_f=song_f))
+                    2000 + j, r.get("title") or f"Bài {j+1}", staged_songs[key], start, song_f,
+                    file_dur_f=song_f, file_id=f"songfile{song_slot[key]}", define_file=first))
             music_info = {
-                "songs": len(songs), "loops": loops,
+                "songs": len(staged_songs), "plays": len(songs), "loops": loops,
                 "gap": round(gap_f / FPS, 2),
+                "target_min": round(music_mod.target_seconds(project) / 60.0, 2),
                 "duration": round(music_total / FPS, 2),
                 "shots_duration": round(total / FPS, 2),
             }
