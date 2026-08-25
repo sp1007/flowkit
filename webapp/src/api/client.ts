@@ -863,7 +863,8 @@ export const assemble = {
           // Chế độ music video: playlist là tiếng chính, độ dài của nó quyết định độ
           // dài timeline (`loops` = số vòng dãy shot phải lặp để phủ kín). null = tắt.
           music: { songs: number; plays: number; loops: number; gap: number;
-                   target_min: number; duration: number; shots_duration: number } | null;
+                   target_min: number; duration: number; shots_duration: number;
+                   song_titles: number; title_seconds: number } | null;
           hd_leftover: number; hd_leftover_titles: string[] }>(`/projects/${pid}/export/davinci-xml`, {
       method: "POST",
     }),

@@ -18,7 +18,8 @@ export default function AssembleTab({ project }: { project: Project }) {
     width: number; height: number; fps: number; duration: number;
     hdLeftover: number; hdLeftoverTitles: string[];
     music: { songs: number; plays: number; loops: number; gap: number;
-             target_min: number; duration: number; shots_duration: number } | null;
+             target_min: number; duration: number; shots_duration: number;
+             song_titles: number; title_seconds: number } | null;
   } | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [kenBurns, setKenBurns] = useState(true);
@@ -196,7 +197,12 @@ export default function AssembleTab({ project }: { project: Project }) {
               {xmlInfo.music.loops > 1
                 ? `Dãy shot dài ${xmlInfo.music.shots_duration.toFixed(1)}s nên được lặp ${xmlInfo.music.loops} vòng cho phủ kín, vòng cuối cắt đúng lúc nhạc dứt.`
                 : `Dãy shot dài ${xmlInfo.music.shots_duration.toFixed(1)}s nên phần thừa đã cắt ở lúc nhạc dứt.`}
-              {" "}Lời đọc, caption và nhạc nền bị bỏ qua.
+              {" "}Lời đọc và nhạc nền bị bỏ qua.
+              {xmlInfo.music.song_titles > 0 && (
+                <> Đầu mỗi lượt phát có một thẻ chữ (tên bài + tên đoạn chat) dài{" "}
+                {xmlInfo.music.title_seconds}s trên track title riêng — không muốn thì tắt
+                hoặc xoá cả track đó trong Resolve.</>
+              )}
             </div>
           )}
           {/* Khung sequence do media THẬT quyết định: một shot còn bản HD là cả timeline
@@ -226,12 +232,13 @@ export default function AssembleTab({ project }: { project: Project }) {
           <span className="ml-2 text-neutral-500">Import Timeline trong Resolve; media đã được gom sẵn vào ./dv_media cạnh file XML</span>
           {srtUrl && (
             <div className="mt-2 text-neutral-300">
-              Caption từ khoá:{" "}
+              {xmlInfo?.music ? "Tên bài (phụ đề dự phòng):" : "Caption từ khoá:"}{" "}
               <a href={srtUrl} download className="text-indigo-400 hover:text-indigo-300">
                 ⭳ captions.srt
               </a>
               <span className="ml-2 text-neutral-500">
                 Kéo vào timeline Resolve → subtitle track (chạy cả bản Free; title track trong XML chỉ vào ở bản Studio)
+                {xmlInfo?.music ? " — chỉ cần khi thẻ chữ trong XML không vào" : ""}
               </span>
             </div>
           )}

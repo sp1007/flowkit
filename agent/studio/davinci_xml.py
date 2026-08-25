@@ -122,10 +122,14 @@ def _clipitem(idx: int, name: str, path: Path, start_f: int, dur_f: int, w: int,
 
 
 def _title_item(idx: int, text: str, start_f: int, dur_f: int) -> str:
-    """FCP7 'Text' generator clip (Resolve imports these onto a title track)."""
+    """FCP7 'Text' generator clip (Resolve imports these onto a title track).
+
+    `text` có thể nhiều dòng (thẻ tên bài = tên bài + tên đoạn chat); riêng <name> phải gộp
+    về MỘT dòng, không thì tên clip trên timeline Resolve xuống dòng giữa chừng."""
     end_f = start_f + dur_f
+    label = " · ".join(t for t in text.splitlines() if t.strip())
     return f"""        <clipitem id="title{idx}">
-          <name>{escape(text[:40])}</name>
+          <name>{escape(label[:60])}</name>
           <enabled>TRUE</enabled>
           <duration>{dur_f}</duration>
           <rate><timebase>{FPS}</timebase><ntsc>FALSE</ntsc></rate>
@@ -371,6 +375,8 @@ async def build_music_video(project_id: str, pairs: list[tuple[dict, Path]],
 
 
 DEFAULT_IMG_S = 4.0
+# Thẻ tên bài ở đầu mỗi lượt phát (chế độ music video) hiện bao nhiêu giây.
+SONG_TITLE_S = 6.0
 
 
 async def build(project_id: str) -> dict:
@@ -578,6 +584,7 @@ async def build(project_id: str) -> dict:
                     file_dur_f=song_f, file_id=f"songfile{song_slot[key]}", define_file=first))
             music_info = {
                 "songs": len(staged_songs), "plays": len(songs), "loops": loops,
+                "song_titles": len(songs), "title_seconds": SONG_TITLE_S,
                 "gap": round(gap_f / FPS, 2),
                 "target_min": round(music_mod.target_seconds(project) / 60.0, 2),
                 "duration": round(music_total / FPS, 2),
@@ -586,6 +593,20 @@ async def build(project_id: str) -> dict:
             total = music_total
             titles, srt, audio_runs = [], [], []
             music_track_xml = music_items
+
+            # Tên bài ở ĐẦU mỗi lượt phát, trên track title riêng (Resolve nhận
+            # generator "Text" của FCP7 thành Text+). Playlist lặp thì mỗi lượt có một
+            # thẻ, đúng kiểu mix nhạc trên YouTube. Ghi kèm ra .srt vì title track có
+            # bản Resolve bỏ qua lúc import, còn phụ đề thì bản Free cũng nhận.
+            for j, (r, _ap, start, song_f) in enumerate(songs):
+                # Dòng 1 = tên bài, dòng 2 = tên đoạn chat Flow Music đã đẻ ra nó (bài tải
+                # lên từ máy hoặc bài chưa nhận diện được đoạn chat thì chỉ có một dòng).
+                text = "\n".join(t for t in (
+                    (r.get("title") or f"Bài {j+1}").strip(),
+                    (r.get("conversation_title") or "").strip()) if t)
+                tdur = max(1, min(round(SONG_TITLE_S * FPS), song_f))
+                titles.append(_title_item(j, text, start, tdur))
+                srt.append((start / FPS, (start + tdur) / FPS, text))
 
     # narration audio track — ONE fully-defined clip per scene (see the scene loop above for why
     # per-beat slicing was dropped).
