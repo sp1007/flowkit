@@ -4,6 +4,7 @@ Phase 0: project CRUD (DB + Flow), Flow project import with thumbnails, options,
 settings, health. Heavier pipeline endpoints land in later phases.
 """
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -1519,6 +1520,9 @@ class BuildBeatsRequest(BaseModel):
     # measure=True → TTS each scene now for the real audio length (needs OmniVoice up);
     # False → estimate from word count (no quota), real length fitted later.
     measure: bool = True
+    # Chỉ dựng cho scene CHƯA có shot nào (bỏ qua scene đã dựng) — bản không phá của
+    # "Dựng shots (tất cả)", dùng khi một lượt chạy bỏ sót vài scene.
+    missing_only: bool = False
 
 
 # ≈2.5 spoken words/second (video-app.md §5.2) → estimate a narration's length without
@@ -2411,6 +2415,80 @@ def _ends_sentence(text: str) -> bool:
     return bool(t) and t[-1] in _TERM_PUNCT
 
 
+def _tts_settings(project: dict) -> tuple[int, float, float, float, float]:
+    """A project's TTS knobs, clamped: (voice_id, speed, para_gap, sentence_pause, edge_pad).
+    One place, so the prefetch pass and the build pass always hash/read the SAME settings —
+    a mismatch would silently throw the prefetched take away and re-read on Colab."""
+    voice_id = project.get("voice_id") or 0
+    speed = float(project.get("tts_speed") or 1.0)
+    para_gap = min(max(
+        float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
+    sentence_pause = min(max(
+        float(project.get("tts_sentence_gap") if project.get("tts_sentence_gap") is not None else 0.3),
+        0.0), 1.5)
+    edge_pad = min(max(
+        float(project.get("tts_edge_pad") if project.get("tts_edge_pad") is not None else 0.5),
+        0.0), 3.0)
+    return voice_id, speed, para_gap, sentence_pause, edge_pad
+
+
+# ─── TTS prefetch buffer: read the WHOLE project first, then do the slow AI work ────────────
+# OmniVoice runs on a Colab GPU whose session is rented by the CLOCK, not by how much audio it
+# actually renders. Building shots scene-by-scene interleaves a minutes-long AI segmentation with
+# a few seconds of reading, so one chapter holds the Colab session open for 1–2 HOURS to do a few
+# minutes of TTS. So the project-wide build now READS EVERY SCENE FIRST (one burst — Colab can be
+# shut down right after) and parks each raw take here; the beat pass picks it up instead of
+# calling OmniVoice again. The key covers the spoken text + voice settings, so a take that no
+# longer matches what would be said is never reused, and a take is CONSUMED (deleted) on use.
+
+def _tts_key(text: str, voice_id: int, speed: float, para_gap: float) -> str:
+    return hashlib.sha1(
+        f"{voice_id}|{speed:.3f}|{para_gap:.3f}|{_TTS_SRT}|{text}".encode("utf-8")).hexdigest()
+
+
+def _tts_prefetch_paths(pid: str, sid: str) -> tuple[Path, Path]:
+    base = media_store.MEDIA_DIR / pid
+    return base / f"narr_pre_{sid}.wav", base / f"narr_pre_{sid}.json"
+
+
+def _tts_prefetch_has(pid: str, sid: str, key: str) -> bool:
+    wav, meta = _tts_prefetch_paths(pid, sid)
+    if not (wav.exists() and meta.exists()):
+        return False
+    try:
+        return json.loads(meta.read_text("utf-8")).get("key") == key
+    except Exception:  # noqa: BLE001 — a corrupt sidecar just means "no take"
+        return False
+
+
+async def _tts_prefetch_put(pid: str, sid: str, key: str, raw: bytes,
+                            cues: list[tuple[float, float, str]] | None) -> None:
+    wav, meta = _tts_prefetch_paths(pid, sid)
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(wav.write_bytes, raw)
+    meta.write_text(json.dumps({"key": key, "cues": cues}, ensure_ascii=False), "utf-8")
+
+
+async def _tts_prefetch_take(pid: str, sid: str, key: str
+                             ) -> tuple[bytes, list[tuple[float, float, str]] | None] | None:
+    """Pop the parked take for this scene if it matches `key`, else None (→ read it now)."""
+    wav, meta = _tts_prefetch_paths(pid, sid)
+    if not _tts_prefetch_has(pid, sid, key):
+        return None
+    try:
+        cues = json.loads(meta.read_text("utf-8")).get("cues")
+        raw = await asyncio.to_thread(wav.read_bytes)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("prefetched take unreadable (%s) — đọc lại", e)
+        return None
+    for f in (wav, meta):                       # one-shot buffer: consumed on use
+        try:
+            f.unlink()
+        except OSError:
+            pass
+    return raw, ([(float(s), float(e), t) for s, e, t in cues] if cues else None)
+
+
 async def _make_scene_narration(voiceover: str, shot_texts: list[str], voice_id: int,
                                 pid: str, sid: str, speed: float, para_gap: float,
                                 sentence_pause: float, edge_pad: float
@@ -2419,7 +2497,13 @@ async def _make_scene_narration(voiceover: str, shot_texts: list[str], voice_id:
     it. Returns (web_path, [(start,end)] per shot, [read] per shot, lead, scene_duration).
 
     Raises HTTPException(502) if TTS produced nothing (caller keeps any existing audio)."""
-    raw, cues = await _tts_continuous(voiceover, voice_id, speed, para_gap, want_srt=_TTS_SRT)
+    # A take parked by the project-wide prefetch pass (same text + same voice settings) is used
+    # as-is, so the slow AI pass never re-opens the Colab session.
+    got = await _tts_prefetch_take(pid, sid, _tts_key(voiceover, voice_id, speed, para_gap))
+    if got is not None:
+        raw, cues = got
+    else:
+        raw, cues = await _tts_continuous(voiceover, voice_id, speed, para_gap, want_srt=_TTS_SRT)
     rel = f"{pid}/narr_scene_{sid}.wav"
     dest = media_store.MEDIA_DIR / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -2470,6 +2554,53 @@ async def align_source(pid: str):
         (pid,))}
 
 
+async def _scene_narration_source(sid: str, scene: dict, project: dict) -> str:
+    """The text this scene READS: its VERBATIM slice of the user's ORIGINAL input (project.idea),
+    in full — NOT an AI rewrite of the screenplay. Storytelling must speak the source text the
+    user gave, complete and unaltered; the original is partitioned across the project's scenes
+    (in order) so the union covers the whole text. Same answer for the prefetch pass and the beat
+    pass, which is what lets a prefetched take be reused."""
+    source = (project.get("idea") or "").strip()
+    if not source:
+        # no original input stored → fall back to the scene's own script text, verbatim
+        voiceover = (scene.get("action") or "").strip()
+        if not voiceover:
+            raise HTTPException(400, "Chưa có nội dung gốc (idea) để đọc cho scene này.")
+        return voiceover
+    # The scene reads the part of the source that matches ITS location (content-aligned),
+    # cached in source_segment. Align the whole project once if not done yet.
+    voiceover = (scene.get("source_segment") or "").strip()
+    if not voiceover:
+        await _ensure_source_segments(scene["project_id"])
+        voiceover = ((await _scene_or_404(sid)).get("source_segment") or "").strip()
+    if not voiceover:                                  # alignment unavailable → equal-length split
+        order = [r["id"] for r in await db.query_all(
+            "SELECT id FROM scene WHERE project_id=? ORDER BY idx", (scene["project_id"],))]
+        pos = order.index(sid) if sid in order else 0
+        parts = brain.partition_text(source, len(order) or 1)
+        voiceover = (parts[pos] if pos < len(parts) else "").strip()
+    if not voiceover:
+        raise HTTPException(
+            400, "Scene này không còn nội dung gốc để đọc — số scene đang nhiều hơn "
+            "số câu trong nội dung nguồn. Giảm bớt scene hoặc bổ sung nội dung gốc.")
+    return voiceover
+
+
+async def _prefetch_scene_tts(sid: str) -> None:
+    """Read this scene's narration on OmniVoice NOW and park the take (see the prefetch buffer
+    above). No AI, no DB writes — so a whole project can be read in one short burst and the Colab
+    session shut down before the hours-long segmentation pass starts."""
+    scene = await _scene_or_404(sid)
+    project = await _project_or_404(scene["project_id"])
+    voiceover = await _scene_narration_source(sid, scene, project)
+    voice_id, speed, para_gap, _, _ = _tts_settings(project)
+    key = _tts_key(voiceover, voice_id, speed, para_gap)
+    if _tts_prefetch_has(project["id"], sid, key):      # already parked (re-run) → don't re-read
+        return
+    raw, cues = await _tts_continuous(voiceover, voice_id, speed, para_gap, want_srt=_TTS_SRT)
+    await _tts_prefetch_put(project["id"], sid, key, raw, cues)
+
+
 @router.post("/scenes/{sid}/beats")
 async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     """Storytelling (§2.6, audio-first): the scene reads a VERBATIM contiguous chunk of the
@@ -2494,33 +2625,7 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     scene_loc_id = scene_loc["id"] if scene_loc else None
 
     # 1) the scene's narration = its VERBATIM slice of the user's ORIGINAL input
-    #    (project.idea), read in full — NOT an AI rewrite of the screenplay. Storytelling
-    #    must speak the source text the user gave, complete and unaltered. We partition the
-    #    original across the project's scenes (in order) so the union covers the whole text.
-    source = (project.get("idea") or "").strip()
-    if source:
-        # The scene reads the part of the source that matches ITS location (content-aligned),
-        # cached in source_segment. Align the whole project once if not done yet.
-        voiceover = (scene.get("source_segment") or "").strip()
-        if not voiceover:
-            await _ensure_source_segments(scene["project_id"])
-            scene = await _scene_or_404(sid)
-            voiceover = (scene.get("source_segment") or "").strip()
-        if not voiceover:                              # alignment unavailable → equal-length split
-            order = [r["id"] for r in await db.query_all(
-                "SELECT id FROM scene WHERE project_id=? ORDER BY idx", (scene["project_id"],))]
-            pos = order.index(sid) if sid in order else 0
-            parts = brain.partition_text(source, len(order) or 1)
-            voiceover = (parts[pos] if pos < len(parts) else "").strip()
-        if not voiceover:
-            raise HTTPException(
-                400, "Scene này không còn nội dung gốc để đọc — số scene đang nhiều hơn "
-                "số câu trong nội dung nguồn. Giảm bớt scene hoặc bổ sung nội dung gốc.")
-    else:
-        # no original input stored → fall back to the scene's own script text, verbatim
-        voiceover = (scene.get("action") or "").strip()
-        if not voiceover:
-            raise HTTPException(400, "Chưa có nội dung gốc (idea) để đọc cho scene này.")
+    voiceover = await _scene_narration_source(sid, scene, project)
 
     # 2) segment the verbatim narration into visual beats (AI = visual structure + key
     #    phrases). The SPOKEN text per beat is re-derived verbatim from the narration so the
@@ -2603,15 +2708,7 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     #    spliced only after a shot that ends a sentence. Falls back to a word-count estimate if
     #    TTS is off/unreachable. (tts_gap = pause BETWEEN paragraphs, tts_sentence_gap = extra
     #    pause after a sentence, tts_edge_pad = silent handles at both ends.)
-    voice_id = project.get("voice_id") or 0
-    speed = float(project.get("tts_speed") or 1.0)
-    para_gap = min(max(float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
-    sentence_pause = min(max(
-        float(project.get("tts_sentence_gap") if project.get("tts_sentence_gap") is not None else 0.3),
-        0.0), 1.5)
-    edge_pad = min(max(
-        float(project.get("tts_edge_pad") if project.get("tts_edge_pad") is not None else 0.5),
-        0.0), 3.0)
+    voice_id, speed, para_gap, sentence_pause, edge_pad = _tts_settings(project)
     shot_texts = [b.get("_say") or "" for b in beats]
     narr_web, times, reads, lead, scene_dur = None, None, None, 0.0, 0.0
     if body.measure and any(s.strip() for s in shot_texts):
@@ -2695,15 +2792,7 @@ async def rebuild_scene_audio(sid: str):
     # touched. So even shots whose text was split mid-sentence by an old build now sit under
     # smooth, un-chopped audio — only the image change lands mid-sentence, which is fine.
     voiceover = " ".join(s for s in say if s)
-    voice_id = project.get("voice_id") or 0
-    speed = float(project.get("tts_speed") or 1.0)
-    para_gap = min(max(float(project.get("tts_gap") if project.get("tts_gap") is not None else 0.4), 0.0), 2.0)
-    sentence_pause = min(max(
-        float(project.get("tts_sentence_gap") if project.get("tts_sentence_gap") is not None else 0.3),
-        0.0), 1.5)
-    edge_pad = min(max(
-        float(project.get("tts_edge_pad") if project.get("tts_edge_pad") is not None else 0.5),
-        0.0), 3.0)
+    voice_id, speed, para_gap, sentence_pause, edge_pad = _tts_settings(project)
 
     try:
         narr_web, times, reads, lead, scene_dur = await _make_scene_narration(
@@ -2854,19 +2943,38 @@ async def build_scene_beats_job(sid: str, body: BuildBeatsRequest):
 
 @router.post("/projects/{pid}/voiceover")
 async def build_project_beats(pid: str, body: BuildBeatsRequest):
-    """Storytelling (§2.6): per-scene whole-read TTS + beat mapping for EVERY scene → job
-    nền (§9). Mỗi scene là 1 bước (xoá shot cũ + TTS + dựng beat) nên tiến độ hiện theo
-    từng scene; sau cùng stitch project.voiceover_raw từ các narration. Trả job_id ngay —
-    quá trình TTS rất chậm nên KHÔNG block request, tránh tưởng treo."""
+    """Storytelling (§2.6): whole-read TTS + beat mapping cho các scene → job nền (§9).
+
+    HAI PHA, không xen kẽ: pha 1 ĐỌC (OmniVoice) toàn bộ scene liên tiếp rồi gửi take vào bộ
+    đệm prefetch; pha 2 mới chạy phần AI chậm (kế hoạch scene, tách beat) và lấy take có sẵn.
+    Trước đây mỗi scene là một bước "AI rồi TTS", nên một chương giữ phiên Colab mở 1–2 GIỜ
+    trong khi tổng lượng đọc chỉ vài phút — nay xong pha 1 là tắt Colab được. `missing_only`
+    chỉ đụng scene chưa có shot nào. Trả job_id ngay, KHÔNG block request."""
     await _project_or_404(pid)
-    scenes = await db.query_all(
-        "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))
-    if not scenes:
-        raise HTTPException(400, "Chưa có scene — tạo kịch bản (Script) trước.")
+    if body.missing_only:
+        scenes = await db.query_all(
+            "SELECT s.* FROM scene s WHERE s.project_id=? AND NOT EXISTS "
+            "(SELECT 1 FROM shot sh WHERE sh.scene_id=s.id) ORDER BY s.idx", (pid,))
+        if not scenes:
+            raise HTTPException(400, "Mọi scene đều đã có shot — không còn scene nào thiếu.")
+    else:
+        scenes = await db.query_all(
+            "SELECT * FROM scene WHERE project_id=? ORDER BY idx", (pid,))
+        if not scenes:
+            raise HTTPException(400, "Chưa có scene — tạo kịch bản (Script) trước.")
     await _ensure_source_segments(pid)                   # content-align source once if needed
 
-    async def _worker(sc):
-        await build_scene_beats(sc["id"], body)
+    # ("tts", scene) cho HẾT các scene trước, rồi mới tới ("beats", scene) — một danh sách
+    # phẳng nên thanh tiến độ vẫn đếm từng bước (tổng = 2× số scene khi có đo thời lượng).
+    items = [("tts", sc) for sc in scenes] if body.measure else []
+    items += [("beats", sc) for sc in scenes]
+
+    async def _worker(it):
+        phase, sc = it
+        if phase == "tts":
+            await _prefetch_scene_tts(sc["id"])
+        else:
+            await build_scene_beats(sc["id"], body)
 
     async def _finalize():
         rows = await db.query_all(
@@ -2875,13 +2983,15 @@ async def build_project_beats(pid: str, body: BuildBeatsRequest):
         await db.update("project", pid, {
             "voiceover_raw": "\n\n".join(vo), "storytelling": 1, "updated_at": db.now()})
 
+    scope = "còn thiếu" if body.missing_only else "tất cả"
     job = get_job_manager().start(
-        project_id=pid, type_="beats", items=scenes, worker=_worker,
-        label=f"Dựng lời đọc + beats ({len(scenes)} scene)",
-        throttle=(0.5, 1.5),  # TTS itself is the slow part; keep inter-scene gap small
-        item_label=lambda sc: sc.get("heading") or sc["id"],
+        project_id=pid, type_="beats", items=items, worker=_worker,
+        label=f"Đọc TTS rồi dựng beats · {scope} ({len(scenes)} scene)",
+        throttle=(0.3, 1.0),  # đọc/AI mới là phần chậm; giữ khoảng cách giữa các bước nhỏ
+        item_label=lambda it: ("🔊 Đọc: " if it[0] == "tts" else "✂ Beat: ")
+        + (it[1].get("heading") or it[1]["id"]),
         finalize=_finalize)
-    return {"job_id": job.id, "total": len(scenes)}
+    return {"job_id": job.id, "total": len(items), "scenes": len(scenes)}
 
 
 @router.post("/projects/{pid}/rebuild-audio")

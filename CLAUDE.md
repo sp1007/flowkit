@@ -56,6 +56,19 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   input thành nhiều lượt thay vì mở lại cùng file N lần (đích 60 phút với bài 30 giây
   là 120 input, quá dòng lệnh Windows).
   Xem [agent/studio/music.py](agent/studio/music.py) + tab "Nhạc" trong workspace.
+- **Dựng shots storytelling chạy HAI PHA: đọc TTS hết trước, tách beat sau.** Colab (OmniVoice)
+  tính tiền theo ĐỒNG HỒ phiên, không theo lượng audio; xen kẽ "AI tách beat (vài phút) rồi TTS
+  (vài giây)" từng scene giữ phiên Colab mở 1–2 GIỜ cho một chương chỉ cần vài phút đọc. Nên
+  `POST /projects/{pid}/voiceover` dựng danh sách item phẳng `("tts", scene)*N + ("beats", scene)*N`:
+  pha 1 gọi `_prefetch_scene_tts` đọc từng scene rồi PARK take vào `media/{pid}/narr_pre_{sid}.wav`
+  + sidecar `.json`, pha 2 `_make_scene_narration` LẤY take đó thay vì gọi lại OmniVoice. Khoá đệm
+  (`_tts_key`) băm lời đọc + `_tts_settings(project)`, nên take lệch text/giọng không bao giờ bị
+  dùng lại; take là MỘT LẦN — đọc xong thì xoá. Hệ quả: `job.total` là số BƯỚC (2×số scene khi
+  `measure`), không phải số scene. Thêm knob TTS mới thì thêm vào `_tts_settings`, đừng đọc cột
+  thẳng — lệch một tham số là âm thầm đọc lại trên Colab.
+  `missing_only=true` chỉ chạy trên scene chưa có shot nào (nút "🎙 Dựng shots còn thiếu" ở
+  Storyboard) — không đụng shot/ảnh của scene đã dựng.
+
 - **⚡ tạo nhanh CHẠY chính đồ thị của shot/entity** (`_gen_via_graph` → `run_graph` với
   `only_node` = node sinh nối vào Output), nên nó và Node Editor ra kết quả y hệt nhau. Chỉ
   chạy đúng node đó, không chạy cả đồ thị — node phía trên giữ nguyên kết quả đã có. Chưa có

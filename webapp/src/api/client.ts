@@ -655,10 +655,13 @@ export const storyboard = {
     }),
   // Storytelling (§2.6): TTS each scene as one continuous read, then map beats onto it.
   // measure=true uses real TTS durations (needs OmniVoice up); false estimates from words.
-  buildBeats: (pid: string, language = "Vietnamese", measure = true) =>
-    req<{ job_id: string; total: number }>(
+  // Server chạy HAI PHA: đọc TTS hết mọi scene trước, rồi mới tách beat — nên phiên Colab
+  // chỉ cần sống trong pha đầu. `missingOnly` chỉ dựng cho scene chưa có shot nào.
+  // `total` là số BƯỚC (2× số scene khi measure), `scenes` là số scene.
+  buildBeats: (pid: string, language = "Vietnamese", measure = true, missingOnly = false) =>
+    req<{ job_id: string; total: number; scenes: number }>(
       `/projects/${pid}/voiceover`,
-      { method: "POST", body: JSON.stringify({ language, measure }) }
+      { method: "POST", body: JSON.stringify({ language, measure, missing_only: missingOnly }) }
     ),
   addShot: (sid: string) => req<Shot>(`/scenes/${sid}/shots`, { method: "POST" }),
   // Thêm hàng loạt: MỖI DÒNG của `text` là một prompt → một shot, nối vào cuối scene.

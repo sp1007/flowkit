@@ -410,10 +410,11 @@ export default function StoryboardTab({
       reloadAll();
       refreshScenes();
       setRebuilding(new Set());
+      // Job chạy 2 pha (đọc TTS hết, rồi tách beat) nên total là số BƯỚC, không phải số scene.
       if (j.errors.length) {
-        setErr(`Dựng lời đọc: ${j.done}/${j.total} scene xong, ${j.errors.length} lỗi.`);
+        setErr(`Dựng lời đọc: ${j.done}/${j.total} bước xong, ${j.errors.length} lỗi.`);
       } else {
-        setNotice(`Đã dựng lời đọc + beats cho ${j.done}/${j.total} scene.`);
+        setNotice(`Đã đọc + dựng beats xong (${j.done}/${j.total} bước).`);
         setTimeout(() => setNotice(null), 6000);
       }
     },
@@ -528,6 +529,8 @@ export default function StoryboardTab({
         "Mỗi scene được đọc (TTS) liền mạch MỘT lần để giữ cảm xúc, rồi cắt thành beat " +
         "(1 cảnh) bám đúng thời điểm audio; từ khoá quan trọng được canh giờ để hiện chữ " +
         "lên video. Cần BẬT OmniVoice (TTS); nếu tắt sẽ ước lượng theo số từ.\n\n" +
+        "Chạy 2 pha: ĐỌC hết mọi scene trước (bật OmniVoice trong pha này), rồi mới tách " +
+        "beat bằng AI — xong pha đọc là tắt Colab được.\n\n" +
         "Thao tác này XOÁ các shot + ẢNH hiện có của mọi scene.",
       confirmText: "Dựng shots (tất cả)",
       danger: true,
@@ -538,6 +541,30 @@ export default function StoryboardTab({
       // Background job (§9): TTS is slow, so we kick it off and watch progress in the
       // banner instead of blocking. Shots rebuild scene-by-scene as it advances.
       await storyboard.buildBeats(project.id);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
+  // Scene chưa có shot nào — "Dựng shots (còn thiếu)" chỉ chạy trên đúng những scene này.
+  const missingScenes = scenes.filter((sc) => !(shotsByScene[sc.id] || []).length);
+
+  // Bản KHÔNG PHÁ của "Dựng shots (tất cả)": chỉ dựng cho scene chưa có shot, giữ nguyên
+  // mọi scene đã dựng (kể cả ảnh). Dùng khi một lượt chạy trước bỏ sót vài scene — trước đây
+  // lối duy nhất là bấm 🎙 từng scene một hoặc dựng lại cả dự án.
+  const buildBeatsMissing = async () => {
+    const ok = await confirm({
+      title: `Dựng shots cho ${missingScenes.length} scene còn thiếu?`,
+      message:
+        `Chỉ chạy trên ${missingScenes.length} scene CHƯA có shot nào — các scene đã dựng ` +
+        "được giữ nguyên (không đụng shot/ảnh). Server đọc (TTS) hết các scene này trước, " +
+        "rồi mới tách beat, nên chỉ cần bật OmniVoice trong pha đọc.",
+      confirmText: "Dựng shots (còn thiếu)",
+    });
+    if (!ok) return;
+    setErr(null);
+    try {
+      await storyboard.buildBeats(project.id, "Vietnamese", true, true);
     } catch (e: any) {
       setErr(e.message);
     }
@@ -701,6 +728,14 @@ export default function StoryboardTab({
                   className="rounded-lg border border-violet-700/60 px-3 py-2 text-sm text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
                 >
                   {beatsJob ? `Đang dựng ${beatsJob.done}/${beatsJob.total}…` : "🎙 Dựng shots (tất cả)"}
+                </button>
+                <button
+                  disabled={!!busy || !!beatsJob || !!audioJob || !missingScenes.length}
+                  onClick={buildBeatsMissing}
+                  title="Dựng shots theo lời đọc CHỈ cho các scene chưa có shot nào — giữ nguyên scene đã dựng (không xoá ảnh). Dùng khi lượt trước bỏ sót vài scene."
+                  className="rounded-lg border border-violet-700/60 px-3 py-2 text-sm text-violet-300 hover:bg-violet-950/40 disabled:opacity-40"
+                >
+                  {`🎙 Dựng shots còn thiếu${missingScenes.length ? ` (${missingScenes.length})` : ""}`}
                 </button>
                 <button
                   disabled={!!busy || !!beatsJob || !!audioJob || !scenes.length}
