@@ -9,6 +9,7 @@ The manager holds no Flow state of its own — workers are closures from studio.
 that call the existing per-item generate helpers.
 """
 import asyncio
+import contextvars
 import json
 import logging
 import random
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Finished jobs linger this long so a tab that reconnects can still see the result.
 _REAP_DELAY = 180.0
+# Nhịp phát lại khi một item đang chạy lâu (giây) — đủ dày để banner không đứng im, đủ thưa
+# để không làm phiền WebSocket.
+_HEARTBEAT = 5.0
 
 
 class Job:
@@ -35,6 +39,11 @@ class Job:
         self.status = "running"   # running | done | error | cancelled
         self.message = ""
         self.current = ""         # human label of the item in progress
+        # Một item của job có thể chạy 15–20 phút (một scene = 2 lượt gọi AI + căn giờ
+        # WhisperX). Không có gì nhúc nhích trong ngần ấy thời gian thì người dùng tưởng app
+        # treo, nên item nào cũng phải nói ĐANG LÀM GÌ (`step`) và ĐÃ BAO LÂU (`item_at`).
+        self.step = ""            # bước con đang chạy bên trong item
+        self.item_at = time.time()
         self.created_at = time.time()
         self.updated_at = self.created_at
         self.cancel = asyncio.Event()
@@ -52,8 +61,30 @@ class Job:
             "label": self.label, "total": self.total, "done": self.done,
             "errors": self.errors, "status": self.status, "message": self.message,
             "current": self.current, "progress": round(self.progress, 4),
+            "step": self.step, "item_elapsed": round(time.time() - self.item_at, 1),
             "created_at": self.created_at, "updated_at": self.updated_at,
         }
+
+
+# Job của TASK hiện tại. `_run` đặt một lần; mọi coroutine/task con sinh ra trong đó kế thừa
+# context nên `step()` gọi được từ tận đáy (vd studio.build_scene_beats) mà không phải luồn
+# tham số job qua chục lớp hàm. Ngoài job thì `step()` là no-op — cùng một hàm vẫn chạy được
+# khi endpoint được gọi trực tiếp.
+_current: contextvars.ContextVar[Optional["Job"]] = contextvars.ContextVar(
+    "flowkit_current_job", default=None)
+
+
+def current_job() -> Optional["Job"]:
+    return _current.get()
+
+
+async def step(text: str) -> None:
+    """Báo bước con đang chạy của item hiện tại rồi phát ngay cho UI (no-op nếu ngoài job)."""
+    job = _current.get()
+    if job is None:
+        return
+    job.step = text
+    await get_job_manager().note_step(job)
 
 
 class JobManager:
@@ -92,6 +123,24 @@ class JobManager:
         trước luồng AI): không đụng done/total, chỉ cho người dùng thấy luồng kia tới đâu."""
         job.current = text
         await self._broadcast(job)
+
+    async def note_step(self, job: Job) -> None:
+        """Phát lại trạng thái job sau khi `step` đổi (không đụng done/total)."""
+        await self._broadcast(job)
+
+    async def _run_item(self, job: Job, coro) -> None:
+        """Chạy một item và ĐỀU ĐẶN phát nhịp trong lúc chờ.
+
+        Đây là bằng chứng "server còn sống": item beats mất 15–20 phút, trước đây suốt ngần ấy
+        thời gian không có gói tin nào ra WebSocket nên banner đứng im và người dùng tưởng treo.
+        Mỗi nhịp gửi lại `item_elapsed` (+ `step` hiện tại) để đồng hồ trên banner chạy."""
+        task = asyncio.create_task(coro)
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=_HEARTBEAT)
+            if done:
+                break
+            await self._broadcast(job)          # nhịp: chứng tỏ tiến trình còn chạy
+        await task                              # ném lại lỗi của worker cho vòng gọi
 
     def get(self, job_id: str) -> Optional[Job]:
         return self._jobs.get(job_id)
@@ -236,6 +285,7 @@ class JobManager:
                    finalize=None, batch_size: int = 1,
                    stagger: tuple[float, float] = (0.0, 0.0),
                    unit: str = "ảnh") -> None:   # `unit` chỉ có nghĩa ở chế độ lô
+        _current.set(job)          # để jobs.step() từ trong worker tìm được job này
         await self._broadcast(job)
         await self._persist(job)
         for i, item in enumerate(items):
@@ -243,9 +293,11 @@ class JobManager:
                 job.status = "cancelled"
                 break
             job.current = item_label(item) if item_label else ""
+            job.step = ""
+            job.item_at = time.time()
             await self._broadcast(job)
             try:
-                await worker(item)
+                await self._run_item(job, worker(item))
                 job.done += 1
             except Exception as ex:
                 logger.exception("job %s item %d failed", job.id, i)

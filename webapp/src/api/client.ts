@@ -190,6 +190,11 @@ export interface Job {
   message: string;
   current: string;
   progress: number; // 0..1
+  // Một item có thể chạy 15-20 phút (một scene = 2 lượt AI + căn giờ WhisperX). `step` là
+  // bước con đang chạy, `item_elapsed` là số giây item hiện tại đã chạy — server phát lại
+  // mỗi 5s để banner nhúc nhích, chứng tỏ app/API còn sống.
+  step?: string;
+  item_elapsed?: number;
   created_at: number;
   updated_at: number;
 }

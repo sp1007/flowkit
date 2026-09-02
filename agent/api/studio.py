@@ -32,6 +32,7 @@ from agent.studio import (
     accounts, music as music_mod, graph as graph_mod, videopoll,
 )
 from agent.studio.jobs import get_job_manager
+from agent.studio import jobs as jobsmod
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -2503,6 +2504,7 @@ async def _make_scene_narration(voiceover: str, shot_texts: list[str], voice_id:
     if got is not None:
         raw, cues = got
     else:
+        await jobsmod.step(f"đọc TTS ({len(voiceover)} ký tự)")
         raw, cues = await _tts_continuous(voiceover, voice_id, speed, para_gap, want_srt=_TTS_SRT)
     rel = f"{pid}/narr_scene_{sid}.wav"
     dest = media_store.MEDIA_DIR / rel
@@ -2513,7 +2515,11 @@ async def _make_scene_narration(voiceover: str, shot_texts: list[str], voice_id:
     # WhisperX forced-alignment, which itself falls back to word-count timing.
     spans = align.align_with_cues(shot_texts, cues, dur) if cues else None
     if spans is None:
+        # Không có SRT từ OmniVoice → WhisperX chạy trên CPU máy này. Với take dài (7–10 phút)
+        # đây là bước IM LẶNG lâu nhất của cả lượt dựng, nên phải nói rõ nó đang chạy.
+        await jobsmod.step(f"căn giờ WhisperX ({dur / 60:.1f} phút audio, CPU)")
         spans = await asyncio.to_thread(align.align_sentences, str(dest), shot_texts)
+    await jobsmod.step("ghép audio + cắt theo shot")
     starts = [s for s, _ in spans] if spans else [0.0]
     pause_after = [_ends_sentence(t) for t in shot_texts]
     final, times, reads, lead = await asyncio.to_thread(
@@ -2640,6 +2646,7 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     # runs without it.
     plan = None
     try:
+        await jobsmod.step("AI: kế hoạch scene")
         plan = await brain.run_json_valid(
             brain.scene_plan_prompt(voiceover, erows, project["style"], location=loc_name),
             lambda d: isinstance(d, dict) and isinstance(d.get("blocking") or d.get("coverage"), str),
@@ -2647,6 +2654,7 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
     except Exception as e:  # noqa: BLE001 — plan is optional
         logger.warning("scene plan unavailable (%s) — dùng tách beat không kế hoạch", e)
     try:
+        await jobsmod.step("AI: tách beat")
         beats = await brain.run_json_valid(
             brain.scene_segment_prompt(
                 voiceover, erows, project["style"],
@@ -2731,6 +2739,7 @@ async def build_scene_beats(sid: str, body: BuildBeatsRequest):
             acc += r
         lead, scene_dur, narr_web = 0.0, round(acc, 3), None
 
+    await jobsmod.step(f"ghi {len(beats)} shot")
     await db.execute("DELETE FROM shot WHERE scene_id=?", (sid,))
     await db.update("scene", sid, {
         "narration_text": voiceover, "narration_path": narr_web,
@@ -2991,6 +3000,7 @@ async def build_project_beats(pid: str, body: BuildBeatsRequest):
                 break
             try:
                 await mgr.note(job, f"🔊 Đọc {i + 1}/{n}: {sc.get('heading') or sc['id']}")
+                logger.info("TTS prefetch %d/%d: %s", i + 1, n, sc.get("heading") or sc["id"])
                 await _prefetch_scene_tts(sc["id"])
                 read["done"] += 1
             except asyncio.CancelledError:

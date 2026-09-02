@@ -79,6 +79,19 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   `missing_only=true` chỉ chạy trên scene chưa có shot nào (nút "🎙 Dựng shots còn thiếu" ở
   Storyboard) — không đụng shot/ảnh của scene đã dựng.
 
+- **Một item của job phải NÓI nó đang làm gì — im lặng 20 phút bị hiểu là app treo.** Dựng
+  beats cho MỘT scene dài (7,8 phút audio → 56 shot) mất ~19,5 phút: 2 lượt gọi AI (`agy` ngồi
+  chờ model, CPU gần như 0) + căn giờ WhisperX trên CPU. Trước đây suốt ngần ấy thời gian không
+  có gói tin nào ra WebSocket nên banner đứng im. Nay `JobManager._run_item` chạy worker trong
+  một task và cứ `_HEARTBEAT` (5s) lại phát lại job — nhịp ấy CHÍNH LÀ bằng chứng server còn
+  sống; banner có chấm nhấp nháy, đồng hồ của item, và chuyển vàng khi >20s không nhận nhịp.
+  Bước con báo bằng `jobs.step("…")`, tìm job qua `contextvars` nên gọi được từ đáy
+  (`build_scene_beats`, `_make_scene_narration`) mà không phải luồn tham số job qua chục lớp
+  hàm; ngoài job nó là no-op. Thêm bước chạy lâu (>30s) thì THÊM một `jobs.step` cho nó.
+  **Căn giờ rơi về WhisperX (CPU) vì OmniVoice không trả SRT** — soi sidecar `narr_pre_*.json`:
+  `"cues": null` nghĩa là ASR chưa nạp trên Colab nên mỗi scene phải căn lại tại máy, và đó là
+  khoảng IM LẶNG dài nhất của cả lượt dựng. Bật ASR ở server OmniVoice là bỏ hẳn được bước này.
+
 - **⚡ tạo nhanh CHẠY chính đồ thị của shot/entity** (`_gen_via_graph` → `run_graph` với
   `only_node` = node sinh nối vào Output), nên nó và Node Editor ra kết quả y hệt nhau. Chỉ
   chạy đúng node đó, không chạy cả đồ thị — node phía trên giữ nguyên kết quả đã có. Chưa có
