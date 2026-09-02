@@ -410,11 +410,12 @@ export default function StoryboardTab({
       reloadAll();
       refreshScenes();
       setRebuilding(new Set());
-      // Job chạy 2 pha (đọc TTS hết, rồi tách beat) nên total là số BƯỚC, không phải số scene.
+      // total = số SCENE. Luồng đọc TTS chạy song song phía trước; tiến độ của nó hiện ở
+      // dòng trạng thái của job ("đã đọc k/N"), không cộng vào done/total.
       if (j.errors.length) {
-        setErr(`Dựng lời đọc: ${j.done}/${j.total} bước xong, ${j.errors.length} lỗi.`);
+        setErr(`Dựng lời đọc: ${j.done}/${j.total} scene xong, ${j.errors.length} lỗi.`);
       } else {
-        setNotice(`Đã đọc + dựng beats xong (${j.done}/${j.total} bước).`);
+        setNotice(`Đã dựng lời đọc + beats cho ${j.done}/${j.total} scene.`);
         setTimeout(() => setNotice(null), 6000);
       }
     },
@@ -529,8 +530,9 @@ export default function StoryboardTab({
         "Mỗi scene được đọc (TTS) liền mạch MỘT lần để giữ cảm xúc, rồi cắt thành beat " +
         "(1 cảnh) bám đúng thời điểm audio; từ khoá quan trọng được canh giờ để hiện chữ " +
         "lên video. Cần BẬT OmniVoice (TTS); nếu tắt sẽ ước lượng theo số từ.\n\n" +
-        "Chạy 2 pha: ĐỌC hết mọi scene trước (bật OmniVoice trong pha này), rồi mới tách " +
-        "beat bằng AI — xong pha đọc là tắt Colab được.\n\n" +
+        "Luồng ĐỌC chạy liền một mạch qua mọi scene, luồng AI bám theo sau — xong phần đọc " +
+        "là TẮT COLAB ĐƯỢC dù AI còn dựng. Bản thân việc đọc vẫn tốn thời gian theo độ dài " +
+        "chương (~1 giờ GPU cho ~30 phút audio); phần rút ngắn là khâu AI.\n\n" +
         "Thao tác này XOÁ các shot + ẢNH hiện có của mọi scene.",
       confirmText: "Dựng shots (tất cả)",
       danger: true,

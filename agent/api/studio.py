@@ -2945,11 +2945,19 @@ async def build_scene_beats_job(sid: str, body: BuildBeatsRequest):
 async def build_project_beats(pid: str, body: BuildBeatsRequest):
     """Storytelling (§2.6): whole-read TTS + beat mapping cho các scene → job nền (§9).
 
-    HAI PHA, không xen kẽ: pha 1 ĐỌC (OmniVoice) toàn bộ scene liên tiếp rồi gửi take vào bộ
-    đệm prefetch; pha 2 mới chạy phần AI chậm (kế hoạch scene, tách beat) và lấy take có sẵn.
-    Trước đây mỗi scene là một bước "AI rồi TTS", nên một chương giữ phiên Colab mở 1–2 GIỜ
-    trong khi tổng lượng đọc chỉ vài phút — nay xong pha 1 là tắt Colab được. `missing_only`
-    chỉ đụng scene chưa có shot nào. Trả job_id ngay, KHÔNG block request."""
+    HAI LUỒNG chạy SONG SONG, không xen kẽ trong cùng một luồng:
+    luồng ĐỌC (OmniVoice/Colab) chạy liền một mạch từ scene đầu tới scene cuối và park take
+    vào bộ đệm prefetch; luồng AI (kế hoạch scene + tách beat, chạy trên máy) bám theo sau,
+    mỗi scene chờ đúng take của nó rồi dựng shots.
+
+    Vì sao: Colab tính tiền theo ĐỒNG HỒ phiên. Xen kẽ "AI (vài phút) → đọc (vài chục giây)"
+    giữ phiên Colab mở suốt cả lượt dựng. Tách hẳn luồng đọc thì phiên Colab chỉ cần sống
+    đúng khoảng đọc liền mạch (ĐỌC XONG LÀ TẮT ĐƯỢC, không cần chờ AI), mà tổng thời gian
+    vẫn ≈ max(đọc, AI) chứ không phải đọc + AI. Đo trên Book-03-chapter-40: 11 scene =
+    30.5k ký tự ≈ 34 phút audio / 45 lượt gọi TTS — bản thân việc đọc đã tốn ~1 giờ GPU, nên
+    ĐỪNG kỳ vọng khâu đọc nhanh hơn; thứ tiết kiệm được là phần AI không còn nằm trong phiên.
+
+    `missing_only` chỉ đụng scene chưa có shot nào. Trả job_id ngay, KHÔNG block request."""
     await _project_or_404(pid)
     if body.missing_only:
         scenes = await db.query_all(
@@ -2964,19 +2972,54 @@ async def build_project_beats(pid: str, body: BuildBeatsRequest):
             raise HTTPException(400, "Chưa có scene — tạo kịch bản (Script) trước.")
     await _ensure_source_segments(pid)                   # content-align source once if needed
 
-    # ("tts", scene) cho HẾT các scene trước, rồi mới tới ("beats", scene) — một danh sách
-    # phẳng nên thanh tiến độ vẫn đếm từng bước (tổng = 2× số scene khi có đo thời lượng).
-    items = [("tts", sc) for sc in scenes] if body.measure else []
-    items += [("beats", sc) for sc in scenes]
+    n = len(scenes)
+    # Một Event cho mỗi scene: luồng đọc bật lên khi take của scene đó đã nằm trong bộ đệm
+    # (hoặc đọc hỏng — khi ấy build_scene_beats tự đọc lại/ước lượng như thường).
+    ready: dict[str, asyncio.Event] = {sc["id"]: asyncio.Event() for sc in scenes}
+    read = {"done": 0}
+    state: dict[str, object] = {}
+    if not body.measure:                                  # không đo → không đọc gì cả
+        for ev in ready.values():
+            ev.set()
 
-    async def _worker(it):
-        phase, sc = it
-        if phase == "tts":
-            await _prefetch_scene_tts(sc["id"])
-        else:
-            await build_scene_beats(sc["id"], body)
+    async def _reader(job) -> None:
+        """Đọc TOÀN BỘ scene, liên tục, không chờ AI. Chỉ dừng giữa hai scene khi job bị huỷ
+        (một lượt đọc đang bay không cắt ngang được — httpx timeout 600s)."""
+        mgr = get_job_manager()
+        for i, sc in enumerate(scenes):
+            if job.cancel.is_set():
+                break
+            try:
+                await mgr.note(job, f"🔊 Đọc {i + 1}/{n}: {sc.get('heading') or sc['id']}")
+                await _prefetch_scene_tts(sc["id"])
+                read["done"] += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 — scene đọc hỏng thì AI vẫn dựng được
+                logger.warning("prefetch TTS scene %s failed: %s", sc["id"], e)
+            ready[sc["id"]].set()
+        for ev in ready.values():        # dừng sớm cũng không để scene nào chờ mãi
+            ev.set()
+
+    async def _worker(sc):
+        job = state.get("job")
+        ev = ready[sc["id"]]
+        if job is not None and not ev.is_set():          # chờ take, nhưng thoát ngay khi huỷ
+            waits = [asyncio.create_task(ev.wait()),
+                     asyncio.create_task(job.cancel.wait())]
+            try:
+                await asyncio.wait(waits, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for t in waits:
+                    t.cancel()
+            if job.cancel.is_set() and not ev.is_set():
+                return
+        await build_scene_beats(sc["id"], body)
 
     async def _finalize():
+        task = state.get("reader")
+        if task is not None and not task.done():
+            task.cancel()
         rows = await db.query_all(
             "SELECT narration_text FROM scene WHERE project_id=? ORDER BY idx", (pid,))
         vo = [s["narration_text"] for s in rows if s.get("narration_text")]
@@ -2985,13 +3028,17 @@ async def build_project_beats(pid: str, body: BuildBeatsRequest):
 
     scope = "còn thiếu" if body.missing_only else "tất cả"
     job = get_job_manager().start(
-        project_id=pid, type_="beats", items=items, worker=_worker,
-        label=f"Đọc TTS rồi dựng beats · {scope} ({len(scenes)} scene)",
+        project_id=pid, type_="beats", items=scenes, worker=_worker,
+        label=f"Đọc + dựng beats · {scope} ({n} scene)",
         throttle=(0.3, 1.0),  # đọc/AI mới là phần chậm; giữ khoảng cách giữa các bước nhỏ
-        item_label=lambda it: ("🔊 Đọc: " if it[0] == "tts" else "✂ Beat: ")
-        + (it[1].get("heading") or it[1]["id"]),
+        item_label=lambda sc: (f"✂ {sc.get('heading') or sc['id']}"
+                               f" · đã đọc {read['done']}/{n}"),
         finalize=_finalize)
-    return {"job_id": job.id, "total": len(items), "scenes": len(scenes)}
+    state["job"] = job
+    if body.measure:
+        # Tạo SAU khi job đã start: worker chỉ chạy ở vòng lặp sau nên `state` chắc chắn đủ.
+        state["reader"] = asyncio.create_task(_reader(job))
+    return {"job_id": job.id, "total": n, "scenes": n}
 
 
 @router.post("/projects/{pid}/rebuild-audio")

@@ -85,6 +85,14 @@ class JobManager:
         return [j.to_dict() for j in self._jobs.values()
                 if project_id is None or j.project_id == project_id]
 
+    async def note(self, job: Job, text: str) -> None:
+        """Cập nhật dòng trạng thái của một job từ NGOÀI vòng lặp item rồi phát cho UI.
+
+        Dành cho việc chạy SONG SONG với vòng lặp (vd: luồng đọc TTS của "Dựng shots" chạy
+        trước luồng AI): không đụng done/total, chỉ cho người dùng thấy luồng kia tới đâu."""
+        job.current = text
+        await self._broadcast(job)
+
     def get(self, job_id: str) -> Optional[Job]:
         return self._jobs.get(job_id)
 

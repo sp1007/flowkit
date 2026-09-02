@@ -56,16 +56,26 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   input thành nhiều lượt thay vì mở lại cùng file N lần (đích 60 phút với bài 30 giây
   là 120 input, quá dòng lệnh Windows).
   Xem [agent/studio/music.py](agent/studio/music.py) + tab "Nhạc" trong workspace.
-- **Dựng shots storytelling chạy HAI PHA: đọc TTS hết trước, tách beat sau.** Colab (OmniVoice)
-  tính tiền theo ĐỒNG HỒ phiên, không theo lượng audio; xen kẽ "AI tách beat (vài phút) rồi TTS
-  (vài giây)" từng scene giữ phiên Colab mở 1–2 GIỜ cho một chương chỉ cần vài phút đọc. Nên
-  `POST /projects/{pid}/voiceover` dựng danh sách item phẳng `("tts", scene)*N + ("beats", scene)*N`:
-  pha 1 gọi `_prefetch_scene_tts` đọc từng scene rồi PARK take vào `media/{pid}/narr_pre_{sid}.wav`
-  + sidecar `.json`, pha 2 `_make_scene_narration` LẤY take đó thay vì gọi lại OmniVoice. Khoá đệm
-  (`_tts_key`) băm lời đọc + `_tts_settings(project)`, nên take lệch text/giọng không bao giờ bị
-  dùng lại; take là MỘT LẦN — đọc xong thì xoá. Hệ quả: `job.total` là số BƯỚC (2×số scene khi
-  `measure`), không phải số scene. Thêm knob TTS mới thì thêm vào `_tts_settings`, đừng đọc cột
-  thẳng — lệch một tham số là âm thầm đọc lại trên Colab.
+- **Dựng shots storytelling chạy HAI LUỒNG SONG SONG: đọc TTS một mạch, AI bám theo sau.**
+  Colab (OmniVoice) tính tiền theo ĐỒNG HỒ phiên, không theo lượng audio; xen kẽ "AI tách beat
+  (vài phút) rồi TTS (vài chục giây)" từng scene giữ phiên Colab mở suốt cả lượt dựng.
+  `POST /projects/{pid}/voiceover` nay chạy `_reader` như một asyncio.Task RIÊNG: nó đọc hết
+  scene này tới scene khác không chờ ai, park take vào `media/{pid}/narr_pre_{sid}.wav` + sidecar
+  `.json`, bật `asyncio.Event` của scene đó; vòng lặp item của JobManager (luồng AI) chờ đúng
+  Event của scene mình rồi mới `build_scene_beats`, và `_make_scene_narration` LẤY take đã park
+  thay vì gọi lại OmniVoice. Hệ quả: phiên Colab chỉ cần sống hết luồng đọc (ĐỌC XONG LÀ TẮT
+  ĐƯỢC, không phải chờ AI), còn tổng thời gian ≈ max(đọc, AI) chứ không phải đọc + AI.
+  **Đừng gộp hai luồng thành một danh sách item phẳng `("tts",sc)*N + ("beats",sc)*N`** — đã
+  thử, nó nối tiếp hai pha (tổng = đọc + AI, chậm hơn cả bản xen kẽ) và `job.total` thành 2×số
+  scene nên thanh tiến độ "11/22" bị đọc nhầm thành "đã đọc 11 audio".
+  Khoá đệm (`_tts_key`) băm lời đọc + `_tts_settings(project)`, nên take lệch text/giọng không
+  bao giờ bị dùng lại; take là MỘT LẦN — đọc xong thì xoá. Thêm knob TTS mới thì thêm vào
+  `_tts_settings`, đừng đọc cột thẳng — lệch một tham số là âm thầm đọc lại trên Colab.
+  **Bản thân việc đọc KHÔNG nhanh lên được**: đo trên Book-03-chapter-40, 11 scene = 30.5k ký
+  tự ≈ 34 phút audio, cắt thành 45 lượt gọi `/api/tts` (`_PARA_MAX_CHARS=800`, đã đóng gói sát
+  trần ~680 ký tự/lượt) — mất ~1 giờ GPU. Muốn cắt nữa thì phải bớt việc của Colab, không phải
+  xếp lại lịch: `FLOWKIT_TTS_SRT=0` bỏ lượt ASR sinh SRT trên Colab và căn giờ bằng WhisperX
+  tại máy (`align.align_sentences`, CPU) — giờ căn giờ nằm ở luồng AI nên không tính tiền phiên.
   `missing_only=true` chỉ chạy trên scene chưa có shot nào (nút "🎙 Dựng shots còn thiếu" ở
   Storyboard) — không đụng shot/ảnh của scene đã dựng.
 
