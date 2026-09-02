@@ -240,6 +240,17 @@ export default function ScriptTab({
 }
 
 // Floating bottom composer: switches between "idea → script" and "edit instruction".
+//
+// Ô "Sửa" là TEXTAREA nhiều dòng, không phải <input> một dòng: câu lệnh sửa kịch bản thường
+// dài vài dòng (liệt kê cảnh, dán lại đoạn thoại) và phải NHÌN THẤY được để soát trước khi
+// gửi. Hệ quả: Enter XUỐNG DÒNG, gửi bằng ⌘/Ctrl+Enter hoặc nút →. Đừng đổi Enter thành
+// "gửi" — đó chính là thứ biến ô nhiều dòng thành vô dụng.
+//
+// Ba cỡ, nhớ qua localStorage: "min" thu về một thanh (không che phần cuối kịch bản),
+// "normal" tự cao dần theo nội dung (trần ~200px), "max" phủ cả khung để soạn/dán đoạn dài.
+type Size = "min" | "normal" | "max";
+const SIZE_KEY = "fk.script.composer.size";
+
 function Composer({
   project,
   hasScript,
@@ -258,12 +269,33 @@ function Composer({
   const [useDur, setUseDur] = useState(!!project.target_duration);
   const [dur, setDur] = useState(project.target_duration ?? 60);
   const [instr, setInstr] = useState("");
-  const editRef = useRef<HTMLInputElement>(null);
+  const editRef = useRef<HTMLTextAreaElement>(null);
+  const [size, setSize] = useState<Size>(
+    () => (localStorage.getItem(SIZE_KEY) as Size) || "normal"
+  );
+  const resize = (v: Size) => {
+    setSize(v);
+    localStorage.setItem(SIZE_KEY, v);
+  };
+  const max = size === "max";
 
   // When the script first appears, default to edit mode.
   useEffect(() => {
     if (hasScript) setMode("edit");
   }, [hasScript]);
+
+  // Auto-grow the instruction box to fit what's typed (đến trần 200px rồi tự cuộn). Ở cỡ "max"
+  // chiều cao do flex quyết định nên phải TRẢ LẠI height, không style inline sẽ đè lên flex.
+  useEffect(() => {
+    const ta = editRef.current;
+    if (!ta) return;
+    if (max) {
+      ta.style.height = "";
+      return;
+    }
+    ta.style.height = "0px";
+    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  }, [instr, size, mode, max]);
 
   const sendEdit = () => {
     if (!instr.trim() || busy) return;
@@ -271,23 +303,70 @@ function Composer({
     setInstr("");
   };
 
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      sendEdit();
+    }
+  };
+
+  // Thu nhỏ: chỉ còn một thanh mỏng — đủ để biết trong ô đang có gì và bung lại.
+  if (size === "min") {
+    return (
+      <div className="pointer-events-none absolute inset-x-7 bottom-4">
+        <button
+          onClick={() => resize("normal")}
+          title="Mở lại ô soạn"
+          className="pointer-events-auto flex w-full items-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900/90 px-3 py-2 text-left text-xs text-neutral-400 shadow-2xl backdrop-blur hover:bg-neutral-800/90"
+        >
+          <span className="shrink-0">{mode === "edit" ? "✏️ Sửa kịch bản" : "✦ Tạo từ ý tưởng"}</span>
+          <span className="min-w-0 flex-1 truncate text-neutral-500">
+            {(mode === "edit" ? instr : idea).trim() || "…"}
+          </span>
+          <span className="shrink-0 text-neutral-400">▲</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="pointer-events-none absolute inset-x-7 bottom-4">
-      <div className="pointer-events-auto rounded-2xl border border-neutral-700 bg-neutral-900/90 p-2.5 shadow-2xl backdrop-blur">
-        {hasScript && (
-          <div className="mb-2 flex gap-1">
-            <Chip active={mode === "edit"} onClick={() => setMode("edit")}>✏️ Sửa</Chip>
-            <Chip active={mode === "idea"} onClick={() => setMode("idea")}>✦ Tạo lại từ ý tưởng</Chip>
+    <div
+      className={`pointer-events-none absolute inset-x-7 ${
+        max ? "top-2 bottom-4 flex flex-col" : "bottom-4"
+      }`}
+    >
+      <div
+        className={`pointer-events-auto rounded-2xl border border-neutral-700 bg-neutral-900/90 p-2.5 shadow-2xl backdrop-blur ${
+          max ? "flex min-h-0 flex-1 flex-col" : ""
+        }`}
+      >
+        <div className="mb-2 flex items-center gap-1">
+          {hasScript && (
+            <>
+              <Chip active={mode === "edit"} onClick={() => setMode("edit")}>✏️ Sửa</Chip>
+              <Chip active={mode === "idea"} onClick={() => setMode("idea")}>✦ Tạo lại từ ý tưởng</Chip>
+            </>
+          )}
+          <div className="ml-auto flex gap-1">
+            <SizeBtn onClick={() => resize("min")} title="Thu nhỏ (chỉ còn một thanh)">–</SizeBtn>
+            <SizeBtn
+              onClick={() => resize(max ? "normal" : "max")}
+              title={max ? "Thu về cỡ thường" : "Phóng to hết khung để soạn/dán đoạn dài"}
+            >
+              {max ? "⤡" : "⤢"}
+            </SizeBtn>
           </div>
-        )}
+        </div>
 
         {mode === "idea" ? (
-          <div className="space-y-2">
+          <div className={`space-y-2 ${max ? "flex min-h-0 flex-1 flex-col" : ""}`}>
             <textarea
               value={idea}
               onChange={(e) => setIdea(e.target.value)}
               placeholder="Ý tưởng ngắn hoặc dán nội dung dài (vd: Sự tích cây khế)…"
-              className="h-20 w-full resize-none rounded-xl border border-neutral-700 bg-neutral-950 p-3 text-sm outline-none focus:border-indigo-500"
+              className={`w-full resize-none rounded-xl border border-neutral-700 bg-neutral-950 p-3 text-sm outline-none focus:border-indigo-500 ${
+                max ? "min-h-0 flex-1" : "h-28"
+              }`}
             />
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 text-xs text-neutral-300">
@@ -323,27 +402,57 @@ function Composer({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <input
-              ref={editRef}
-              value={instr}
-              onChange={(e) => setInstr(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && sendEdit()}
-              placeholder="Mô tả thay đổi, sửa cảnh, đổi lời thoại…"
-              disabled={busy === "chat"}
-              className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-indigo-500 placeholder:text-neutral-600"
-            />
-            <button
-              onClick={sendEdit}
-              disabled={busy === "chat" || !instr.trim()}
-              className="grid h-9 w-9 place-items-center rounded-full bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40"
-            >
-              {busy === "chat" ? "…" : "→"}
-            </button>
+          <div className={`flex flex-col gap-1.5 ${max ? "min-h-0 flex-1" : ""}`}>
+            <div className={`flex items-end gap-2 ${max ? "min-h-0 flex-1" : ""}`}>
+              <textarea
+                ref={editRef}
+                value={instr}
+                onChange={(e) => setInstr(e.target.value)}
+                onKeyDown={onKey}
+                rows={max ? undefined : 2}
+                spellCheck={false}
+                placeholder="Mô tả thay đổi, sửa cảnh, đổi lời thoại… (Enter xuống dòng)"
+                disabled={busy === "chat"}
+                className={`flex-1 resize-none overflow-auto rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm leading-6 outline-none focus:border-indigo-500 placeholder:text-neutral-600 disabled:opacity-60 ${
+                  max ? "self-stretch min-h-0" : ""
+                }`}
+              />
+              <button
+                onClick={sendEdit}
+                disabled={busy === "chat" || !instr.trim()}
+                title="Gửi (⌘/Ctrl+Enter)"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40"
+              >
+                {busy === "chat" ? "…" : "→"}
+              </button>
+            </div>
+            <p className="px-1 text-[11px] text-neutral-600">
+              Enter = xuống dòng · ⌘/Ctrl+Enter = gửi
+            </p>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function SizeBtn({
+  onClick,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="grid h-6 w-6 place-items-center rounded-md border border-neutral-700 bg-neutral-900 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+    >
+      {children}
+    </button>
   );
 }
 
