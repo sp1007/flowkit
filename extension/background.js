@@ -21,7 +21,12 @@ const LABS_TAB_URLS = [
   'https://labs.google/fx/tools/flow*',
   'https://labs.google/fx/*/tools/flow*',
 ];
-const FLOW_TAB_URLS = [...LABS_TAB_URLS, 'https://flow.google.com/*'];
+// Trang app THẬT của giao diện mới là /project/<uuid> — chỉ ở đó grecaptcha mới được nạp
+// (đo được: trang gọi POST recaptcha/enterprise/reload với đúng site key của Flow). Trang chủ
+// flow.google.com/ là trang giới thiệu, không có grecaptcha; để nó lọt vào danh sách "tab
+// Flow" là mọi lượt sinh hỏng với "grecaptcha not available".
+const FLOW_APP_TAB_URLS = ['https://flow.google.com/project/*'];
+const FLOW_TAB_URLS = [...LABS_TAB_URLS, ...FLOW_APP_TAB_URLS];
 const FLOW_TAB_OPEN_URL = 'https://labs.google/fx/tools/flow';
 const LABS_ORIGIN = 'https://labs.google';
 
@@ -627,7 +632,7 @@ async function solveCaptcha(requestId, captchaAction) {
 /** Tab Flow của domain KHÁC với tab đã thử — labs.google ↔ flow.google.com. */
 async function _otherDomainTab(tried) {
   const host = _tabOrigin(tried);
-  const urls = host === 'labs.google' ? ['https://flow.google.com/*'] : LABS_TAB_URLS;
+  const urls = host === 'labs.google' ? FLOW_APP_TAB_URLS : LABS_TAB_URLS;
   const tab = await pickFlowTab(urls);
   return tab && tab.id !== tried.id ? tab : null;
 }

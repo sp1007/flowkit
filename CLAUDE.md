@@ -51,6 +51,27 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
   `rules.json` vẫn ghi đè Referer/Origin thành `labs.google` cho request tới `aisandbox-pa` —
   đó là origin backend đang chấp nhận, đừng đổi theo domain trang.
 
+- **Giao diện mới KHÔNG gọi `aisandbox-pa` từ trình duyệt — nó đi `batchexecute`, và đó là lý
+  do thật khiến việc labs.google chết là nguy hiểm.** Đo trên một lượt tạo ảnh ở
+  `flow.google.com`: mọi thứ chạy qua
+  `POST /_/AiSandboxAngularFrontend/data/batchexecute?rpcids=<id>&source-path=/project/<pid>&…`
+  — transport RPC nội bộ của Google (BOQ), payload `f.req=[[["<rpcid>","<json>",null,"generic"]]]`
+  kèm `at=` (XSRF), auth bằng COOKIE phiên chứ không phải `Authorization: Bearer`. Hệ quả:
+  token `ya29.*` mà `webRequest` của extension đang bắt là do app Next.js ở `labs.google` phát
+  (NextAuth đúc ra, lộ ở `/fx/api/auth/session`); **giao diện mới không phát bearer nào cả**.
+  Nên ngày `labs.google/fx` tắt, thứ mất KHÔNG phải mấy endpoint tRPC — nó là NGUỒN TOKEN, và
+  mất token thì toàn bộ đường gọi thẳng `aisandbox-pa` chết theo, kể cả khâu sinh. Đường thay
+  duy nhất nhìn thấy được là nói `batchexecute` từ chính tab `flow.google.com` (cookie + `at=`
+  của trang), tức đổi tầng vận chuyển chứ không phải đổi vài URL. Khảo sát rpcid trước khi cần
+  tới, đừng đợi.
+- **`grecaptcha` CÓ trên giao diện mới, nhưng chỉ ở trang `/project/<uuid>`.** Cùng lượt đo
+  trên thấy trang gọi `POST https://www.google.com/recaptcha/enterprise/reload?k=6LdsFiUs…`
+  — đúng site key của Flow, tức app mới vẫn chạy reCAPTCHA Enterprise và
+  `grecaptcha.enterprise.execute` dùng được từ đó. Cái KHÔNG có là ở trang chủ
+  `flow.google.com/` (trang giới thiệu, app chưa boot). Vì vậy `FLOW_APP_TAB_URLS` chỉ khớp
+  `/project/*`: cho trang chủ lọt vào danh sách "tab Flow" là mọi lượt sinh hỏng với
+  "grecaptcha not available" — đã dính đúng lỗi này một lần.
+
 - **Mỗi dự án thuộc về một tài khoản Flow.** Extension đọc account đang đăng nhập từ
   `labs.google/fx/api/auth/session` và đẩy lên agent; `project.account_id` ghi lại chủ sở
   hữu. `/studio/projects` chỉ trả dự án của account hiện tại, mọi endpoint đụng tới dự án
