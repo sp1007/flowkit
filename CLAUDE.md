@@ -35,6 +35,15 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
 
 ## Notes
 
+- **429 khi tạo ảnh là hạn mức của MODEL, không phải hết credit — đổi `image_model` là chạy
+  tiếp.** Đo trên lượt dựng 387 ảnh: dừng ở 196/387, mọi lượt sau trả 429, trong khi số dư
+  credit **không suy chuyển** (1050 trước và sau — đúng như luật "mọi thao tác ẢNH đều 0
+  credit"). Đổi dự án từ `NANO_BANANA_2` (`NARWHAL`) sang `NANO_BANANA_PRO` (`GEM_PIX_2`) là
+  sinh được ngay. Nên khi gặp 429 đừng đi soi credit hay đổ cho prompt: hỏi hạn mức tính theo
+  model. Có model thứ ba chưa khai trong `models.json`: `HARBOR_SEAL` = Nano Banana 2 Lite.
+  Đánh đổi: mỗi model một phong cách, đổi giữa chừng thì hai nửa storyboard lệch nét nhau —
+  cần đồng nhất thì chờ hạn mức hồi (theo ngày) rồi chạy tiếp bằng đúng model cũ.
+
 - **Flow đang dọn nhà sang `flow.google.com`, nhưng BACKEND KHÔNG ĐỔI.** Giao diện mới là một
   app Angular của Google (`boq-labs-ai-sandbox`, HTML shell trả về cho MỌI đường dẫn), không
   phải app Next.js ở `labs.google/fx`. Đo trực tiếp: nó vẫn gọi `aisandbox-pa.googleapis.com`
