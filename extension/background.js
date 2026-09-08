@@ -1254,7 +1254,13 @@ function parseBoqResponse(text) {
         if (typeof payload === 'string') {
           try { payload = JSON.parse(payload); } catch { /* để nguyên chuỗi */ }
         }
-        out.push({ rpcid: env[1], data: payload });
+        // Lỗi CÓ THỂ nằm ngay trong envelope wrb.fr: payload null còn env[5] mang
+        // google.rpc.ErrorInfo. Không moi ra thì mọi thất bại trông giống hệt nhau —
+        // "data: null" — và ta đi dò sai chỗ. Đo thật: xin bản 2K trả
+        // PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC mà parser cũ nuốt mất.
+        const item = { rpcid: env[1], data: payload };
+        if (payload === null && env[5] != null) item.error = env[5];
+        out.push(item);
       } else if (env[0] === 'er') {
         out.push({ rpcid: env[1] ?? null, error: env.slice(2) });
       }
