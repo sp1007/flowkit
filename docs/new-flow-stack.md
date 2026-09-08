@@ -440,12 +440,56 @@ Hệ quả: `creditGuard` báo thiếu **5 lần** — dựng 20 clip báo "≈4
 tốn 2000, và người dùng bấm "Vẫn chạy" vì tưởng còn dư. Khi port phải đổi thành **bảng giá
 theo model**, không phải một hằng số. Chưa đo giá của 3 model còn lại.
 
+### Bảng model và GIÁ lấy được MIỄN PHÍ — đừng render để đo
+
+Hai rpcid tôi từng xếp vào "nhiễu" hoá ra là kho dữ liệu:
+
+- **`yBhWQ []`** → đúng 5 model video trong giao diện:
+  `abra`, `veo_3_1_fast`, `veo_3_1_lite`, `veo_3_1_quality`, `veo_3_1_lite_low_priority`
+- **`HTrJv []`** → **toàn bộ danh mục: 153 khoá, tên hiển thị, và GIÁ THEO TIER.**
+  Giá nằm ở ô `[4]` mỗi mục: `[[1,[[null,C]]],[2,[[null,C]]],[3,[[null,C]]]]`.
+  Đã trích sẵn ra `agent/boq_model_catalog.json`.
+
+Đây chính là con số giao diện hiện trong prompt box. **Lấy được miễn phí, không tốn credit,
+không cần ai thao tác** — nên đừng bao giờ đo giá bằng cách render thử rồi trừ số dư.
+
+| nhóm | giá (tier 1 / 2 / 3) |
+|---|---|
+| Veo 3.1 - Quality | 100 / 100 / 100 |
+| Veo 3.1 - Fast | 20 / 20 / **10** |
+| Veo 3.1 - Lite | 10 / 10 / **5** |
+| Veo 3.1 - Lite [Lower Priority] | — / — / **0** (chỉ tier 3) |
+| Omni 1.1 Flash | theo thời lượng VÀ độ phân giải: `abra_i2v_4s` 7 · `abra_i2v_4s_360p` **4** · `abra_i2v_10s` 15 · `abra_i2v_10s_360p` 7 · `abra_edit` 20 · `abra_edit_360p` 10 |
+| Upsampler 1080p / **360p** | 0 |
+| Upsampler 4K | **50**, chỉ tier 3 |
+| Mọi model ảnh + upsample ảnh 2K | 0 |
+| Upsample ảnh 4K (`GEM_PIX_2_UPSAMPLE_4K`) | 0 nhưng **chỉ tier 3** |
+
+Bảng phẳng `CREDIT_COST.video = 20` của bản chính sai với **cả bốn** nhóm Veo, không riêng
+Quality: Fast 20/10, Lite 10/5, Lower Priority 0, Quality 100. Và Omni Flash thì phụ thuộc
+thời lượng lẫn độ phân giải.
+
+**Thời lượng, tỉ lệ khung và 360p đều nằm TRONG khoá model**, không phải trường riêng —
+`abra_i2v_8s_360p`, `veo_3_1_t2v_lite_4s_low_priority`, `veo_3_1_i2v_s_fast_portrait_ultra`.
+Đúng như thiết kế cũ. Nên không cần render thử từng tổ hợp: danh mục đã liệt kê sẵn tất cả.
+
+Vài khoá bản chính CHƯA có: `veo_3_1_t2v_lite_{4,6}s_low_priority`, `veo_3_1_extension_lite*`
+(nối dài video), `omni_upsampler_360p`, `abra_edit*`, và cả `abra_i2v_*` (bản chính mới có
+`abra_r2v_*` và `abra_t2v_*`).
+
+### Tier đánh số 1/2/3, KHÔNG trùng tên `PAYGATE_TIER_*`
+
+Suy ra **3 = Ultra** từ hai bằng chứng khớp nhau: `veo_3_1_*_lite_low_priority` (CLAUDE.md:
+"0đ, chỉ Ultra") chỉ có tier 3, và `GEM_PIX_2_UPSAMPLE_4K` cũng chỉ có tier 3 — đúng lúc
+người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhiều khả năng 2 = Pro
+(`PAYGATE_TIER_ONE`), 3 = Ultra (`PAYGATE_TIER_TWO`). **Đừng ánh xạ thẳng số sang tên tier cũ
+mà chưa kiểm.**
+
 ### Kế hoạch đo
 
-Video khác hai mảng trước ở chỗ **tốn tiền thật** và **dễ bị chặn** (CLAUDE.md: bắn 4 submit
-đồng thời từng hỏng 3/4). Nên bắt MỘT lượt đủ lộ khung — model rẻ nhất, ngắn nhất, tạo từ
-một ảnh có sẵn (thấy được ô ảnh đầu vào) — rồi tự đổi tham số để dò nốt độ phân giải, thời
-lượng, tên model, chế độ reference.
+Sau khi có danh mục, thứ CÒN THIẾU chỉ là **hình dạng lời gọi submit** và **cách poll** —
+không phải tên model hay giá nữa. Nên chỉ cần **MỘT lượt** bằng model 0 credit
+(`veo_3_1_*_lite_low_priority`), không cần 5 lượt mỗi model.
 
 Thứ **chỉ capture mới trả lời được** là cách POLL: video render 30–240 giây nên submit xong
 phải hỏi lại kết quả, cơ chế đó chưa từng xuất hiện trong mảng ảnh (ảnh trả kết quả ngay).

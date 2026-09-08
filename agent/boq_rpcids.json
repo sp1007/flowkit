@@ -136,6 +136,17 @@
       "note": "[\"projects/<id>\"] — XOÁ DỰ ÁN. Chỉ nhận đường dẫn tài nguyên, không mặt nạ, không clientContext, không reCAPTCHA. Trả về [].",
       "verified": "Vòng đời trọn vẹn qua POST /api/flow/boq: tạo (jHPbke) -> đếm 11 dự án -> xoá (QI2zvc) -> đếm 10. Dự án biến khỏi UpteDb.",
       "note2": "ĐÂY LÀ NGOẠI LỆ: mọi thao tác 'xoá' khác trong API này đều là bật cờ theo mặt nạ (ảnh vào thùng rác = metadata.archived qua pGCYOe). Riêng dự án có động từ xoá thật. Đừng suy từ ảnh sang dự án hay ngược lại."
+    },
+    "video_model_list": {
+      "rpcid": "yBhWQ",
+      "probe_args": [],
+      "note": "[] -> [[[\"abra\",1],[\"veo_3_1_fast\",1],[\"veo_3_1_lite\",1],[\"veo_3_1_quality\",1],[\"veo_3_1_lite_low_priority\",1]]] — ĐÚNG 5 model video hiện trong giao diện."
+    },
+    "model_catalog": {
+      "rpcid": "HTrJv",
+      "probe_args": [],
+      "note": "[] -> TOÀN BỘ danh mục model: 153 khoá, tên hiển thị, và GIÁ THEO TIER. data[0][4] = model video theo nhóm, data[0][5] = model ảnh, data[0][3] = ánh xạ khoá -> tên hiển thị, data[0][7] = TTS. Giá nằm ở ô [4] của mỗi mục, dạng [[1,[[null,C]]],[2,[[null,C]]],[3,[[null,C]]]] = giá cho tier 1/2/3. Đã trích sẵn ra agent/boq_model_catalog.json.",
+      "why": "Đây là nguồn giá CHÍNH THỐNG — chính là con số giao diện hiện trong prompt box. Lấy được MIỄN PHÍ, không tốn credit, không cần thao tác. Đừng đo giá bằng cách render thử rồi trừ số dư."
     }
   },
   "unknown": {
@@ -151,15 +162,14 @@
     "cPZSdc",
     "Yizz8d",
     "ve2Lsc",
-    "HTrJv",
     "tRARke",
     "qJcgMc",
-    "yBhWQ",
     "o30O0e"
   ],
   "_field_names": "Tên trường trong field mask là bản snake_case của tên trường REST đường cũ: mask \"thumbnail_media_key\" ứng với updateMask=thumbnailMediaKey của PATCH /v1/projects/{pid}. Giả thuyết (CHƯA kiểm hết): các trường khác cũng ánh xạ như vậy, nên có thể suy tên trường từ API cũ thay vì phải bắt từng cái.",
   "_metadata_shape": "Đối tượng metadata của workflow (ô [3]): [0]=display_name, [1]=[ts tạo], [2]=archived (bool), [3]=?, [4]=primary mediaId, [5]=UUID phiên, [6]=[ts sửa]. Suy ra từ mYWVGd (mask metadata.display_name -> ô [0]) và pGCYOe (mask metadata.archived -> ô [2]).",
   "_errors": "Lỗi có thể nằm NGAY TRONG envelope wrb.fr: payload (ô [2]) là null còn ô [5] mang google.rpc.ErrorInfo. Không đọc ô [5] thì mọi thất bại trông giống nhau ('data: null') và sẽ đi dò sai chỗ. parseBoqResponse nay trả kèm trường `error`.",
   "_todo_images": "Mảng ảnh đã đủ, TRỪ mấy việc cấp DỰ ÁN chưa bắt được: tạo dự án, xoá dự án, đổi tên dự án. FlowKit tạo một dự án cho mỗi video nên không có tạo dự án là không chạy được từ đầu. Đổi tên dự án nhiều khả năng là o8DA4 với mask khác — thử được sau khi biết cách tạo dự án mới (đừng thử trên dự án thật của người dùng).",
-  "_mask_gotcha": "MẶT NẠ SAI TÊN THÌ IM LẶNG KHÔNG LÀM GÌ — trả 200, trả về trạng thái HIỆN TẠI, không báo lỗi. Đo trên o8DA4: chỉ 'project_title' đổi được tên; 'title', 'display_name', 'name' và cả một tên bịa đều trả 200 mà không đổi gì. Hệ quả khi port: gõ sai tên trường là một lệnh ghi KHÔNG BAO GIỜ chạy mà không có gì báo. Thử mặt nạ mới thì phải ĐỌC LẠI để xác nhận, và mỗi lượt thử phải dùng GIÁ TRỊ KHÁC NHAU — dùng chung một giá trị đích thì lượt sau trả về đúng giá trị đó dù chẳng làm gì, nhìn như thành công."
+  "_mask_gotcha": "MẶT NẠ SAI TÊN THÌ IM LẶNG KHÔNG LÀM GÌ — trả 200, trả về trạng thái HIỆN TẠI, không báo lỗi. Đo trên o8DA4: chỉ 'project_title' đổi được tên; 'title', 'display_name', 'name' và cả một tên bịa đều trả 200 mà không đổi gì. Hệ quả khi port: gõ sai tên trường là một lệnh ghi KHÔNG BAO GIỜ chạy mà không có gì báo. Thử mặt nạ mới thì phải ĐỌC LẠI để xác nhận, và mỗi lượt thử phải dùng GIÁ TRỊ KHÁC NHAU — dùng chung một giá trị đích thì lượt sau trả về đúng giá trị đó dù chẳng làm gì, nhìn như thành công.",
+  "_tier_numbering": "Tier trong danh mục đánh 1/2/3, KHÔNG trùng tên PAYGATE_TIER_* của đường cũ. Suy ra 3 = Ultra từ hai bằng chứng khớp nhau: veo_3_1_*_lite_low_priority (CLAUDE.md ghi '0đ, chỉ Ultra') chỉ có tier 3, và GEM_PIX_2_UPSAMPLE_4K cũng chỉ có tier 3 — đúng lúc người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhiều khả năng 2 = Pro (PAYGATE_TIER_ONE), 3 = Ultra (PAYGATE_TIER_TWO). ĐỪNG ánh xạ thẳng số sang tên tier cũ mà chưa kiểm."
 }
