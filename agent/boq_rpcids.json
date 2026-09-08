@@ -1,190 +1,210 @@
 {
-  "_comment": [
-    "Bảng rpcid của giao diện flow.google.com (BOQ batchexecute). ĐỂ Ở ĐÂY, KHÔNG NHÚNG VÀO CODE:",
-    "rpcid là định danh RPC phía máy chủ, bền hơn tên biến bị minify nhưng KHÔNG có gì bảo đảm.",
-    "Ngày nó đổi thì sửa file này là xong, không phải sửa code, không phải build lại.",
-    "Cách dò lại: bật extension, thao tác trên giao diện thật, đọc GET /api/flow/boq/log —",
-    "rpcid lạ nào mang payload có prompt / có projectId chính là cái vừa đổi.",
-    "Kiểm nhanh cả bảng: POST /api/flow/boq/verify (chỉ chạy các op đọc, không đụng dữ liệu)."
-  ],
-  "learned_at": "2026-09-08",
-  "learned_from_bl": "boq_labs-ai-sandbox-frontend_20260907.00_p0",
-  "ops": {
-    "credits": {
-      "rpcid": "nzlxg",
-      "probe_args": [],
-      "note": "-> [12439,2,3,3,null,12439]"
-    },
-    "list_projects": {
-      "rpcid": "UpteDb",
-      "probe_args": [
-        "projects/*",
-        21,
-        null,
-        null,
-        null,
-        null,
-        [
-          1
-        ]
-      ],
-      "note": "[\"projects/*\", <số mục mỗi trang>, <token trang sau|null>, null, null, null, [1]] — LIỆT KÊ DỰ ÁN, tương đương project.searchUserProjects cũ.",
-      "response": "[[<danh sách dự án>, …], \"<token trang sau>\"] — mỗi dự án: [projectId, [tên, null, [ts], <URL thumbnail lh3>, <mediaId bìa>]]. Token trang sau CHỈ có khi còn trang; hết thì phản hồi chỉ còn một phần tử.",
-      "paging": "ĐO ĐƯỢC: ô [1] là số mục mỗi trang, ô [2] nhận token trang sau (ô [3] KHÔNG nhận — nhét vào đó thì nó lặng lẽ trả lại TRANG ĐẦU, không báo lỗi). Kiểm: limit=3 trả b150176f/a4b9c2e2/92d2e011 + token; đưa token vào ô [2] trả 73b2015a/7d03935c/c5d7a6cc. Giao diện gửi limit=21; tài khoản thử có 9 dự án nên một trang là hết. PHẢI lặp theo token, đừng lấy một trang rồi tưởng đã đủ."
-    },
-    "get_project": {
-      "rpcid": "Zzl0ze",
-      "note": "[\"projects/<id>\", null, null, null, [1]] — ĐỌC NỘI DUNG DỰ ÁN, tương đương project.getProjectContents của đường cũ. Phản hồi: data[1] = danh sách WORKFLOW (mỗi mục [workflowId, …, metadata, …]), data[2] = danh sách BẢN GHI MEDIA (mỗi mục [mediaId, projectId, workflowId, \"CAE\"|\"CAI\", …]). Nhóm media theo workflowId là ra lịch sử phiên bản, không cần rpcid riêng.",
-      "probe_args": null
-    },
-    "get_tool_state": {
-      "rpcid": "ngNC2",
-      "note": "[\"tools/PINHOLE/projects/<id>\"] — cấu hình model của dự án (đo được: \"narwhal_display\", \"abra\"), KHÔNG phải danh sách ảnh."
-    },
-    "user_prefs": {
-      "rpcid": "xI9TVb",
-      "probe_args": [
-        "userPreferences/"
-      ]
-    },
-    "generate_image": {
-      "rpcid": "ogiZ0b",
-      "captcha": true,
-      "note": "[null,[[null,null,null,<seed>,<aspect>,\"GEM_PIX_2\",null,<ctx>,[[[\"<prompt>\"]]],null,null,null,\"<uuid>\",\"<uuid>\"]],1,<ctx>,[\"<uuid>\"]]",
-      "args_map": {
-        "[1][0][3]": "seed (ngẫu nhiên mỗi lượt)",
-        "[1][0][4]": "tỉ lệ khung — ĐO ĐỦ: 1 -> 1024x1024 (1:1) | 2 -> 768x1376 (9:16) | 3 -> 1376x768 (16:9) | 4 -> 896x1200 (3:4) | 5 -> 1200x896 (4:3). CẢNH BÁO: 0 và 6 (giá trị ngoài dải) KHÔNG báo lỗi mà lặng lẽ trả 1408x768 — một khung 11:6 không có trong menu của UI. Luôn gửi giá trị 1-5 tường minh, đừng để trống/0 mà tưởng sẽ có mặc định hợp lý.",
-        "[1][0][5]": "khoá model — ĐO ĐƯỢC: GEM_PIX_2 = Nano Banana Pro (mặc định của UI), NARWHAL = Nano Banana 2, HARBOR_SEAL = Nano Banana 2 Lite (khoá MỚI, chưa có trong models.json của bản chính). Tên riêng chứ không phải hậu tố _lite như bên video.",
-        "[1][0][7]": "clientContext: [null,22,null,null,<workflowId>,<projectId>,…,[<token>,1]]. Ô [4] = workflowId: null khi TẠO MỚI, có giá trị khi SỬA ảnh (nối kết quả vào workflow đang có). Ô [5] = projectId.",
-        "[1][0][8]": "prompt, lồng ba lớp: [[[\"…\"]]]",
-        "[1][0][12], [1][0][13]": "hai UUID hoa, mới mỗi lượt",
-        "[2]": "KHÔNG phải số ảnh — đặt 2 vẫn trả về 1 ảnh",
-        "[3]": "clientContext lặp lại y hệt [1][0][7]",
-        "[4][0]": "BATCH ID — cả lô dùng CHUNG, ứng với mediaGenerationContext.batchId của đường cũ",
-        "[1][0][2]": "ẢNH ĐẦU VÀO — danh sách, mỗi mục [<mediaId>, null, null, null, <KIỂU>]. KIỂU đã đo: 1 = ảnh THAM CHIẾU, 2 = ảnh NỀN (lượt sửa ảnh). Ứng đúng IMAGE_INPUT_TYPE_REFERENCE / IMAGE_INPUT_TYPE_BASE_IMAGE của đường cũ. Nhiều ảnh thì nhiều mục, THỨ TỰ danh sách là 'ảnh thứ nhất/thứ hai' mà prompt nhắc tới. Đi bằng mediaId, không phải base64/URL."
-      },
-      "batching": "Lô 4 ảnh = 4 lời gọi ogiZ0b RIÊNG, cách nhau ~1s, mỗi lời gọi có seed / UUID / token reCAPTCHA RIÊNG, chung một batch id.",
-      "response_map": {
-        "data[0][0][0]": "mediaId",
-        "data[0][0][2]": "workflowId",
-        "data[0][0][6][0][13]": "URL flow-content.google (đã ký, dùng ngay)",
-        "data[0][0][6][2]": "[rộng, cao] thật của ảnh",
-        "data[1][0]": "đối tượng workflow: [id,_,_,[tên,ts,_,_,mediaId,uuid,ts], projectId]"
-      },
-      "captcha_cost": "MỘT token cho MỖI lời gọi — đó là thứ đo được chắc chắn: bốn payload của lô 4 mang bốn token khác nhau, và số lượt POST recaptcha/enterprise/reload bằng số lượt batchexecute. THỨ TỰ trước/sau thì KHÔNG kết luận được từ quan sát (nhìn ở DevTools thấy reload nằm sau, nhưng token phải có trước mới nhét được vào payload — nhiều khả năng đó là lượt đúc sẵn cho lời gọi kế tiếp). Không ảnh hưởng cách làm: ta gọi grecaptcha.enterprise.execute ngay trước mỗi lượt, lấy được token nào dùng token đó.",
-      "verified": "Chạy lại qua POST /api/flow/boq hai lượt: (1) một ảnh tham chiếu, 9:16, NARWHAL -> đúng con mèo trong ảnh gốc, 768x1376; (2) HAI ảnh tham chiếu, 1:1, HARBOR_SEAL -> mèo từ ảnh 1 ngồi trong giỏ xe đạp từ ảnh 2, 1024x1024. Reference có tác dụng thật và thứ tự danh sách khớp với 'ảnh thứ nhất/thứ hai' trong prompt. (3) SỬA ảnh tải lên bằng kiểu 2 -> giữ nguyên bố cục/bối cảnh, chỉ thêm chi tiết được yêu cầu. Đúng nghĩa sửa, không phải sinh lại.",
-      "edit_mode": "SỬA ẢNH DÙNG CHUNG rpcid ogiZ0b, khác đúng ba chỗ: ảnh vào mang KIỂU 2 thay vì 1, clientContext[4] mang workflowId của ảnh đang sửa, và [1][0][12] là null (chỉ [13] có UUID). Sau khi sinh xong, giao diện gọi thêm mYWVGd mask metadata.primary_media_id để trỏ workflow sang media mới — đó là cách 'sửa tại chỗ' hoạt động: cùng workflow, đổi media chính. Ảnh do người dùng TẢI LÊN sửa được bình thường (khác SPrCad vốn từ chối)."
-    },
-    "update_workflow": {
-      "rpcid": "mYWVGd",
-      "note": "[[\"<workflowId>\",null,null,[\"<tên>\"],\"<projectId>\"], [[\"metadata.display_name\"]]] — field mask"
-    },
-    "update_project": {
-      "rpcid": "Kcr7Ub",
-      "note": "[\"projects/<id>\", [...], [[\"agent_toggle_state\"]]] — cũng resource+mask nhưng KHÁC o8DA4: Kcr7Ub không có clientContext ở cuối và mask trỏ tới trạng thái UI. Nhiều rpcid sửa cùng một resource path, phân theo NHÓM TRƯỜNG chứ không phải một rpcid dùng chung."
-    },
-    "set_project_cover": {
-      "rpcid": "o8DA4",
-      "note": "[\"projects/<id>\", [<tên dự án>, <mediaId bìa>], [[\"thumbnail_media_key\"]], [null,22]] — sửa DỰ ÁN theo field mask. Đối tượng dự án: [0]=tên, [1]=mediaId ảnh bìa. Trả về chính đối tượng đã cập nhật.",
-      "verified": "Chạy lại qua POST /api/flow/boq với đúng giá trị cũ (idempotent) -> 200, trả [tên, mediaId]."
-    },
-    "trash_workflow": {
-      "rpcid": "pGCYOe",
-      "note": "[[ <workflow>, <workflow>, … ], [[\"metadata.archived\"]]] — CHUYỂN VÀO THÙNG RÁC. KHÔNG phải lệnh xoá: chỉ bật cờ metadata.archived, nên khôi phục được bằng cách đặt lại cờ đó. Workflow rút gọn: [<workflowId>, null, null, [null,null,1], <projectId>] — số 1 nằm đúng ô metadata[2] = archived.",
-      "batching": "Tham số đầu là DANH SÁCH nên MỘT lời gọi xử lý NHIỀU mục. Giao diện thật vẫn bắn một lời gọi cho mỗi ảnh (5 ảnh = 5 lượt, cách nhau ~4-5s) nhưng đó là lựa chọn của UI chứ không phải giới hạn của API — đã kiểm: 2 workflow trong 1 lời gọi, cả hai trả về archived=true.",
-      "verified": "POST /api/flow/boq với 2 workflow -> 200, cả hai metadata[2] = true."
-    },
-    "upsample_image": {
-      "rpcid": "SPrCad",
-      "captcha": true,
-      "note": "[\"<mediaId>\", <mức>, <clientContext>] — xin bản nét. clientContext ở đây KHÔNG có projectId (ô [5] là null), khác với lúc tạo ảnh. Mức: giao diện gửi 1 và 2.",
-      "status": "ĐÃ xác minh chạy được.",
-      "levels": "1 -> gấp ĐÔI (1376x768 -> 2752x1536, 'bản 2K'). 2 -> gấp BỐN (5504x3072, 'bản 4K'). ĐO TRÊN TÀI KHOẢN ULTRA. Mức 2 KHÔNG dùng được trên tài khoản Pro (TIER_ONE) — trần theo tier y như đường cũ (UPSAMPLE_IMAGE_RESOLUTIONS: ONE -> 2K, Ultra -> 4K). Đừng hardcode 'mức 2 luôn chạy'; đọc tier qua _current_tier_for(project) rồi hạ mức xuống trần, và CHƯA đo được Pro trả lỗi gì khi xin mức 2 — cần thử lại trên tài khoản Pro.",
-      "response": "Trả về mediaId MỚI và ẢNH DẠNG BASE64 ngay trong phản hồi, KHÔNG phải URL — giống đường cũ (upsampleImage cũng trả base64 vài MB). Mức 2 nặng ~920KB byte thật.",
-      "gotcha": "CHỈ chạy trên media do FLOW SINH. Ảnh do người dùng TẢI LÊN trả error [3] (INVALID_ARGUMENT) — không phải thiếu quyền, không phải sai mức. Và lần đo đầu tiên thất bại vì PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC do bấm dồn ~10 lượt trong 2 phút: bị chặn thì NGHỈ, đừng thử lại dồn."
-    },
-    "upload_image": {
-      "rpcid": "maseQ",
-      "captcha": true,
-      "note": "[<clientContext có projectId>, \"<ảnh base64>\", \"<mime>\", 1, null,null,null,null, \"<tên file>\", null, \"<UUID>\", \"<UUID>\"] — ảnh đi BẰNG BASE64 ngay trong f.req, cùng một đường batchexecute. Không có endpoint upload riêng, không có URL ký sẵn.",
-      "response": "[[<bản ghi media: mediaId, projectId, workflowId, …, [rộng,cao]>], <đối tượng workflow>]",
-      "verified": "Tải ảnh 127KB lên qua POST /api/flow/boq -> mediaId c9902ae1…, kích thước [1376,768] đúng ảnh gốc.",
-      "gotcha": "Giao diện thật khai \"image/png\" trong khi byte là JPEG (base64 mở đầu /9j/). Máy chủ tự nhận dạng, trường mime không phải nguồn sự thật — đừng dựa vào nó."
-    },
-    "set_primary_media": {
-      "rpcid": "mYWVGd",
-      "note": "[[\"<workflowId>\",null,null,[null,null,null,null,\"<mediaId mới>\"],\"<projectId>\"], [[\"metadata.primary_media_id\"]]] — trỏ workflow sang media mới sau khi sửa ảnh. Cùng rpcid với đổi tên, chỉ khác mask và ô metadata (ô [4] thay vì [0])."
-    },
-    "get_media": {
-      "rpcid": "as29s",
-      "note": "[\"<mediaId>\"] — đọc MỘT media, tương đương /v1/media/{id} cũ. Trả cả tham số đã sinh ra nó: prompt, danh sách ảnh vào kèm KIỂU, model. Dùng để truy nguồn một ảnh.",
-      "verified": "Gọi trên ảnh vừa sửa -> trả đúng prompt sửa và mediaId ảnh nền kèm kiểu 2.",
-      "url_ttl": "URL do as29s trả về có Expires = LÚC GỌI + 6 GIỜ (đo trên cả media mới sinh lẫn media từ dự án tạo 2026-05-21). Gọi lại as29s là có URL mới — media KHÔNG mất, chỉ URL hết hạn. Hệ quả: ĐỪNG lưu URL vào DB, chỉ lưu mediaId rồi resolve khi cần, đúng như media_store của bản chính đang làm. Kiểm: media 3,5 tháng tuổi vẫn tải về được bình thường.",
-      "rate_limit_warning": "Đường resolve của bản chính (/v1/media/{id}) BỊ giới hạn tần suất — media_store phải chặn còn 3 lời gọi song song và nghỉ sau mỗi cụm 6 lượt. Chưa đo được as29s có bị chặn như vậy không; cứ giữ nguyên mức thận trọng đó cho tới khi đo."
-    },
-    "create_project": {
-      "rpcid": "jHPbke",
-      "note": "[\"projects/*\", [null, [\"<tên dự án>\"]], [null, 22]] — TẠO DỰ ÁN. Tham số thứ hai là bản ghi dự án chưa có id: [<id=null>, <projectInfo>], cùng hình dạng với mục trong phản hồi của UpteDb. clientContext rút gọn [null,22], KHÔNG cần reCAPTCHA.",
-      "response": "[\"<projectId mới>\", [\"<tên>\"]]",
-      "verified": "Tạo qua POST /api/flow/boq với tên tự đặt -> ra projectId mới, tên đúng NGAY, MỘT lời gọi. Giao diện tự đặt tên kiểu 'Tháng 9 08 - 23:12' rồi mới gửi lên — đó là tên do CLIENT sinh, không phải máy chủ, nên mình đặt tên gì cũng được. Sau khi tạo, trang tự chuyển sang /u/2/project/<id mới>."
-    },
-    "rename_project": {
-      "rpcid": "o8DA4",
-      "note": "[\"projects/<id>\", [\"<tên mới>\"], [[\"project_title\"]], [null,22]] — cùng rpcid với đặt ảnh bìa, khác mặt nạ.",
-      "verified": "Đổi tên dự án nháp -> đọc lại bằng UpteDb thấy tên mới."
-    },
-    "delete_project": {
-      "rpcid": "QI2zvc",
-      "note": "[\"projects/<id>\"] — XOÁ DỰ ÁN. Chỉ nhận đường dẫn tài nguyên, không mặt nạ, không clientContext, không reCAPTCHA. Trả về [].",
-      "verified": "Vòng đời trọn vẹn qua POST /api/flow/boq: tạo (jHPbke) -> đếm 11 dự án -> xoá (QI2zvc) -> đếm 10. Dự án biến khỏi UpteDb.",
-      "note2": "ĐÂY LÀ NGOẠI LỆ: mọi thao tác 'xoá' khác trong API này đều là bật cờ theo mặt nạ (ảnh vào thùng rác = metadata.archived qua pGCYOe). Riêng dự án có động từ xoá thật. Đừng suy từ ảnh sang dự án hay ngược lại."
-    },
-    "video_model_list": {
-      "rpcid": "yBhWQ",
-      "probe_args": [],
-      "note": "[] -> [[[\"abra\",1],[\"veo_3_1_fast\",1],[\"veo_3_1_lite\",1],[\"veo_3_1_quality\",1],[\"veo_3_1_lite_low_priority\",1]]] — ĐÚNG 5 model video hiện trong giao diện."
-    },
-    "model_catalog": {
-      "rpcid": "HTrJv",
-      "probe_args": [],
-      "note": "[] -> TOÀN BỘ danh mục model: 153 khoá, tên hiển thị, và GIÁ THEO TIER. data[0][4] = model video theo nhóm, data[0][5] = model ảnh, data[0][3] = ánh xạ khoá -> tên hiển thị, data[0][7] = TTS. Giá nằm ở ô [4] của mỗi mục, dạng [[1,[[null,C]]],[2,[[null,C]]],[3,[[null,C]]]] = giá cho tier 1/2/3. Đã trích sẵn ra agent/boq_model_catalog.json.",
-      "why": "Đây là nguồn giá CHÍNH THỐNG — chính là con số giao diện hiện trong prompt box. Lấy được MIỄN PHÍ, không tốn credit, không cần thao tác. Đừng đo giá bằng cách render thử rồi trừ số dư."
-    },
-    "generate_video": {
-      "rpcid": "YhhmEf",
-      "captcha": true,
-      "note": "[[[ [null,null,[[[\"<prompt>\"]]]], \"<khoá model>\", <tỉ lệ>, null, [null,null,null,null,\"<UUID>\",\"<UUID>\"] ]], <clientContext>, [\"<batch id>\", 2]] — SUBMIT VIDEO. Prompt lồng ba lớp giống hệt bên ảnh. Tỉ lệ = 2 cho 16:9 ngang (người dùng xác nhận đã chọn 16:9) — KHÁC bảng tỉ lệ của ảnh, đừng dùng chung.",
-      "response": "[null, <credit còn lại>, [<đối tượng workflow>], [<bản ghi media>]] — trả NGAY, chưa có video. Lấy mediaId ở đó rồi poll. Đáng chú ý: phản hồi kèm luôn SỐ DƯ CREDIT, khỏi gọi nzlxg riêng.",
-      "verified": "Submit qua POST /api/flow/boq bằng veo_3_1_t2v_lite_low_priority (0đ) -> mediaId ddb2ec95…"
-    },
-    "poll_video": {
-      "rpcid": "jwpduf",
-      "note": "[null, null, [[\"<mediaId>\"]]] — POLL. Giao diện gọi mỗi 5 giây cho tới khi xong (clip 8s hết ~45 giây, 9 lượt). Trả về bản ghi media đang cập nhật; khi xong có kích thước byte thật. KHÔNG chứa URL — xong rồi phải gọi as29s mới lấy được URL, đúng như giao diện làm.",
-      "verified": "Poll 18 lượt tới khi bản ghi đủ dữ liệu, rồi as29s trả URL."
-    }
+ "_comment": [
+  "Bảng rpcid của giao diện flow.google.com (BOQ batchexecute). ĐỂ Ở ĐÂY, KHÔNG NHÚNG VÀO CODE:",
+  "rpcid là định danh RPC phía máy chủ, bền hơn tên biến bị minify nhưng KHÔNG có gì bảo đảm.",
+  "Ngày nó đổi thì sửa file này là xong, không phải sửa code, không phải build lại.",
+  "Cách dò lại: bật extension, thao tác trên giao diện thật, đọc GET /api/flow/boq/log —",
+  "rpcid lạ nào mang payload có prompt / có projectId chính là cái vừa đổi.",
+  "Kiểm nhanh cả bảng: POST /api/flow/boq/verify (chỉ chạy các op đọc, không đụng dữ liệu)."
+ ],
+ "learned_at": "2026-09-08",
+ "learned_from_bl": "boq_labs-ai-sandbox-frontend_20260907.00_p0",
+ "ops": {
+  "credits": {
+   "rpcid": "nzlxg",
+   "probe_args": [],
+   "note": "-> [12439,2,3,3,null,12439]"
   },
-  "unknown": {
-    "mrlkwd": "args = [\"<projectId>\"], chạy lúc mở dự án — chưa rõ trả về gì",
-    "DA4VGb": "ghi trạng thái UI kèm field mask (is_agent_mode_toggled, is_chat_panel_open)"
+  "list_projects": {
+   "rpcid": "UpteDb",
+   "probe_args": [
+    "projects/*",
+    21,
+    null,
+    null,
+    null,
+    null,
+    [
+     1
+    ]
+   ],
+   "note": "[\"projects/*\", <số mục mỗi trang>, <token trang sau|null>, null, null, null, [1]] — LIỆT KÊ DỰ ÁN, tương đương project.searchUserProjects cũ.",
+   "response": "[[<danh sách dự án>, …], \"<token trang sau>\"] — mỗi dự án: [projectId, [tên, null, [ts], <URL thumbnail lh3>, <mediaId bìa>]]. Token trang sau CHỈ có khi còn trang; hết thì phản hồi chỉ còn một phần tử.",
+   "paging": "ĐO ĐƯỢC: ô [1] là số mục mỗi trang, ô [2] nhận token trang sau (ô [3] KHÔNG nhận — nhét vào đó thì nó lặng lẽ trả lại TRANG ĐẦU, không báo lỗi). Kiểm: limit=3 trả b150176f/a4b9c2e2/92d2e011 + token; đưa token vào ô [2] trả 73b2015a/7d03935c/c5d7a6cc. Giao diện gửi limit=21; tài khoản thử có 9 dự án nên một trang là hết. PHẢI lặp theo token, đừng lấy một trang rồi tưởng đã đủ."
   },
-  "noise": [
-    "WuwhI",
-    "DTaVef",
-    "NfrxTb",
-    "KV2T2d",
-    "LPzVkd",
-    "cPZSdc",
-    "Yizz8d",
-    "ve2Lsc",
-    "tRARke",
-    "qJcgMc",
-    "o30O0e"
-  ],
-  "_field_names": "Tên trường trong field mask là bản snake_case của tên trường REST đường cũ: mask \"thumbnail_media_key\" ứng với updateMask=thumbnailMediaKey của PATCH /v1/projects/{pid}. Giả thuyết (CHƯA kiểm hết): các trường khác cũng ánh xạ như vậy, nên có thể suy tên trường từ API cũ thay vì phải bắt từng cái.",
-  "_metadata_shape": "Đối tượng metadata của workflow (ô [3]): [0]=display_name, [1]=[ts tạo], [2]=archived (bool), [3]=?, [4]=primary mediaId, [5]=UUID phiên, [6]=[ts sửa]. Suy ra từ mYWVGd (mask metadata.display_name -> ô [0]) và pGCYOe (mask metadata.archived -> ô [2]).",
-  "_errors": "Lỗi có thể nằm NGAY TRONG envelope wrb.fr: payload (ô [2]) là null còn ô [5] mang google.rpc.ErrorInfo. Không đọc ô [5] thì mọi thất bại trông giống nhau ('data: null') và sẽ đi dò sai chỗ. parseBoqResponse nay trả kèm trường `error`.",
-  "_todo_images": "Mảng ảnh đã đủ, TRỪ mấy việc cấp DỰ ÁN chưa bắt được: tạo dự án, xoá dự án, đổi tên dự án. FlowKit tạo một dự án cho mỗi video nên không có tạo dự án là không chạy được từ đầu. Đổi tên dự án nhiều khả năng là o8DA4 với mask khác — thử được sau khi biết cách tạo dự án mới (đừng thử trên dự án thật của người dùng).",
-  "_mask_gotcha": "MẶT NẠ SAI TÊN THÌ IM LẶNG KHÔNG LÀM GÌ — trả 200, trả về trạng thái HIỆN TẠI, không báo lỗi. Đo trên o8DA4: chỉ 'project_title' đổi được tên; 'title', 'display_name', 'name' và cả một tên bịa đều trả 200 mà không đổi gì. Hệ quả khi port: gõ sai tên trường là một lệnh ghi KHÔNG BAO GIỜ chạy mà không có gì báo. Thử mặt nạ mới thì phải ĐỌC LẠI để xác nhận, và mỗi lượt thử phải dùng GIÁ TRỊ KHÁC NHAU — dùng chung một giá trị đích thì lượt sau trả về đúng giá trị đó dù chẳng làm gì, nhìn như thành công.",
-  "_tier_numbering": "Tier trong danh mục đánh 1/2/3, KHÔNG trùng tên PAYGATE_TIER_* của đường cũ. Suy ra 3 = Ultra từ hai bằng chứng khớp nhau: veo_3_1_*_lite_low_priority (CLAUDE.md ghi '0đ, chỉ Ultra') chỉ có tier 3, và GEM_PIX_2_UPSAMPLE_4K cũng chỉ có tier 3 — đúng lúc người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhiều khả năng 2 = Pro (PAYGATE_TIER_ONE), 3 = Ultra (PAYGATE_TIER_TWO). ĐỪNG ánh xạ thẳng số sang tên tier cũ mà chưa kiểm.",
-  "_media_urls": "Một mediaId video cho HAI URL: `flow-content.google/video/<id>` là clip (video/mp4) và `flow-content.google/image/<id>` là ẢNH BÌA (JPEG ~42KB). Cả hai đều ký sẵn, tải bằng GET trơn. Ảnh bìa CÓ SẴN nghĩa là bỏ được cả đường dựng poster bằng ffmpeg của bản chính (GET /shots/{sid}/poster, cache theo tên file, tối đa 3 tiến trình) — thứ vốn dựng ra chỉ vì nhúng <video> làm treo trình duyệt. Clip vẫn có moov ở CUỐI file (ftyp/uuid/mdat/moov, không faststart) y như đường cũ, nên vẫn KHÔNG được nhúng <video> vào lưới shot."
+  "get_project": {
+   "rpcid": "Zzl0ze",
+   "note": "[\"projects/<id>\", null, null, null, [1]] — ĐỌC NỘI DUNG DỰ ÁN, tương đương project.getProjectContents của đường cũ. Phản hồi: data[1] = danh sách WORKFLOW (mỗi mục [workflowId, …, metadata, …]), data[2] = danh sách BẢN GHI MEDIA (mỗi mục [mediaId, projectId, workflowId, \"CAE\"|\"CAI\", …]). Nhóm media theo workflowId là ra lịch sử phiên bản, không cần rpcid riêng.",
+   "probe_args": null
+  },
+  "get_tool_state": {
+   "rpcid": "ngNC2",
+   "note": "[\"tools/PINHOLE/projects/<id>\"] — cấu hình model của dự án (đo được: \"narwhal_display\", \"abra\"), KHÔNG phải danh sách ảnh."
+  },
+  "user_prefs": {
+   "rpcid": "xI9TVb",
+   "probe_args": [
+    "userPreferences/"
+   ]
+  },
+  "generate_image": {
+   "rpcid": "ogiZ0b",
+   "captcha": true,
+   "note": "[null,[[null,null,null,<seed>,<aspect>,\"GEM_PIX_2\",null,<ctx>,[[[\"<prompt>\"]]],null,null,null,\"<uuid>\",\"<uuid>\"]],1,<ctx>,[\"<uuid>\"]]",
+   "args_map": {
+    "[1][0][3]": "seed (ngẫu nhiên mỗi lượt)",
+    "[1][0][4]": "tỉ lệ khung — ĐO ĐỦ: 1 -> 1024x1024 (1:1) | 2 -> 768x1376 (9:16) | 3 -> 1376x768 (16:9) | 4 -> 896x1200 (3:4) | 5 -> 1200x896 (4:3). CẢNH BÁO: 0 và 6 (giá trị ngoài dải) KHÔNG báo lỗi mà lặng lẽ trả 1408x768 — một khung 11:6 không có trong menu của UI. Luôn gửi giá trị 1-5 tường minh, đừng để trống/0 mà tưởng sẽ có mặc định hợp lý.",
+    "[1][0][5]": "khoá model — ĐO ĐƯỢC: GEM_PIX_2 = Nano Banana Pro (mặc định của UI), NARWHAL = Nano Banana 2, HARBOR_SEAL = Nano Banana 2 Lite (khoá MỚI, chưa có trong models.json của bản chính). Tên riêng chứ không phải hậu tố _lite như bên video.",
+    "[1][0][7]": "clientContext: [null,22,null,null,<workflowId>,<projectId>,…,[<token>,1]]. Ô [4] = workflowId: null khi TẠO MỚI, có giá trị khi SỬA ảnh (nối kết quả vào workflow đang có). Ô [5] = projectId.",
+    "[1][0][8]": "prompt, lồng ba lớp: [[[\"…\"]]]",
+    "[1][0][12], [1][0][13]": "hai UUID hoa, mới mỗi lượt",
+    "[2]": "KHÔNG phải số ảnh — đặt 2 vẫn trả về 1 ảnh",
+    "[3]": "clientContext lặp lại y hệt [1][0][7]",
+    "[4][0]": "BATCH ID — cả lô dùng CHUNG, ứng với mediaGenerationContext.batchId của đường cũ",
+    "[1][0][2]": "ẢNH ĐẦU VÀO — danh sách, mỗi mục [<mediaId>, null, null, null, <KIỂU>]. KIỂU đã đo: 1 = ảnh THAM CHIẾU, 2 = ảnh NỀN (lượt sửa ảnh). Ứng đúng IMAGE_INPUT_TYPE_REFERENCE / IMAGE_INPUT_TYPE_BASE_IMAGE của đường cũ. Nhiều ảnh thì nhiều mục, THỨ TỰ danh sách là 'ảnh thứ nhất/thứ hai' mà prompt nhắc tới. Đi bằng mediaId, không phải base64/URL."
+   },
+   "batching": "Lô 4 ảnh = 4 lời gọi ogiZ0b RIÊNG, cách nhau ~1s, mỗi lời gọi có seed / UUID / token reCAPTCHA RIÊNG, chung một batch id.",
+   "response_map": {
+    "data[0][0][0]": "mediaId",
+    "data[0][0][2]": "workflowId",
+    "data[0][0][6][0][13]": "URL flow-content.google (đã ký, dùng ngay)",
+    "data[0][0][6][2]": "[rộng, cao] thật của ảnh",
+    "data[1][0]": "đối tượng workflow: [id,_,_,[tên,ts,_,_,mediaId,uuid,ts], projectId]"
+   },
+   "captcha_cost": "MỘT token cho MỖI lời gọi — đó là thứ đo được chắc chắn: bốn payload của lô 4 mang bốn token khác nhau, và số lượt POST recaptcha/enterprise/reload bằng số lượt batchexecute. THỨ TỰ trước/sau thì KHÔNG kết luận được từ quan sát (nhìn ở DevTools thấy reload nằm sau, nhưng token phải có trước mới nhét được vào payload — nhiều khả năng đó là lượt đúc sẵn cho lời gọi kế tiếp). Không ảnh hưởng cách làm: ta gọi grecaptcha.enterprise.execute ngay trước mỗi lượt, lấy được token nào dùng token đó.",
+   "verified": "Chạy lại qua POST /api/flow/boq hai lượt: (1) một ảnh tham chiếu, 9:16, NARWHAL -> đúng con mèo trong ảnh gốc, 768x1376; (2) HAI ảnh tham chiếu, 1:1, HARBOR_SEAL -> mèo từ ảnh 1 ngồi trong giỏ xe đạp từ ảnh 2, 1024x1024. Reference có tác dụng thật và thứ tự danh sách khớp với 'ảnh thứ nhất/thứ hai' trong prompt. (3) SỬA ảnh tải lên bằng kiểu 2 -> giữ nguyên bố cục/bối cảnh, chỉ thêm chi tiết được yêu cầu. Đúng nghĩa sửa, không phải sinh lại.",
+   "edit_mode": "SỬA ẢNH DÙNG CHUNG rpcid ogiZ0b, khác đúng ba chỗ: ảnh vào mang KIỂU 2 thay vì 1, clientContext[4] mang workflowId của ảnh đang sửa, và [1][0][12] là null (chỉ [13] có UUID). Sau khi sinh xong, giao diện gọi thêm mYWVGd mask metadata.primary_media_id để trỏ workflow sang media mới — đó là cách 'sửa tại chỗ' hoạt động: cùng workflow, đổi media chính. Ảnh do người dùng TẢI LÊN sửa được bình thường (khác SPrCad vốn từ chối)."
+  },
+  "update_workflow": {
+   "rpcid": "mYWVGd",
+   "note": "[[\"<workflowId>\",null,null,[\"<tên>\"],\"<projectId>\"], [[\"metadata.display_name\"]]] — field mask"
+  },
+  "update_project": {
+   "rpcid": "Kcr7Ub",
+   "note": "[\"projects/<id>\", [...], [[\"agent_toggle_state\"]]] — cũng resource+mask nhưng KHÁC o8DA4: Kcr7Ub không có clientContext ở cuối và mask trỏ tới trạng thái UI. Nhiều rpcid sửa cùng một resource path, phân theo NHÓM TRƯỜNG chứ không phải một rpcid dùng chung."
+  },
+  "set_project_cover": {
+   "rpcid": "o8DA4",
+   "note": "[\"projects/<id>\", [<tên dự án>, <mediaId bìa>], [[\"thumbnail_media_key\"]], [null,22]] — sửa DỰ ÁN theo field mask. Đối tượng dự án: [0]=tên, [1]=mediaId ảnh bìa. Trả về chính đối tượng đã cập nhật.",
+   "verified": "Chạy lại qua POST /api/flow/boq với đúng giá trị cũ (idempotent) -> 200, trả [tên, mediaId]."
+  },
+  "trash_workflow": {
+   "rpcid": "pGCYOe",
+   "note": "[[ <workflow>, <workflow>, … ], [[\"metadata.archived\"]]] — CHUYỂN VÀO THÙNG RÁC. KHÔNG phải lệnh xoá: chỉ bật cờ metadata.archived, nên khôi phục được bằng cách đặt lại cờ đó. Workflow rút gọn: [<workflowId>, null, null, [null,null,1], <projectId>] — số 1 nằm đúng ô metadata[2] = archived.",
+   "batching": "Tham số đầu là DANH SÁCH nên MỘT lời gọi xử lý NHIỀU mục. Giao diện thật vẫn bắn một lời gọi cho mỗi ảnh (5 ảnh = 5 lượt, cách nhau ~4-5s) nhưng đó là lựa chọn của UI chứ không phải giới hạn của API — đã kiểm: 2 workflow trong 1 lời gọi, cả hai trả về archived=true.",
+   "verified": "POST /api/flow/boq với 2 workflow -> 200, cả hai metadata[2] = true."
+  },
+  "upsample_image": {
+   "rpcid": "SPrCad",
+   "captcha": true,
+   "note": "[\"<mediaId>\", <mức>, <clientContext>] — xin bản nét. clientContext ở đây KHÔNG có projectId (ô [5] là null), khác với lúc tạo ảnh. Mức: giao diện gửi 1 và 2.",
+   "status": "ĐÃ xác minh chạy được.",
+   "levels": "1 -> gấp ĐÔI (1376x768 -> 2752x1536, 'bản 2K'). 2 -> gấp BỐN (5504x3072, 'bản 4K'). ĐO TRÊN TÀI KHOẢN ULTRA. Mức 2 KHÔNG dùng được trên tài khoản Pro (TIER_ONE) — trần theo tier y như đường cũ (UPSAMPLE_IMAGE_RESOLUTIONS: ONE -> 2K, Ultra -> 4K). Đừng hardcode 'mức 2 luôn chạy'; đọc tier qua _current_tier_for(project) rồi hạ mức xuống trần, và CHƯA đo được Pro trả lỗi gì khi xin mức 2 — cần thử lại trên tài khoản Pro.",
+   "response": "Trả về mediaId MỚI và ẢNH DẠNG BASE64 ngay trong phản hồi, KHÔNG phải URL — giống đường cũ (upsampleImage cũng trả base64 vài MB). Mức 2 nặng ~920KB byte thật.",
+   "gotcha": "CHỈ chạy trên media do FLOW SINH. Ảnh do người dùng TẢI LÊN trả error [3] (INVALID_ARGUMENT) — không phải thiếu quyền, không phải sai mức. Và lần đo đầu tiên thất bại vì PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC do bấm dồn ~10 lượt trong 2 phút: bị chặn thì NGHỈ, đừng thử lại dồn."
+  },
+  "upload_image": {
+   "rpcid": "maseQ",
+   "captcha": true,
+   "note": "[<clientContext có projectId>, \"<ảnh base64>\", \"<mime>\", 1, null,null,null,null, \"<tên file>\", null, \"<UUID>\", \"<UUID>\"] — ảnh đi BẰNG BASE64 ngay trong f.req, cùng một đường batchexecute. Không có endpoint upload riêng, không có URL ký sẵn.",
+   "response": "[[<bản ghi media: mediaId, projectId, workflowId, …, [rộng,cao]>], <đối tượng workflow>]",
+   "verified": "Tải ảnh 127KB lên qua POST /api/flow/boq -> mediaId c9902ae1…, kích thước [1376,768] đúng ảnh gốc.",
+   "gotcha": "Giao diện thật khai \"image/png\" trong khi byte là JPEG (base64 mở đầu /9j/). Máy chủ tự nhận dạng, trường mime không phải nguồn sự thật — đừng dựa vào nó."
+  },
+  "set_primary_media": {
+   "rpcid": "mYWVGd",
+   "note": "[[\"<workflowId>\",null,null,[null,null,null,null,\"<mediaId mới>\"],\"<projectId>\"], [[\"metadata.primary_media_id\"]]] — trỏ workflow sang media mới sau khi sửa ảnh. Cùng rpcid với đổi tên, chỉ khác mask và ô metadata (ô [4] thay vì [0])."
+  },
+  "get_media": {
+   "rpcid": "as29s",
+   "note": "[\"<mediaId>\"] — đọc MỘT media, tương đương /v1/media/{id} cũ. Trả cả tham số đã sinh ra nó: prompt, danh sách ảnh vào kèm KIỂU, model. Dùng để truy nguồn một ảnh.",
+   "verified": "Gọi trên ảnh vừa sửa -> trả đúng prompt sửa và mediaId ảnh nền kèm kiểu 2.",
+   "url_ttl": "URL do as29s trả về có Expires = LÚC GỌI + 6 GIỜ (đo trên cả media mới sinh lẫn media từ dự án tạo 2026-05-21). Gọi lại as29s là có URL mới — media KHÔNG mất, chỉ URL hết hạn. Hệ quả: ĐỪNG lưu URL vào DB, chỉ lưu mediaId rồi resolve khi cần, đúng như media_store của bản chính đang làm. Kiểm: media 3,5 tháng tuổi vẫn tải về được bình thường.",
+   "rate_limit_warning": "Đường resolve của bản chính (/v1/media/{id}) BỊ giới hạn tần suất — media_store phải chặn còn 3 lời gọi song song và nghỉ sau mỗi cụm 6 lượt. Chưa đo được as29s có bị chặn như vậy không; cứ giữ nguyên mức thận trọng đó cho tới khi đo."
+  },
+  "create_project": {
+   "rpcid": "jHPbke",
+   "note": "[\"projects/*\", [null, [\"<tên dự án>\"]], [null, 22]] — TẠO DỰ ÁN. Tham số thứ hai là bản ghi dự án chưa có id: [<id=null>, <projectInfo>], cùng hình dạng với mục trong phản hồi của UpteDb. clientContext rút gọn [null,22], KHÔNG cần reCAPTCHA.",
+   "response": "[\"<projectId mới>\", [\"<tên>\"]]",
+   "verified": "Tạo qua POST /api/flow/boq với tên tự đặt -> ra projectId mới, tên đúng NGAY, MỘT lời gọi. Giao diện tự đặt tên kiểu 'Tháng 9 08 - 23:12' rồi mới gửi lên — đó là tên do CLIENT sinh, không phải máy chủ, nên mình đặt tên gì cũng được. Sau khi tạo, trang tự chuyển sang /u/2/project/<id mới>."
+  },
+  "rename_project": {
+   "rpcid": "o8DA4",
+   "note": "[\"projects/<id>\", [\"<tên mới>\"], [[\"project_title\"]], [null,22]] — cùng rpcid với đặt ảnh bìa, khác mặt nạ.",
+   "verified": "Đổi tên dự án nháp -> đọc lại bằng UpteDb thấy tên mới."
+  },
+  "delete_project": {
+   "rpcid": "QI2zvc",
+   "note": "[\"projects/<id>\"] — XOÁ DỰ ÁN. Chỉ nhận đường dẫn tài nguyên, không mặt nạ, không clientContext, không reCAPTCHA. Trả về [].",
+   "verified": "Vòng đời trọn vẹn qua POST /api/flow/boq: tạo (jHPbke) -> đếm 11 dự án -> xoá (QI2zvc) -> đếm 10. Dự án biến khỏi UpteDb.",
+   "note2": "ĐÂY LÀ NGOẠI LỆ: mọi thao tác 'xoá' khác trong API này đều là bật cờ theo mặt nạ (ảnh vào thùng rác = metadata.archived qua pGCYOe). Riêng dự án có động từ xoá thật. Đừng suy từ ảnh sang dự án hay ngược lại."
+  },
+  "video_model_list": {
+   "rpcid": "yBhWQ",
+   "probe_args": [],
+   "note": "[] -> [[[\"abra\",1],[\"veo_3_1_fast\",1],[\"veo_3_1_lite\",1],[\"veo_3_1_quality\",1],[\"veo_3_1_lite_low_priority\",1]]] — ĐÚNG 5 model video hiện trong giao diện."
+  },
+  "model_catalog": {
+   "rpcid": "HTrJv",
+   "probe_args": [],
+   "note": "[] -> TOÀN BỘ danh mục model: 153 khoá, tên hiển thị, và GIÁ THEO TIER. data[0][4] = model video theo nhóm, data[0][5] = model ảnh, data[0][3] = ánh xạ khoá -> tên hiển thị, data[0][7] = TTS. Giá nằm ở ô [4] của mỗi mục, dạng [[1,[[null,C]]],[2,[[null,C]]],[3,[[null,C]]]] = giá cho tier 1/2/3. Đã trích sẵn ra agent/boq_model_catalog.json.",
+   "why": "Đây là nguồn giá CHÍNH THỐNG — chính là con số giao diện hiện trong prompt box. Lấy được MIỄN PHÍ, không tốn credit, không cần thao tác. Đừng đo giá bằng cách render thử rồi trừ số dư."
+  },
+  "generate_video": {
+   "rpcid": "YhhmEf",
+   "captcha": true,
+   "note": "[[[ [null,null,[[[\"<prompt>\"]]]], \"<khoá model>\", <tỉ lệ>, null, [null,null,null,null,\"<UUID>\",\"<UUID>\"] ]], <clientContext>, [\"<batch id>\", 2]] — SUBMIT VIDEO. Prompt lồng ba lớp giống hệt bên ảnh. Tỉ lệ = 2 cho 16:9 ngang (người dùng xác nhận đã chọn 16:9) — KHÁC bảng tỉ lệ của ảnh, đừng dùng chung.",
+   "response": "[null, <credit còn lại>, [<đối tượng workflow>], [<bản ghi media>]] — trả NGAY, chưa có video. Lấy mediaId ở đó rồi poll. Đáng chú ý: phản hồi kèm luôn SỐ DƯ CREDIT, khỏi gọi nzlxg riêng.",
+   "verified": "Submit qua POST /api/flow/boq bằng veo_3_1_t2v_lite_low_priority (0đ) -> mediaId ddb2ec95…"
+  },
+  "poll_video": {
+   "rpcid": "jwpduf",
+   "note": "[null, null, [[\"<mediaId>\"]]] — POLL. Giao diện gọi mỗi 5 giây cho tới khi xong (clip 8s hết ~45 giây, 9 lượt). Trả về bản ghi media đang cập nhật; khi xong có kích thước byte thật. KHÔNG chứa URL — xong rồi phải gọi as29s mới lấy được URL, đúng như giao diện làm.",
+   "verified": "Poll 18 lượt tới khi bản ghi đủ dữ liệu, rồi as29s trả URL."
+  },
+  "create_scene": {
+   "rpcid": "rqZuUc",
+   "args": "[\"projects/<projectId>\", [\"<mediaId>\"], null, null, 2]",
+   "note": "Tạo SCENE (dòng thời gian) từ một clip đã có. Scene là thứ giao diện mở ở /project/<pid>/scene/<sceneId>; nối dài video CHỈ diễn ra trong scene, không diễn ra ở trang dự án. Bấm 'mở rộng' trên một clip ở trang /edit/<mediaId> làm giao diện gọi rqZuUc rồi ĐIỀU HƯỚNG sang scene vừa tạo.",
+   "verified": "Bắt được từ giao diện; chưa phát lại (phát lại sẽ đẻ scene thừa)."
+  },
+  "get_scene": {
+   "rpcid": "uwAyfb",
+   "args": "[\"<sceneId>\", \"<projectId>\"]",
+   "note": "Đọc nội dung scene. data[0] = danh sách clip theo thứ tự ([clipId, null, null, [tiêu đề, ts tạo, null, null, workflowId, batchId, ts sửa], projectId], sceneId, [thứ tự (null=0), [giây], [], [giây], [1]]); data[1] = danh sách workflow kèm THAM SỐ SINH. mediaId của clip nằm ở workflow[6][2][0]; workflow[6] = null nghĩa là ĐANG RENDER — đây là cách poll rẻ nhất cho một scene.",
+   "verified": "Phát lại: trả đúng 2 clip rồi 3 clip sau khi nối thêm."
+  },
+  "extend_video": {
+   "rpcid": "fZytfe",
+   "args": "[[[ [null,\"<mediaId nguồn>\",<from>,<to>], [null,null,[[[\"<prompt>\"]]]], \"<model key>\", <tỉ lệ>, null, [\"<sceneId>\",null,null,null,\"<UUID>\",\"<UUID>\"] ]], [null,22,null,null,null,\"<projectId>\",null,null,null,null,[\"<captcha>\",1]], [\"<batch id>\", 2, null, [\"<sceneId>\", <vị trí chèn>]]]",
+   "note": "NỐI DÀI video. Khác generate_video (YhhmEf) ở ba chỗ: ô đầu là CLIP NGUỒN chứ không phải ảnh, có sceneId thay cho workflowId, và đuôi mang thêm [sceneId, vị trí]. Trả về [null, <credit còn lại>, [<clip scene>], [<workflow>]].",
+   "models": "veo_3_1_extension_lite = 10/10/5 theo tier; veo_3_1_extension_lite_low_priority = 0 (chỉ tier 3). GIAO DIỆN CHỈ CHO CHỌN BẢN TRẢ TIỀN — bản 0 đồng vẫn được backend nhận, đã đo: submit xong credit đứng nguyên 12434.",
+   "from_to": "Hai số nguyên sau mediaId nguồn (giao diện gửi 169 và 192 cho clip 8 giây). 192 = 8s × 24fps nên nhiều khả năng là CHỈ SỐ KHUNG HÌNH, 169..192 là ~1 giây cuối làm mồi. CHƯA kiểm bằng giá trị khác — mới chỉ chép lại nguyên giá trị của giao diện và nó chạy.",
+   "verified": "Phát lại với veo_3_1_extension_lite_low_priority + captcha_action VIDEO_GENERATION: 200, scene có clip thứ 3, credit không đổi."
+  }
+ },
+ "unknown": {
+  "mrlkwd": "args = [\"<projectId>\"], chạy lúc mở dự án — chưa rõ trả về gì",
+  "DA4VGb": "ghi trạng thái UI kèm field mask (is_agent_mode_toggled, is_chat_panel_open)"
+ },
+ "noise": [
+  "WuwhI",
+  "DTaVef",
+  "NfrxTb",
+  "KV2T2d",
+  "LPzVkd",
+  "cPZSdc",
+  "Yizz8d",
+  "ve2Lsc",
+  "tRARke",
+  "qJcgMc",
+  "o30O0e"
+ ],
+ "_field_names": "Tên trường trong field mask là bản snake_case của tên trường REST đường cũ: mask \"thumbnail_media_key\" ứng với updateMask=thumbnailMediaKey của PATCH /v1/projects/{pid}. Giả thuyết (CHƯA kiểm hết): các trường khác cũng ánh xạ như vậy, nên có thể suy tên trường từ API cũ thay vì phải bắt từng cái.",
+ "_metadata_shape": "Đối tượng metadata của workflow (ô [3]): [0]=display_name, [1]=[ts tạo], [2]=archived (bool), [3]=?, [4]=primary mediaId, [5]=UUID phiên, [6]=[ts sửa]. Suy ra từ mYWVGd (mask metadata.display_name -> ô [0]) và pGCYOe (mask metadata.archived -> ô [2]).",
+ "_errors": "Lỗi có thể nằm NGAY TRONG envelope wrb.fr: payload (ô [2]) là null còn ô [5] mang google.rpc.ErrorInfo. Không đọc ô [5] thì mọi thất bại trông giống nhau ('data: null') và sẽ đi dò sai chỗ. parseBoqResponse nay trả kèm trường `error`.",
+ "_todo_images": "Mảng ảnh đã đủ, TRỪ mấy việc cấp DỰ ÁN chưa bắt được: tạo dự án, xoá dự án, đổi tên dự án. FlowKit tạo một dự án cho mỗi video nên không có tạo dự án là không chạy được từ đầu. Đổi tên dự án nhiều khả năng là o8DA4 với mask khác — thử được sau khi biết cách tạo dự án mới (đừng thử trên dự án thật của người dùng).",
+ "_mask_gotcha": "MẶT NẠ SAI TÊN THÌ IM LẶNG KHÔNG LÀM GÌ — trả 200, trả về trạng thái HIỆN TẠI, không báo lỗi. Đo trên o8DA4: chỉ 'project_title' đổi được tên; 'title', 'display_name', 'name' và cả một tên bịa đều trả 200 mà không đổi gì. Hệ quả khi port: gõ sai tên trường là một lệnh ghi KHÔNG BAO GIỜ chạy mà không có gì báo. Thử mặt nạ mới thì phải ĐỌC LẠI để xác nhận, và mỗi lượt thử phải dùng GIÁ TRỊ KHÁC NHAU — dùng chung một giá trị đích thì lượt sau trả về đúng giá trị đó dù chẳng làm gì, nhìn như thành công.",
+ "_tier_numbering": "Tier trong danh mục đánh 1/2/3, KHÔNG trùng tên PAYGATE_TIER_* của đường cũ. Suy ra 3 = Ultra từ hai bằng chứng khớp nhau: veo_3_1_*_lite_low_priority (CLAUDE.md ghi '0đ, chỉ Ultra') chỉ có tier 3, và GEM_PIX_2_UPSAMPLE_4K cũng chỉ có tier 3 — đúng lúc người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhiều khả năng 2 = Pro (PAYGATE_TIER_ONE), 3 = Ultra (PAYGATE_TIER_TWO). ĐỪNG ánh xạ thẳng số sang tên tier cũ mà chưa kiểm.",
+ "_media_urls": "Một mediaId video cho HAI URL: `flow-content.google/video/<id>` là clip (video/mp4) và `flow-content.google/image/<id>` là ẢNH BÌA (JPEG ~42KB). Cả hai đều ký sẵn, tải bằng GET trơn. Ảnh bìa CÓ SẴN nghĩa là bỏ được cả đường dựng poster bằng ffmpeg của bản chính (GET /shots/{sid}/poster, cache theo tên file, tối đa 3 tiến trình) — thứ vốn dựng ra chỉ vì nhúng <video> làm treo trình duyệt. Clip vẫn có moov ở CUỐI file (ftyp/uuid/mdat/moov, không faststart) y như đường cũ, nên vẫn KHÔNG được nhúng <video> vào lưới shot."
 }
