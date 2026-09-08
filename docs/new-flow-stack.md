@@ -274,6 +274,12 @@ tự nhận dạng — trường mime không phải nguồn sự thật.
 | 1 | 2752×1536 | gấp đôi — "bản 2K" |
 | 2 | 5504×3072 | gấp bốn — "bản 4K" |
 
+**Đo trên tài khoản Ultra.** Tài khoản Pro (TIER_ONE) không lấy được 4K — trần theo tier y
+như đường cũ (`UPSAMPLE_IMAGE_RESOLUTIONS`: ONE → 2K, Ultra → 4K). Đừng hardcode "mức 2 luôn
+chạy": hạ mức xuống trần theo `_current_tier_for(project)`. CHƯA đo được Pro trả lỗi gì khi
+xin mức 2 — phải thử lại trên tài khoản Pro, vì nếu nó trả `error [3]` giống hệt ca "ảnh tải
+lên" thì hai nguyên nhân khác hẳn nhau lại nhìn y như nhau.
+
 Trả về **mediaId mới + ảnh dạng base64 ngay trong phản hồi**, không phải URL — giống đường cũ,
 nơi `upsampleImage` cũng trả vài MB base64. Mức 2 nặng ~920KB byte thật.
 

@@ -94,7 +94,7 @@
       "captcha": true,
       "note": "[\"<mediaId>\", <mức>, <clientContext>] — xin bản nét. clientContext ở đây KHÔNG có projectId (ô [5] là null), khác với lúc tạo ảnh. Mức: giao diện gửi 1 và 2.",
       "status": "ĐÃ xác minh chạy được.",
-      "levels": "1 -> gấp ĐÔI (1376x768 -> 2752x1536, 'bản 2K'). 2 -> gấp BỐN (5504x3072, 'bản 4K').",
+      "levels": "1 -> gấp ĐÔI (1376x768 -> 2752x1536, 'bản 2K'). 2 -> gấp BỐN (5504x3072, 'bản 4K'). ĐO TRÊN TÀI KHOẢN ULTRA. Mức 2 KHÔNG dùng được trên tài khoản Pro (TIER_ONE) — trần theo tier y như đường cũ (UPSAMPLE_IMAGE_RESOLUTIONS: ONE -> 2K, Ultra -> 4K). Đừng hardcode 'mức 2 luôn chạy'; đọc tier qua _current_tier_for(project) rồi hạ mức xuống trần, và CHƯA đo được Pro trả lỗi gì khi xin mức 2 — cần thử lại trên tài khoản Pro.",
       "response": "Trả về mediaId MỚI và ẢNH DẠNG BASE64 ngay trong phản hồi, KHÔNG phải URL — giống đường cũ (upsampleImage cũng trả base64 vài MB). Mức 2 nặng ~920KB byte thật.",
       "gotcha": "CHỈ chạy trên media do FLOW SINH. Ảnh do người dùng TẢI LÊN trả error [3] (INVALID_ARGUMENT) — không phải thiếu quyền, không phải sai mức. Và lần đo đầu tiên thất bại vì PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC do bấm dồn ~10 lượt trong 2 phút: bị chặn thì NGHỈ, đừng thử lại dồn."
     },
