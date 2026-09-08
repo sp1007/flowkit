@@ -9,6 +9,22 @@ const AGENT_WS_URL = 'ws://127.0.0.1:9222';
 // NOTE: This is a browser-restricted public API key — safe to ship in extension bundles.
 const API_KEY = 'AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY';
 
+// ─── Domain của Flow ────────────────────────────────────────
+// Flow đang DI TRÚ từ labs.google/fx/tools/flow sang flow.google.com: giao diện mới (app
+// Angular "boq-labs-ai-sandbox") nhưng CÙNG backend aisandbox-pa.googleapis.com và CÙNG site
+// key reCAPTCHA, nên token bắt được và captcha lấy từ tab nào cũng dùng được.
+// Chấp nhận CẢ HAI: tab labs.google (cũ) lẫn flow.google.com (mới) đều là "tab Flow" hợp lệ.
+// Vẫn MỞ labs.google khi phải tự mở tab, vì tRPC (project/media) và `/fx/api/auth/session`
+// mới chỉ có ở đó — flow.google.com trả HTML cho mọi đường dẫn ấy. Ngày labs.google tắt hẳn,
+// nó sẽ tự chuyển hướng sang flow.google.com và các mẫu dưới đây vẫn khớp.
+const LABS_TAB_URLS = [
+  'https://labs.google/fx/tools/flow*',
+  'https://labs.google/fx/*/tools/flow*',
+];
+const FLOW_TAB_URLS = [...LABS_TAB_URLS, 'https://flow.google.com/*'];
+const FLOW_TAB_OPEN_URL = 'https://labs.google/fx/tools/flow';
+const LABS_ORIGIN = 'https://labs.google';
+
 let ws = null;
 let flowKey = null;
 let identity = null;   // { email, name, picture, sub } — Google account signed into Flow
@@ -132,7 +148,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     // Listener này chạy rất dày → chỉ dò lại khi CHƯA biết tài khoản, hoặc khi token vừa đổi.
     if (!identity || tokenChanged) fetchIdentity();
   },
-  { urls: ['https://aisandbox-pa.googleapis.com/*', 'https://labs.google/*'] },
+  { urls: ['https://aisandbox-pa.googleapis.com/*', 'https://labs.google/*', 'https://flow.google.com/*'] },
   ['requestHeaders', 'extraHeaders'],
 );
 
@@ -204,7 +220,7 @@ let _openingFlowTab = false;
 
 async function captureTokenFromFlowTab() {
   const tabs = await chrome.tabs.query({
-    url: ['https://labs.google/fx/tools/flow*', 'https://labs.google/fx/*/tools/flow*'],
+    url: FLOW_TAB_URLS,
   });
   if (!tabs.length) {
     if (_openingFlowTab) {
@@ -214,10 +230,10 @@ async function captureTokenFromFlowTab() {
     _openingFlowTab = true;
     try {
       console.log('[FlowAgent] No Flow tab found — opening one in background');
-      await chrome.tabs.create({ url: 'https://labs.google/fx/tools/flow', active: false });
+      await chrome.tabs.create({ url: FLOW_TAB_OPEN_URL, active: false });
       await sleep(3000);
       const retryTabs = await chrome.tabs.query({
-        url: ['https://labs.google/fx/tools/flow*', 'https://labs.google/fx/*/tools/flow*'],
+        url: FLOW_TAB_URLS,
       });
       if (!retryTabs.length) {
         console.log('[FlowAgent] Flow tab not ready yet after open');
@@ -258,7 +274,7 @@ async function captureTokenFromFlowTab() {
 // email; dùng khi endpoint session đổi shape.
 
 async function _identityFromSession() {
-  const res = await fetch('https://labs.google/fx/api/auth/session', {
+  const res = await fetch(`${LABS_ORIGIN}/fx/api/auth/session`, {
     credentials: 'include',
     headers: { accept: 'application/json' },
   });
@@ -277,8 +293,10 @@ async function _identityFromSession() {
 /** Cùng endpoint, nhưng fetch TỪ TRONG tab Flow: request cùng origin nên cookie phiên chắc
  *  chắn được gửi kèm — dùng khi fetch từ service worker về rỗng (cookie SameSite). */
 async function _identityFromFlowTab() {
-  const tab = await pickFlowTab();          // tab đã bị Chrome discard thì chạy script trong đó
-  if (!tab) return null;                    // cũng hỏng — xem pickFlowTab()
+  // CHỈ tab labs.google: `/fx/api/auth/session` là route của app Next.js cũ, trên
+  // flow.google.com nó trả về vỏ HTML nên JSON.parse hỏng và probe này vô nghĩa.
+  const tab = await pickFlowTab(LABS_TAB_URLS);  // tab đã bị Chrome discard thì chạy script trong đó
+  if (!tab) return null;                         // cũng hỏng — xem pickFlowTab()
   const [res] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: async () => {
@@ -510,11 +528,6 @@ async function requestCaptchaFromTab(tabId, requestId, pageAction) {
   }
 }
 
-const FLOW_TAB_URLS = [
-  'https://labs.google/fx/tools/flow*',
-  'https://labs.google/fx/*/tools/flow*',
-];
-
 /**
  * Chọn tab Flow ĐANG SỐNG để hỏi reCAPTCHA, và đánh thức nó nếu cần.
  *
@@ -526,8 +539,8 @@ const FLOW_TAB_URLS = [
  *
  * Thứ tự ưu tiên: tab đang hiện (active) → tab còn sống → tab đã discard nhưng reload lại được.
  */
-async function pickFlowTab() {
-  const tabs = await chrome.tabs.query({ url: FLOW_TAB_URLS });
+async function pickFlowTab(urls = FLOW_TAB_URLS) {
+  const tabs = await chrome.tabs.query({ url: urls });
   if (!tabs.length) return null;
   const alive = tabs.filter((t) => !t.discarded);
   const best =
@@ -551,11 +564,11 @@ async function solveCaptcha(requestId, captchaAction) {
   if (!tabs.length) {
     // Auto-open Flow tab and wait briefly before returning error
     try {
-      await chrome.tabs.create({ url: 'https://labs.google/fx/tools/flow', active: false });
+      await chrome.tabs.create({ url: FLOW_TAB_OPEN_URL, active: false });
       await sleep(3000);
       // Retry tab query after opening
       const retryTabs = await chrome.tabs.query({
-        url: ['https://labs.google/fx/tools/flow*', 'https://labs.google/fx/*/tools/flow*'],
+        url: FLOW_TAB_URLS,
       });
       if (!retryTabs.length) return { error: 'NO_FLOW_TAB' };
       const resp = await Promise.race([
@@ -598,56 +611,38 @@ async function handleSolveCaptcha(msg) {
 
 // ─── API Request Proxy ──────────────────────────────────────
 
-async function getMediaUrl(
-  mediaId
-) {
-
-  const [tab] =
-    await chrome.tabs.query({
-
-      url: [
-
-        'https://labs.google/fx/tools/flow*',
-
-        'https://labs.google/fx/*/tools/flow*'
-
-      ]
-
-    });
-
-  if (!tab) {
-
-    throw new Error(
-      'NO_FLOW_TAB'
-    );
-
-  }
-
-  return await chrome.tabs.sendMessage(
-
-    tab.id,
-
-    {
-
-      type:
-        'GET_MEDIA_URL',
-
-      requestId:
-        crypto.randomUUID(),
-
-      mediaId
-
-    }
-
+/** Đổi media_id thành URL GCS đã ký. Đi qua tab labs.google khi có (request cùng origin,
+ *  cookie phiên chắc chắn kèm theo); không có tab nào thì service worker tự fetch — nó có
+ *  host permission labs.google/* nên cũng gửi được cookie. Tab flow.google.com KHÔNG dùng
+ *  được cho việc này: fetch sang labs.google từ đó là cross-origin, CORS chặn. */
+async function _mediaUrlViaFetch(mediaId) {
+  const resp = await fetch(
+    `${LABS_ORIGIN}/fx/api/trpc/media.getMediaUrlRedirect?name=${encodeURIComponent(mediaId)}`,
+    { credentials: 'include' },
   );
+  return { status: resp.status, redirected: resp.redirected, url: resp.url };
+}
 
+async function getMediaUrl(mediaId) {
+  const tab = await pickFlowTab(LABS_TAB_URLS);
+  if (!tab) return await _mediaUrlViaFetch(mediaId);
+  try {
+    return await chrome.tabs.sendMessage(tab.id, {
+      type: 'GET_MEDIA_URL',
+      requestId: crypto.randomUUID(),
+      mediaId,
+    });
+  } catch (e) {
+    console.warn('[FlowAgent] GET_MEDIA_URL qua tab hỏng, fetch thẳng:', e?.message || e);
+    return await _mediaUrlViaFetch(mediaId);
+  }
 }
 
 async function handleTrpcRequest(msg) {
   const { id, params } = msg;
   const { url, method = 'POST', headers = {}, body } = params;
 
-  if (!url || !url.startsWith('https://labs.google/')) {
+  if (!url || !(url.startsWith('https://labs.google/') || url.startsWith('https://flow.google.com/'))) {
     sendToAgent({ id, error: 'INVALID_TRPC_URL' });
     return;
   }
@@ -1115,13 +1110,13 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
 
   if (msg.type === 'OPEN_FLOW_TAB') {
     chrome.tabs.query({
-      url: ['https://labs.google/fx/tools/flow*', 'https://labs.google/fx/*/tools/flow*'],
+      url: FLOW_TAB_URLS,
     }).then((tabs) => {
       if (tabs.length) {
         chrome.tabs.update(tabs[0].id, { active: true });
         reply({ ok: true, tabId: tabs[0].id });
       } else {
-        chrome.tabs.create({ url: 'https://labs.google/fx/tools/flow' })
+        chrome.tabs.create({ url: FLOW_TAB_OPEN_URL })
           .then((tab) => reply({ ok: true, tabId: tab.id }))
           .catch((e) => reply({ error: e.message }));
       }

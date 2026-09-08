@@ -1,6 +1,9 @@
 /**
- * Injected into MAIN world on labs.google — has access to window.grecaptcha
- * Also intercepts TRPC fetch responses to capture fresh signed media URLs.
+ * Injected into MAIN world on labs.google VÀ flow.google.com — has access to window.grecaptcha
+ * (hai domain dùng CHUNG một site key reCAPTCHA nên token lấy ở đâu cũng dùng được).
+ * Also intercepts TRPC fetch responses to capture fresh signed media URLs — chỉ có trên
+ * labs.google; giao diện mới flow.google.com không đi qua tRPC nên nhánh đó im lặng.
+ * GET_MEDIA_URL cũng vậy: background chỉ gửi tới tab labs.google (xem getMediaUrl).
  */
 const SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 

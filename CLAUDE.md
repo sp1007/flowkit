@@ -35,6 +35,22 @@ python -m agent.main   # HTTP on :8100, extension WebSocket on :9222
 
 ## Notes
 
+- **Flow đang dọn nhà sang `flow.google.com`, nhưng BACKEND KHÔNG ĐỔI.** Giao diện mới là một
+  app Angular của Google (`boq-labs-ai-sandbox`, HTML shell trả về cho MỌI đường dẫn), không
+  phải app Next.js ở `labs.google/fx`. Đo trực tiếp: nó vẫn gọi `aisandbox-pa.googleapis.com`
+  và vẫn dùng ĐÚNG site key reCAPTCHA `6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV` — nên mọi
+  endpoint sinh ảnh/video, token `ya29.*` bắt qua `webRequest`, và captcha lấy từ tab đều
+  nguyên vẹn. Thứ CHỈ có ở `labs.google` là lớp Next.js: **tRPC** (`project.createProject`,
+  `getProjectContents`, `searchUserProjects`, `media.getMediaUrlRedirect`) và
+  `/fx/api/auth/session` — `flow.google.com/fx/api/trpc/...` trả vỏ HTML 200, đừng nhầm là
+  "API còn sống". Extension nay nhận tab của CẢ HAI domain (`FLOW_TAB_URLS`) cho token và
+  captcha, nhưng tRPC/identity chỉ hỏi tab `labs.google` (`LABS_TAB_URLS`) vì fetch sang đó từ
+  trang `flow.google.com` là cross-origin; không còn tab labs nào thì service worker tự fetch
+  (`_mediaUrlViaFetch`). Ngày `labs.google/fx` tắt hẳn, thứ mất trước là project CRUD + resolve
+  media, không phải khâu sinh — lúc đó phải tìm endpoint tương đương trên `aisandbox-pa`.
+  `rules.json` vẫn ghi đè Referer/Origin thành `labs.google` cho request tới `aisandbox-pa` —
+  đó là origin backend đang chấp nhận, đừng đổi theo domain trang.
+
 - **Mỗi dự án thuộc về một tài khoản Flow.** Extension đọc account đang đăng nhập từ
   `labs.google/fx/api/auth/session` và đẩy lên agent; `project.account_id` ghi lại chủ sở
   hữu. `/studio/projects` chỉ trả dự án của account hiện tại, mọi endpoint đụng tới dự án

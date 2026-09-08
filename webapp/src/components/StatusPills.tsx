@@ -75,7 +75,7 @@ export default function StatusPills() {
           title={
             account
               ? `Tài khoản Flow: ${account.email ?? account.id}. Chỉ dự án của tài khoản này hiện ở đây.`
-              : "Chưa xác định được tài khoản Flow — đang hiện TẤT CẢ dự án. Mở labs.google/fx/tools/flow và đăng nhập, rồi tải lại extension."
+              : "Chưa xác định được tài khoản Flow — đang hiện TẤT CẢ dự án. Mở Flow (flow.google.com hoặc labs.google/fx/tools/flow) và đăng nhập, rồi tải lại extension."
           }
         >
           {account?.picture && (
