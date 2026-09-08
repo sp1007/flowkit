@@ -25,11 +25,16 @@ const LABS_TAB_URLS = [
 // (đo được: trang gọi POST recaptcha/enterprise/reload với đúng site key của Flow). Trang chủ
 // flow.google.com/ là trang giới thiệu, không có grecaptcha; để nó lọt vào danh sách "tab
 // Flow" là mọi lượt sinh hỏng với "grecaptcha not available".
+// Tab ƯU TIÊN để hỏi reCAPTCHA. KHÔNG phải điều kiện bắt buộc: đo trực tiếp
+// (GET /api/flow/boq/tabs) thấy trang chủ đã đăng nhập `/u/2/` CŨNG có
+// `grecaptcha.enterprise`, và sinh ảnh chỉ với tab trang chủ thì chạy bình thường. Lần hỏng
+// trước đây là trang chưa boot xong chứ không phải vì không ở trang dự án.
 const FLOW_APP_TAB_URLS = [
   'https://flow.google.com/project/*',
   'https://flow.google.com/u/*/project/*',   // Chrome nhiều tài khoản: /u/2/project/<id>
 ];
-const FLOW_TAB_URLS = [...LABS_TAB_URLS, ...FLOW_APP_TAB_URLS];
+// Danh sách CHẤP NHẬN thì rộng hơn: mọi trang flow.google.com đều dùng được.
+const FLOW_TAB_URLS = [...LABS_TAB_URLS, ...FLOW_APP_TAB_URLS, 'https://flow.google.com/*'];
 // Chỉ dùng cho nút bấm TAY ở popup — không còn đường nào tự mở tab nữa.
 const FLOW_TAB_OPEN_URL = 'https://flow.google.com/';
 const LABS_ORIGIN = 'https://labs.google';

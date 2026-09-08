@@ -529,6 +529,26 @@ không phải tên model hay giá nữa. Nên chỉ cần **MỘT lượt** bằ
 Thứ **chỉ capture mới trả lời được** là cách POLL: video render 30–240 giây nên submit xong
 phải hỏi lại kết quả, cơ chế đó chưa từng xuất hiện trong mảng ảnh (ảnh trả kết quả ngay).
 
+## Tab trình duyệt cần mở cái gì
+
+Đo trực tiếp, không suy đoán:
+
+- **`project_id` nằm trong PAYLOAD (`clientContext[5]`), không lấy từ URL tab.** Gửi
+  `source-path=/u/2/` (trang chủ) trong khi payload trỏ dự án thật → ảnh vào **đúng dự án đó**.
+  `source-path` chỉ là trang trí/telemetry.
+- **Trang chủ đã đăng nhập là ĐỦ.** `GET /api/flow/boq/tabs` cho thấy `/u/2/` có
+  `grecaptcha.enterprise`, và sinh ảnh khi CHỈ mở tab trang chủ thì chạy bình thường.
+- **Không cần mở đúng dự án đang sinh.** Sinh vào dự án X trong khi tab đang ở dự án Y — hoặc
+  ở trang chủ — đều được. Quan trọng với FlowKit vì nó dựng hàng loạt qua nhiều dự án, không
+  thể mở/đóng tab theo từng cái.
+
+Đính chính: trước đó tôi kết luận "chỉ trang `/project/*` mới có grecaptcha" từ MỘT lần hỏng.
+Sai — lần đó là trang chưa boot xong. Vì tin vào kết luận vội đó, `FLOW_APP_TAB_URLS` từng chỉ
+khớp `/project/*` và sẽ từ chối một tab trang chủ hoàn toàn dùng được. Nay danh sách CHẤP NHẬN
+là mọi trang `flow.google.com`, còn `/project/*` chỉ là thứ tự ƯU TIÊN.
+
+**Tóm lại: giữ MỘT tab Flow bất kỳ đang mở và đã đăng nhập.** Đó là toàn bộ yêu cầu.
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:
