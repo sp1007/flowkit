@@ -411,7 +411,13 @@ Không còn gì. Toàn bộ mảng ảnh và mảng dự án đã chạy đượ
 ## Mảng VIDEO — biết trước gì, phải đo gì
 
 Giao diện mới (người dùng mô tả): **5 model**, 3 mức thời lượng (riêng Omni Flash 1.1 có 4),
-**2 độ phân giải: 360p (MỚI) và 720p**, có chế độ frame và reference.
+có chế độ frame và reference.
+
+**Độ phân giải thuộc RIÊNG Omni Flash**, không phải lựa chọn chung: chỉ họ này có 360p và
+720p, bốn model kia không cho chọn. Khớp với đường cũ — chỗ duy nhất `VIDEO_RESOLUTION_720P`
+xuất hiện là nhánh Omni Flash text-to-video (`flow_client.py`, `outputSpec.resolution`), các
+engine khác không gửi trường đó. Nên khi port, `resolution` là tham số của Omni Flash chứ
+đừng nâng lên thành cài đặt cấp dự án; **360p là mức MỚI** cần thêm.
 
 Đối chiếu với `models.json` của bản chính:
 
@@ -421,7 +427,7 @@ Giao diện mới (người dùng mô tả): **5 model**, 3 mức thời lượn
 | Veo trả tiền theo tier (`video_models`) | |
 | Omni Flash: `abra_{r2v,t2v}_{4,6,8,10}s` | ✅ đúng 4 mức thời lượng |
 | Upscale: 1080p / 4K | |
-| Độ phân giải: chỉ hardcode `VIDEO_RESOLUTION_720P` cho một nhánh t2v | ❌ **không có 360p** |
+| `VIDEO_RESOLUTION_720P` hardcode ở nhánh Omni Flash t2v | ⚠️ thiếu mức **360p**, và mức này chỉ Omni Flash mới có |
 
 Một mảnh đã khớp sẵn: `ngNC2` trả `"abra"` — chính là họ Omni Flash.
 
