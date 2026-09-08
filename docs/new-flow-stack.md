@@ -235,6 +235,23 @@ Hai điều đáng chú ý:
    nhiều rpcid cùng sửa một resource path, chia theo NHÓM TRƯỜNG. Dự đoán ban đầu của tôi
    rằng mọi thao tác sửa dự án đi qua một `Kcr7Ub` là SAI.
 
+## Thùng rác là một CỜ, không phải lệnh xoá
+
+```
+pGCYOe  [ [ ["<workflowId>", null, null, [null,null,1], "<projectId>"], … ],
+          [ ["metadata.archived"] ] ]
+```
+
+- Không có lệnh xoá nào ở bước này — chỉ bật `metadata.archived`. **Khôi phục được** bằng
+  cách đặt lại cờ đó, không cần rpcid khác.
+- **Tham số đầu là DANH SÁCH: một lời gọi xử lý nhiều mục.** Giao diện thật vẫn bắn một lời
+  gọi cho mỗi ảnh (5 ảnh = 5 lượt, cách nhau ~4–5 giây), nhưng đó là lựa chọn của UI chứ
+  không phải giới hạn của API — đã kiểm bằng 2 workflow trong 1 lời gọi, cả hai trả
+  `archived=true`. Khi port, dọn N ảnh nên gộp một lượt.
+- Đối chiếu hai mask đã biết cho ra hình dạng **metadata của workflow**:
+  `[0]`=display_name, `[1]`=ts tạo, `[2]`=archived, `[4]`=mediaId chính, `[5]`=UUID phiên,
+  `[6]`=ts sửa.
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:

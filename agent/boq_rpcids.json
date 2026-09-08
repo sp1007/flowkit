@@ -82,6 +82,12 @@
       "rpcid": "o8DA4",
       "note": "[\"projects/<id>\", [<tên dự án>, <mediaId bìa>], [[\"thumbnail_media_key\"]], [null,22]] — sửa DỰ ÁN theo field mask. Đối tượng dự án: [0]=tên, [1]=mediaId ảnh bìa. Trả về chính đối tượng đã cập nhật.",
       "verified": "Chạy lại qua POST /api/flow/boq với đúng giá trị cũ (idempotent) -> 200, trả [tên, mediaId]."
+    },
+    "trash_workflow": {
+      "rpcid": "pGCYOe",
+      "note": "[[ <workflow>, <workflow>, … ], [[\"metadata.archived\"]]] — CHUYỂN VÀO THÙNG RÁC. KHÔNG phải lệnh xoá: chỉ bật cờ metadata.archived, nên khôi phục được bằng cách đặt lại cờ đó. Workflow rút gọn: [<workflowId>, null, null, [null,null,1], <projectId>] — số 1 nằm đúng ô metadata[2] = archived.",
+      "batching": "Tham số đầu là DANH SÁCH nên MỘT lời gọi xử lý NHIỀU mục. Giao diện thật vẫn bắn một lời gọi cho mỗi ảnh (5 ảnh = 5 lượt, cách nhau ~4-5s) nhưng đó là lựa chọn của UI chứ không phải giới hạn của API — đã kiểm: 2 workflow trong 1 lời gọi, cả hai trả về archived=true.",
+      "verified": "POST /api/flow/boq với 2 workflow -> 200, cả hai metadata[2] = true."
     }
   },
   "unknown": {
@@ -103,5 +109,6 @@
     "yBhWQ",
     "o30O0e"
   ],
-  "_field_names": "Tên trường trong field mask là bản snake_case của tên trường REST đường cũ: mask \"thumbnail_media_key\" ứng với updateMask=thumbnailMediaKey của PATCH /v1/projects/{pid}. Giả thuyết (CHƯA kiểm hết): các trường khác cũng ánh xạ như vậy, nên có thể suy tên trường từ API cũ thay vì phải bắt từng cái."
+  "_field_names": "Tên trường trong field mask là bản snake_case của tên trường REST đường cũ: mask \"thumbnail_media_key\" ứng với updateMask=thumbnailMediaKey của PATCH /v1/projects/{pid}. Giả thuyết (CHƯA kiểm hết): các trường khác cũng ánh xạ như vậy, nên có thể suy tên trường từ API cũ thay vì phải bắt từng cái.",
+  "_metadata_shape": "Đối tượng metadata của workflow (ô [3]): [0]=display_name, [1]=[ts tạo], [2]=archived (bool), [3]=?, [4]=primary mediaId, [5]=UUID phiên, [6]=[ts sửa]. Suy ra từ mYWVGd (mask metadata.display_name -> ô [0]) và pGCYOe (mask metadata.archived -> ô [2])."
 }
