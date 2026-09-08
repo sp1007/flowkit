@@ -103,6 +103,23 @@ host permission của extension, `webapp/vite.config.ts`.
 
 Khoá model và tham số bên dưới KHÔNG đổi so với đường cũ — chỉ tầng vận chuyển đổi.
 
+### Phản hồi của `ogiZ0b`
+
+```
+[[[ "<mediaId>", null, "<workflowId>", null, null, null,
+    [[ null, <seed>, null,null,null,null, 1, "<prompt>", 25, null, null,
+       "<workflowId>", null,
+       "https://flow-content.google/image/<mediaId>?Expires=…&Signature=…",
+       3, [ …prompt lồng lại… ], null, "<mediaId>" ],
+     null, [1376, 768] ]]],          // ← kích thước thật
+ [[ "<workflowId>", null, null,
+    [ "<tiêu đề tự sinh>", [<ts>,<ns>], null, null, "<mediaId>", "<UUID>", [<ts>,<ns>] ],
+    "<projectId>" ]]]
+```
+
+`media_id` vẫn là UUID, và URL ảnh nằm SẴN trong phản hồi — không phải gọi thêm lượt resolve
+nào. Số `3` truyền vào ở vị trí thứ 5 là **tỉ lệ khung**: ra 1376×768 (ngang).
+
 ## Đã xác minh chạy được
 
 - `POST /api/flow/boq {"rpcid":"nzlxg","args":[]}` → `[12439,2,3,3,null,12439]`
@@ -111,6 +128,11 @@ Khoá model và tham số bên dưới KHÔNG đổi so với đường cũ — 
 - Ảnh `https://flow-content.google/image/<uuid>?Expires=…&Signature=…` tải bằng GET trơn từ
   agent: 200, `image/jpeg`, 333KB. Không cookie, không token, không ràng IP →
   `media_store._download` giữ nguyên là chạy.
+- **`ogiZ0b` TẠO ẢNH THẬT qua đường này** — prompt tự chọn, token reCAPTCHA tự lấy bằng
+  `chrome.scripting.executeScript` ở MAIN world, KHÔNG dùng token ya29 nào. Trả về
+  media_id `37896937-…`, tải xuống được 127KB JPEG 1376×768, đúng prompt.
+
+Tức là đường mới không chỉ ĐỌC được mà GHI được. Đây là bằng chứng đủ để port từng lời gọi.
 
 Token reCAPTCHA dùng MỘT lần, sống ~2 phút, nên không chép lại token bắt được: đặt chuỗi
 `"__CAPTCHA__"` vào bất kỳ đâu trong `args`, extension tự lấy token mới và điền vào.
