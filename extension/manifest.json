@@ -21,7 +21,8 @@
       "matches": [
         "https://labs.google/fx/tools/flow*",
         "https://labs.google/fx/*/tools/flow*",
-        "https://flow.google.com/project/*"
+        "https://flow.google.com/project/*",
+        "https://flow.google.com/u/*/project/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start"

@@ -25,7 +25,10 @@ const LABS_TAB_URLS = [
 // (đo được: trang gọi POST recaptcha/enterprise/reload với đúng site key của Flow). Trang chủ
 // flow.google.com/ là trang giới thiệu, không có grecaptcha; để nó lọt vào danh sách "tab
 // Flow" là mọi lượt sinh hỏng với "grecaptcha not available".
-const FLOW_APP_TAB_URLS = ['https://flow.google.com/project/*'];
+const FLOW_APP_TAB_URLS = [
+  'https://flow.google.com/project/*',
+  'https://flow.google.com/u/*/project/*',   // Chrome nhiều tài khoản: /u/2/project/<id>
+];
 const FLOW_TAB_URLS = [...LABS_TAB_URLS, ...FLOW_APP_TAB_URLS];
 const FLOW_TAB_OPEN_URL = 'https://labs.google/fx/tools/flow';
 const LABS_ORIGIN = 'https://labs.google';
@@ -1361,7 +1364,9 @@ chrome.webRequest.onBeforeRequest.addListener(
         ts: Date.now(),
         rpcids: new URL(details.url).searchParams.get('rpcids'),
         sourcePath: new URL(details.url).searchParams.get('source-path'),
-        req: raw ? raw.slice(0, 4000) : null,
+        // 4000 CẮT MẤT phần cần nhất: payload tạo ảnh chứa token reCAPTCHA (~2-3KB) rồi
+        // mới tới prompt, nên cắt ở 4000 là bắt được token mà mất prompt.
+        req: raw ? raw.slice(0, 100000) : null,
       };
       boqLog.unshift(entry);
       if (boqLog.length > 300) boqLog.pop();
