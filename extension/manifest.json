@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Flow Kit Next",
   "version": "0.4.0",
-  "description": "Flow Kit (nhánh flow-new-stack) — agent 8101/9223, đường batchexecute của flow.google.com. Cài ở trình duyệt RIÊNG, không dùng chung với bản chính.",
+  "description": "Flow Kit bản dựng mới — agent 8200/9200, đường batchexecute của flow.google.com. Cài ở trình duyệt RIÊNG, không dùng chung với bản chính (8100/9222).",
   "permissions": ["storage", "alarms", "tabs", "webRequest", "scripting", "declarativeNetRequest", "sidePanel"],
   "host_permissions": [
     "https://labs.google/*",
@@ -11,7 +11,7 @@
     "https://oauth2.googleapis.com/*",
     "https://www.flowmusic.app/*",
     "https://sb.flowmusic.app/*",
-    "http://127.0.0.1:8101/*"
+    "http://127.0.0.1:8200/*"
   ],
   "background": {
     "service_worker": "background.js"

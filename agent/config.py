@@ -7,15 +7,16 @@ from pathlib import Path
 BASE_DIR = Path(os.environ.get("FLOW_AGENT_DIR", Path(__file__).parent.parent))
 
 # ─── API Server ──────────────────────────────────────────────
-# Nhánh flow-new-stack chạy CẠNH bản chính chứ không thay nó: cổng HTTP 8101 và WS 9223
+# Bản dựng mới (nhánh flow-new-stack) có DẢI CỔNG RIÊNG 82xx/92xx/52xx, không phải bản
+# chính lệch một số: HTTP 8200, WS 9200, Vite 5200
 # (bản chính giữ 8100 / 9222). Đổi ở đây thì phải đổi cả AGENT_WS_URL + host permission
 # của extension và webapp/vite.config.ts — bốn chỗ, không có nguồn chung.
 API_HOST = os.environ.get("API_HOST", "127.0.0.1")
-API_PORT = int(os.environ.get("API_PORT", "8101"))
+API_PORT = int(os.environ.get("API_PORT", "8200"))
 
 # ─── WebSocket Server (extension connects here) ─────────────
 WS_HOST = os.environ.get("WS_HOST", "127.0.0.1")
-WS_PORT = int(os.environ.get("WS_PORT", "9223"))
+WS_PORT = int(os.environ.get("WS_PORT", "9200"))
 
 # ─── Google Flow API ────────────────────────────────────────
 GOOGLE_FLOW_API = "https://aisandbox-pa.googleapis.com"

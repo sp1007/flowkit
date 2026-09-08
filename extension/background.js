@@ -5,7 +5,7 @@
  * Captures bearer token, solves reCAPTCHA, proxies API calls through browser.
  */
 
-const AGENT_WS_URL = 'ws://127.0.0.1:9223';   // 9222 là bản chính — đừng nối nhầm
+const AGENT_WS_URL = 'ws://127.0.0.1:9200';   // 9222 là bản chính — đừng nối nhầm
 // NOTE: This is a browser-restricted public API key — safe to ship in extension bundles.
 const API_KEY = 'AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY';
 
@@ -499,7 +499,7 @@ function keepAlive() {
 function sendToAgent(msg) {
   // API responses (with msg.id) go via HTTP — immune to WS disconnect
   if (msg.id) {
-    fetch('http://127.0.0.1:8101/api/ext/callback', {
+    fetch('http://127.0.0.1:8200/api/ext/callback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(msg),

@@ -30,9 +30,9 @@ vẫn đang chạy:
 
 | | bản chính (`main`) | nhánh này |
 |---|---|---|
-| HTTP | 8100 | **8101** |
-| WebSocket (extension nối vào) | 9222 | **9223** |
-| Vite dev | 5173 | **5174** |
+| HTTP | 8100 | **8200** |
+| WebSocket (extension nối vào) | 9222 | **9200** |
+| Vite dev | 5173 | **5200** |
 | Tên extension | Flow Kit | **Flow Kit Next** |
 
 Dữ liệu tự tách sẵn: `BASE_DIR` là thư mục worktree nên `agent/studio.db` và `media/` của
@@ -40,8 +40,8 @@ nhánh này là bộ RIÊNG, khởi đầu rỗng — không đọc, không ghi 
 
 ```bash
 cd D:/youtube/editor/flowkit-next
-python -m agent.main          # HTTP :8101, WS :9223
-curl -s http://127.0.0.1:8101/health
+python -m agent.main          # HTTP :8200, WS :9200
+curl -s http://127.0.0.1:8200/health
 ```
 
 Rồi ở trình duyệt thứ hai (Edge, Chrome profile khác, Brave…): `chrome://extensions` →
