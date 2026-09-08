@@ -161,7 +161,7 @@
    "rpcid": "jwpduf",
    "note": "[null, null, [[\"<mediaId>\"]]] — POLL. Giao diện gọi mỗi 5 giây cho tới khi xong (clip 8s hết ~45 giây, 9 lượt). Trả về bản ghi media đang cập nhật; khi xong có kích thước byte thật. KHÔNG chứa URL — xong rồi phải gọi as29s mới lấy được URL, đúng như giao diện làm.",
    "verified": "Poll 18 lượt tới khi bản ghi đủ dữ liệu, rồi as29s trả URL.",
-   "status_enum": "Trang thai nam o workflow[5][8]: [6] = dang cho/dang chay, [3] = XONG. Khi xong thi workflow[5][12] co kich thuoc byte that (khop chinh xac voi Content-Length luc tai). Truoc day chi biet 'poll toi khi ban ghi du du lieu'; nay co co tan minh bach."
+   "status_enum": "Trang thai nam o [5][8] cua ban ghi workflow: [6] = dang cho/dang chay, [3] = XONG. Trong phan hoi jwpduf, khi xong thi [5][12] mang kich thuoc byte KHOP CHINH XAC voi Content-Length luc tai (do: 1238533). Con so 576116 o workflow[7][0][1] cua phan hoi uwAyfb KHONG phai kich thuoc video (file that 6405012 byte) — chua biet no la gi, dung dung."
   },
   "create_scene": {
    "rpcid": "rqZuUc",
@@ -172,8 +172,9 @@
   "get_scene": {
    "rpcid": "uwAyfb",
    "args": "[\"<sceneId>\", \"<projectId>\"]",
-   "note": "Đọc nội dung scene. data[0] = danh sách clip theo thứ tự ([clipId, null, null, [tiêu đề, ts tạo, null, null, workflowId, batchId, ts sửa], projectId], sceneId, [thứ tự (null=0), [giây], [], [giây], [1]]); data[1] = danh sách workflow kèm THAM SỐ SINH. mediaId của clip nằm ở workflow[6][2][0]; workflow[6] = null nghĩa là ĐANG RENDER — đây là cách poll rẻ nhất cho một scene.",
-   "verified": "Phát lại: trả đúng 2 clip rồi 3 clip sau khi nối thêm."
+   "note": "Doc noi dung scene. data[0] = danh sach clip theo thu tu; data[1] = danh sach workflow kem THAM SO SINH. Ban ghi workflow: [0]=id, [1]=projectId, [2]=clipId, [3]=enum, [5]=tham so sinh, [7]=khoi media. mediaId nam o workflow[7][2][0] — CHU Y INDEX 7, khong phai 6; workflow[6] LUON null nen lay no lam co 'dang render' la sai (toi da dinh dung loi nay va tuong hang doi 0 dong cham).",
+   "verified": "Phát lại: trả đúng 2 clip rồi 3 clip sau khi nối thêm.",
+   "do_not": "Dung doan trang thai tu do dai mang: ban ghi workflow khi thi 8 phan tu khi thi it hon. Trang thai that nam o workflow[5][8]: [6] = dang chay, [3] = xong."
   },
   "extend_video": {
    "rpcid": "fZytfe",
@@ -181,7 +182,9 @@
    "note": "NỐI DÀI video. Khác generate_video (YhhmEf) ở ba chỗ: ô đầu là CLIP NGUỒN chứ không phải ảnh, có sceneId thay cho workflowId, và đuôi mang thêm [sceneId, vị trí]. Trả về [null, <credit còn lại>, [<clip scene>], [<workflow>]].",
    "models": "veo_3_1_extension_lite = 10/10/5 theo tier; veo_3_1_extension_lite_low_priority = 0 (chỉ tier 3). GIAO DIỆN CHỈ CHO CHỌN BẢN TRẢ TIỀN — bản 0 đồng vẫn được backend nhận, đã đo: submit xong credit đứng nguyên 12434.",
    "from_to": "Hai số nguyên sau mediaId nguồn (giao diện gửi 169 và 192 cho clip 8 giây). 192 = 8s × 24fps nên nhiều khả năng là CHỈ SỐ KHUNG HÌNH, 169..192 là ~1 giây cuối làm mồi. CHƯA kiểm bằng giá trị khác — mới chỉ chép lại nguyên giá trị của giao diện và nó chạy.",
-   "verified": "Phát lại với veo_3_1_extension_lite_low_priority + captcha_action VIDEO_GENERATION: 200, scene có clip thứ 3, credit không đổi."
+   "verified": "Phát lại với veo_3_1_extension_lite_low_priority + captcha_action VIDEO_GENERATION: 200, scene có clip thứ 3, credit không đổi.",
+   "do_dai_ra": "Clip noi dai dai 7.000 giay chu khong phai 8: do ffprobe ca ban tra tien lan ban 0 dong, ca hai 1280x720, 24fps, 7.000000; clip nguon 8.000000. Khop voi viec 169..192 (23 hinh ~ 1 giay) la MOI: model sinh 8 giay ke ca moi, phan giao ra la 7 giay moi. Do la suy dien khop so lieu, chua co xac nhan tu phia Google.",
+   "ban_0_dong": "veo_3_1_extension_lite_low_priority cho ra clip GIONG HET quy cach ban tra tien: 1280x720, 24fps, 7.000000 giay, tai ve duoc. KHONG co bang chung nao cho thay no cham hon — luc dau toi tuong the nhung do doc nham workflow[6]."
   },
   "edit_video": {
    "rpcid": "jIps6",
