@@ -344,6 +344,23 @@ FlowKit đang lưu ở `media_history`.
 `as29s ["<mediaId>"]` đọc một media và trả cả tham số đã sinh ra nó (prompt, ảnh vào kèm kiểu,
 model) — dùng để truy nguồn một ảnh.
 
+### Liệt kê dự án có PHÂN TRANG
+
+```
+UpteDb  ["projects/*", <số mục mỗi trang>, <token trang sau|null>, null, null, null, [1]]
+     -> [ [<dự án>, …], "<token trang sau>" ]
+```
+
+Mỗi dự án: `[projectId, [tên, null, [ts], <URL thumbnail>, <mediaId bìa>]]`.
+
+Token trang sau **chỉ xuất hiện khi còn trang**. Giao diện gửi `21` nên tài khoản ít dự án
+không bao giờ thấy nó — lấy một trang rồi tưởng đã đủ là bug ngầm chờ sẵn ở tài khoản nhiều
+dự án. Đo bằng cách hạ xuống 3: trang đầu ra 3 dự án + token, đưa token vào **ô [2]** thì ra
+3 dự án KHÁC.
+
+Bẫy: nhét token vào ô [3] thì nó **lặng lẽ trả lại trang đầu**, không báo lỗi — vòng lặp phân
+trang đặt nhầm ô sẽ chạy mãi trên cùng một trang.
+
 ## Còn thiếu cho mảng ảnh
 
 Chỉ còn mấy việc cấp **dự án**: **tạo dự án**, **xoá dự án**, **đổi tên dự án**. FlowKit tạo

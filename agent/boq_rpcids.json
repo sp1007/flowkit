@@ -27,7 +27,10 @@
         [
           1
         ]
-      ]
+      ],
+      "note": "[\"projects/*\", <số mục mỗi trang>, <token trang sau|null>, null, null, null, [1]] — LIỆT KÊ DỰ ÁN, tương đương project.searchUserProjects cũ.",
+      "response": "[[<danh sách dự án>, …], \"<token trang sau>\"] — mỗi dự án: [projectId, [tên, null, [ts], <URL thumbnail lh3>, <mediaId bìa>]]. Token trang sau CHỈ có khi còn trang; hết thì phản hồi chỉ còn một phần tử.",
+      "paging": "ĐO ĐƯỢC: ô [1] là số mục mỗi trang, ô [2] nhận token trang sau (ô [3] KHÔNG nhận — nhét vào đó thì nó lặng lẽ trả lại TRANG ĐẦU, không báo lỗi). Kiểm: limit=3 trả b150176f/a4b9c2e2/92d2e011 + token; đưa token vào ô [2] trả 73b2015a/7d03935c/c5d7a6cc. Giao diện gửi limit=21; tài khoản thử có 9 dự án nên một trang là hết. PHẢI lặp theo token, đừng lấy một trang rồi tưởng đã đủ."
     },
     "get_project": {
       "rpcid": "Zzl0ze",
