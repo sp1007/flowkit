@@ -66,7 +66,7 @@
         "data[0][0][6][2]": "[rộng, cao] thật của ảnh",
         "data[1][0]": "đối tượng workflow: [id,_,_,[tên,ts,_,_,mediaId,uuid,ts], projectId]"
       },
-      "captcha_cost": "MỘT token cho MỖI lời gọi. Xác nhận hai chiều: bốn payload của lô 4 mang bốn token khác nhau, và trên trang mỗi lượt batchexecute kèm đúng một POST recaptcha/enterprise/reload. Không gộp, không tái dùng — lô N ảnh = N lượt lấy token."
+      "captcha_cost": "MỘT token cho MỖI lời gọi — đó là thứ đo được chắc chắn: bốn payload của lô 4 mang bốn token khác nhau, và số lượt POST recaptcha/enterprise/reload bằng số lượt batchexecute. THỨ TỰ trước/sau thì KHÔNG kết luận được từ quan sát (nhìn ở DevTools thấy reload nằm sau, nhưng token phải có trước mới nhét được vào payload — nhiều khả năng đó là lượt đúc sẵn cho lời gọi kế tiếp). Không ảnh hưởng cách làm: ta gọi grecaptcha.enterprise.execute ngay trước mỗi lượt, lấy được token nào dùng token đó."
     },
     "update_workflow": {
       "rpcid": "mYWVGd",
