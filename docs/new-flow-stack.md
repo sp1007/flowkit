@@ -325,7 +325,10 @@ Kiểm bằng cách sửa chính ảnh mình tải lên: giữ nguyên bố cụ
 | chuyển vào thùng rác | `pGCYOe` | ✅ |
 | đặt ảnh bìa | `o8DA4` | ✅ |
 | đọc nội dung dự án | `Zzl0ze` | ✅ |
-| liệt kê dự án | `UpteDb` | ✅ |
+| liệt kê dự án (có phân trang) | `UpteDb` | ✅ |
+| tạo dự án | `jHPbke` | ✅ |
+| đổi tên dự án | `o8DA4` | ✅ |
+| xoá dự án | `QI2zvc` | ✅ |
 | đọc một media | `as29s` | ✅ |
 | cấu hình model dự án | `ngNC2` | ✅ |
 | credit | `nzlxg` | ✅ |
@@ -387,9 +390,23 @@ Nên thử mặt nạ mới thì **phải đọc lại để xác nhận**, và 
 nhau** — lần đầu tôi dùng chung một tên đích cho cả bốn mặt nạ, thế là cả bốn "thành công"
 vì lượt đầu đã đổi rồi, ba lượt sau chỉ đang trả lại đúng giá trị đó.
 
+### Xoá dự án là động từ THẬT, không phải cờ
+
+```
+QI2zvc  ["projects/<id>"]   -> []
+```
+
+Chỉ nhận đường dẫn tài nguyên: không mặt nạ, không clientContext, không reCAPTCHA.
+
+**Đây là ngoại lệ đáng nhớ.** Mọi thao tác "xoá" khác trong API này đều là bật cờ theo mặt nạ
+— ảnh vào thùng rác là `metadata.archived` qua `pGCYOe`, khôi phục được. Riêng dự án có động
+từ xoá thật. Đừng suy từ ảnh sang dự án hay ngược lại.
+
+Kiểm bằng vòng đời trọn vẹn: tạo → đếm 11 dự án → xoá → đếm 10.
+
 ## Còn thiếu cho mảng ảnh
 
-Chỉ còn **xoá dự án**. Tạo và đổi tên đã xong (xem trên).
+Không còn gì. Toàn bộ mảng ảnh và mảng dự án đã chạy được qua đường mới.
 
 ## rpcid đổi thì sao
 

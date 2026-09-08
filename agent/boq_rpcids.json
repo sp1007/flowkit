@@ -130,6 +130,12 @@
       "rpcid": "o8DA4",
       "note": "[\"projects/<id>\", [\"<tên mới>\"], [[\"project_title\"]], [null,22]] — cùng rpcid với đặt ảnh bìa, khác mặt nạ.",
       "verified": "Đổi tên dự án nháp -> đọc lại bằng UpteDb thấy tên mới."
+    },
+    "delete_project": {
+      "rpcid": "QI2zvc",
+      "note": "[\"projects/<id>\"] — XOÁ DỰ ÁN. Chỉ nhận đường dẫn tài nguyên, không mặt nạ, không clientContext, không reCAPTCHA. Trả về [].",
+      "verified": "Vòng đời trọn vẹn qua POST /api/flow/boq: tạo (jHPbke) -> đếm 11 dự án -> xoá (QI2zvc) -> đếm 10. Dự án biến khỏi UpteDb.",
+      "note2": "ĐÂY LÀ NGOẠI LỆ: mọi thao tác 'xoá' khác trong API này đều là bật cờ theo mặt nạ (ảnh vào thùng rác = metadata.archived qua pGCYOe). Riêng dự án có động từ xoá thật. Đừng suy từ ảnh sang dự án hay ngược lại."
     }
   },
   "unknown": {
