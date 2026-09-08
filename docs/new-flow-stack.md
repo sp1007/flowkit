@@ -485,6 +485,41 @@ người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhi�
 (`PAYGATE_TIER_ONE`), 3 = Ultra (`PAYGATE_TIER_TWO`). **Đừng ánh xạ thẳng số sang tên tier cũ
 mà chưa kiểm.**
 
+### Submit + poll video — đã chạy trọn vòng
+
+```
+YhhmEf  [[[ [null,null,[[["<prompt>"]]]], "<khoá model>", <tỉ lệ>, null,
+            [null,null,null,null,"<UUID>","<UUID>"] ]],
+         <clientContext>, ["<batch id>", 2]]
+     -> [null, <credit còn lại>, [<workflow>], [<bản ghi media>]]     (trả NGAY, chưa có video)
+
+jwpduf  [null, null, [["<mediaId>"]]]        mỗi 5 giây, clip 8s hết ~45 giây
+as29s   ["<mediaId>"]                        gọi MỘT lần ở cuối để lấy URL
+```
+
+- Prompt lồng ba lớp **giống hệt bên ảnh**.
+- **Tỉ lệ khung video dùng bảng KHÁC ảnh**: `2` = 16:9 ngang (người dùng xác nhận đã chọn
+  16:9), trong khi bên ảnh `2` là 9:16 dọc. Dùng nhầm bảng là ra video xoay ngang thành dọc.
+- Submit **trả kèm số dư credit** — khỏi gọi `nzlxg` riêng để kiểm tra sau mỗi lượt.
+- **Poll KHÔNG chứa URL.** Nó trả bản ghi media đang cập nhật (khi xong có kích thước byte
+  thật). Muốn URL phải gọi `as29s` sau — đúng trình tự giao diện làm. Ai chờ URL xuất hiện
+  trong phản hồi poll sẽ poll mãi không dừng.
+
+### Một mediaId cho HAI URL — và ảnh bìa có sẵn
+
+```
+flow-content.google/video/<id>   -> video/mp4  (2.748.731 byte, khớp số trong poll)
+flow-content.google/image/<id>   -> image/jpeg (~42KB) — ẢNH BÌA
+```
+
+**Ảnh bìa được phát sẵn.** Bản chính phải dựng cả một đường riêng để có nó: `GET
+/shots/{sid}/poster` gọi ffmpeg cắt khung đầu, cache theo tên file, giới hạn 3 tiến trình
+cùng lúc — dựng ra chỉ vì nhúng `<video>` vào lưới shot làm treo trình duyệt. Đường mới bỏ
+được toàn bộ chỗ đó.
+
+Nhưng lý do gốc thì **không** biến mất: clip vẫn `ftyp/uuid/mdat/moov` — **moov ở CUỐI file,
+không faststart**, y như đường cũ. Nên vẫn tuyệt đối không nhúng `<video>` vào lưới.
+
 ### Kế hoạch đo
 
 Sau khi có danh mục, thứ CÒN THIẾU chỉ là **hình dạng lời gọi submit** và **cách poll** —

@@ -147,6 +147,18 @@
       "probe_args": [],
       "note": "[] -> TOÀN BỘ danh mục model: 153 khoá, tên hiển thị, và GIÁ THEO TIER. data[0][4] = model video theo nhóm, data[0][5] = model ảnh, data[0][3] = ánh xạ khoá -> tên hiển thị, data[0][7] = TTS. Giá nằm ở ô [4] của mỗi mục, dạng [[1,[[null,C]]],[2,[[null,C]]],[3,[[null,C]]]] = giá cho tier 1/2/3. Đã trích sẵn ra agent/boq_model_catalog.json.",
       "why": "Đây là nguồn giá CHÍNH THỐNG — chính là con số giao diện hiện trong prompt box. Lấy được MIỄN PHÍ, không tốn credit, không cần thao tác. Đừng đo giá bằng cách render thử rồi trừ số dư."
+    },
+    "generate_video": {
+      "rpcid": "YhhmEf",
+      "captcha": true,
+      "note": "[[[ [null,null,[[[\"<prompt>\"]]]], \"<khoá model>\", <tỉ lệ>, null, [null,null,null,null,\"<UUID>\",\"<UUID>\"] ]], <clientContext>, [\"<batch id>\", 2]] — SUBMIT VIDEO. Prompt lồng ba lớp giống hệt bên ảnh. Tỉ lệ = 2 cho 16:9 ngang (người dùng xác nhận đã chọn 16:9) — KHÁC bảng tỉ lệ của ảnh, đừng dùng chung.",
+      "response": "[null, <credit còn lại>, [<đối tượng workflow>], [<bản ghi media>]] — trả NGAY, chưa có video. Lấy mediaId ở đó rồi poll. Đáng chú ý: phản hồi kèm luôn SỐ DƯ CREDIT, khỏi gọi nzlxg riêng.",
+      "verified": "Submit qua POST /api/flow/boq bằng veo_3_1_t2v_lite_low_priority (0đ) -> mediaId ddb2ec95…"
+    },
+    "poll_video": {
+      "rpcid": "jwpduf",
+      "note": "[null, null, [[\"<mediaId>\"]]] — POLL. Giao diện gọi mỗi 5 giây cho tới khi xong (clip 8s hết ~45 giây, 9 lượt). Trả về bản ghi media đang cập nhật; khi xong có kích thước byte thật. KHÔNG chứa URL — xong rồi phải gọi as29s mới lấy được URL, đúng như giao diện làm.",
+      "verified": "Poll 18 lượt tới khi bản ghi đủ dữ liệu, rồi as29s trả URL."
     }
   },
   "unknown": {
@@ -171,5 +183,6 @@
   "_errors": "Lỗi có thể nằm NGAY TRONG envelope wrb.fr: payload (ô [2]) là null còn ô [5] mang google.rpc.ErrorInfo. Không đọc ô [5] thì mọi thất bại trông giống nhau ('data: null') và sẽ đi dò sai chỗ. parseBoqResponse nay trả kèm trường `error`.",
   "_todo_images": "Mảng ảnh đã đủ, TRỪ mấy việc cấp DỰ ÁN chưa bắt được: tạo dự án, xoá dự án, đổi tên dự án. FlowKit tạo một dự án cho mỗi video nên không có tạo dự án là không chạy được từ đầu. Đổi tên dự án nhiều khả năng là o8DA4 với mask khác — thử được sau khi biết cách tạo dự án mới (đừng thử trên dự án thật của người dùng).",
   "_mask_gotcha": "MẶT NẠ SAI TÊN THÌ IM LẶNG KHÔNG LÀM GÌ — trả 200, trả về trạng thái HIỆN TẠI, không báo lỗi. Đo trên o8DA4: chỉ 'project_title' đổi được tên; 'title', 'display_name', 'name' và cả một tên bịa đều trả 200 mà không đổi gì. Hệ quả khi port: gõ sai tên trường là một lệnh ghi KHÔNG BAO GIỜ chạy mà không có gì báo. Thử mặt nạ mới thì phải ĐỌC LẠI để xác nhận, và mỗi lượt thử phải dùng GIÁ TRỊ KHÁC NHAU — dùng chung một giá trị đích thì lượt sau trả về đúng giá trị đó dù chẳng làm gì, nhìn như thành công.",
-  "_tier_numbering": "Tier trong danh mục đánh 1/2/3, KHÔNG trùng tên PAYGATE_TIER_* của đường cũ. Suy ra 3 = Ultra từ hai bằng chứng khớp nhau: veo_3_1_*_lite_low_priority (CLAUDE.md ghi '0đ, chỉ Ultra') chỉ có tier 3, và GEM_PIX_2_UPSAMPLE_4K cũng chỉ có tier 3 — đúng lúc người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhiều khả năng 2 = Pro (PAYGATE_TIER_ONE), 3 = Ultra (PAYGATE_TIER_TWO). ĐỪNG ánh xạ thẳng số sang tên tier cũ mà chưa kiểm."
+  "_tier_numbering": "Tier trong danh mục đánh 1/2/3, KHÔNG trùng tên PAYGATE_TIER_* của đường cũ. Suy ra 3 = Ultra từ hai bằng chứng khớp nhau: veo_3_1_*_lite_low_priority (CLAUDE.md ghi '0đ, chỉ Ultra') chỉ có tier 3, và GEM_PIX_2_UPSAMPLE_4K cũng chỉ có tier 3 — đúng lúc người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhiều khả năng 2 = Pro (PAYGATE_TIER_ONE), 3 = Ultra (PAYGATE_TIER_TWO). ĐỪNG ánh xạ thẳng số sang tên tier cũ mà chưa kiểm.",
+  "_media_urls": "Một mediaId video cho HAI URL: `flow-content.google/video/<id>` là clip (video/mp4) và `flow-content.google/image/<id>` là ẢNH BÌA (JPEG ~42KB). Cả hai đều ký sẵn, tải bằng GET trơn. Ảnh bìa CÓ SẴN nghĩa là bỏ được cả đường dựng poster bằng ffmpeg của bản chính (GET /shots/{sid}/poster, cache theo tên file, tối đa 3 tiến trình) — thứ vốn dựng ra chỉ vì nhúng <video> làm treo trình duyệt. Clip vẫn có moov ở CUỐI file (ftyp/uuid/mdat/moov, không faststart) y như đường cũ, nên vẫn KHÔNG được nhúng <video> vào lưới shot."
 }
