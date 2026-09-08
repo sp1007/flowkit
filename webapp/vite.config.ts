@@ -2,12 +2,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-const API = "http://127.0.0.1:8100";
+const API = "http://127.0.0.1:8101";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    port: 5173,
+    port: 5174,
     proxy: {
       "/api": { target: API, changeOrigin: true, ws: true },
       "/media": { target: API, changeOrigin: true },

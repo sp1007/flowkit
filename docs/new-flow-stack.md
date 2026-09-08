@@ -23,6 +23,37 @@ mọi lời gọi thẳng `aisandbox-pa` chết theo, kể cả khâu sinh ảnh
 
 Đường batchexecute thì không cần token: cookie phiên của chính tab Flow là đủ.
 
+## Chạy song song, không đụng bản chính
+
+Nhánh này cố ý lệch cổng và lệch tên để cài được ở một trình duyệt KHÁC trong khi bản chính
+vẫn đang chạy:
+
+| | bản chính (`main`) | nhánh này |
+|---|---|---|
+| HTTP | 8100 | **8101** |
+| WebSocket (extension nối vào) | 9222 | **9223** |
+| Vite dev | 5173 | **5174** |
+| Tên extension | Flow Kit | **Flow Kit Next** |
+
+Dữ liệu tự tách sẵn: `BASE_DIR` là thư mục worktree nên `agent/studio.db` và `media/` của
+nhánh này là bộ RIÊNG, khởi đầu rỗng — không đọc, không ghi đè dự án của bản chính.
+
+```bash
+cd D:/youtube/editor/flowkit-next
+python -m agent.main          # HTTP :8101, WS :9223
+curl -s http://127.0.0.1:8101/health
+```
+
+Rồi ở trình duyệt thứ hai (Edge, Chrome profile khác, Brave…): `chrome://extensions` →
+Load unpacked → `D:\youtube\editorlowkit-next\extension`. Đăng nhập Google, mở một dự án
+`flow.google.com/project/<id>`.
+
+Hai extension KHÔNG được cùng chạy trong một trình duyệt: cả hai đều nghe `webRequest` trên
+cùng những URL và đều tự mở tab Flow, nên sẽ giành nhau tab và token.
+
+Đổi cổng thì phải sửa BỐN chỗ, không có nguồn chung: `agent/config.py`, `AGENT_WS_URL` và
+host permission của extension, `webapp/vite.config.ts`.
+
 ## Đã có gì trên nhánh này
 
 - `boqExecute(rpcid, args)` trong [extension/background.js](../extension/background.js) —

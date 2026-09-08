@@ -43,7 +43,7 @@ DEFAULT_CONFIG = {
             "name": "Backend (agent)",
             "cwd": "D:\\youtube\\editor\\flowkit",
             "command": "python -m agent.main",
-            "url": "http://127.0.0.1:8100/health",
+            "url": "http://127.0.0.1:8101/health",
             "autostart": True,
             "own_console": False,
         },
