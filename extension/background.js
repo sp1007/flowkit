@@ -1384,6 +1384,33 @@ async function handleBoqRequest(msg) {
 // gọi gì khi người dùng thao tác. Nghe thụ động, không chặn, không sửa request.
 const boqLog = [];
 
+/** Rút gọn chuỗi dài trong payload, GIỮ NGUYÊN khung mảng.
+ *
+ *  Lượt tải ảnh lên nhét cả ảnh dạng base64 vào `f.req`, nên payload vượt xa mọi ngưỡng cắt:
+ *  cắt thẳng bằng slice thì mất luôn phần cấu trúc nằm SAU khối base64 — đúng phần cần đọc.
+ *  Thay chuỗi dài bằng chỗ đánh dấu thì log vẫn nhẹ mà khung mảng còn nguyên. */
+function _elideLong(node, max = 512) {
+  if (typeof node === 'string') {
+    return node.length > max ? `<${node.length} ký tự: ${node.slice(0, 24)}…>` : node;
+  }
+  if (Array.isArray(node)) return node.map((x) => _elideLong(x, max));
+  return node;
+}
+
+function _reconPayload(raw) {
+  if (raw.length <= 20000) return raw;
+  for (const text of [raw, decodeURIComponent(raw.replace(/\+/g, ' '))]) {
+    try {
+      const call = JSON.parse(text)?.[0]?.[0];
+      if (call && typeof call[1] === 'string') {
+        const args = _elideLong(JSON.parse(call[1]));
+        return JSON.stringify([[[call[0], JSON.stringify(args), null, 'generic']]]);
+      }
+    } catch { /* thử cách giải mã tiếp theo */ }
+  }
+  return raw.slice(0, 100000);
+}
+
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (!details.url.includes('/data/batchexecute')) return;
@@ -1395,7 +1422,7 @@ chrome.webRequest.onBeforeRequest.addListener(
         sourcePath: new URL(details.url).searchParams.get('source-path'),
         // 4000 CẮT MẤT phần cần nhất: payload tạo ảnh chứa token reCAPTCHA (~2-3KB) rồi
         // mới tới prompt, nên cắt ở 4000 là bắt được token mà mất prompt.
-        req: raw ? raw.slice(0, 100000) : null,
+        req: raw ? _reconPayload(raw) : null,
       };
       boqLog.unshift(entry);
       if (boqLog.length > 300) boqLog.pop();
