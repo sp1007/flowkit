@@ -1237,7 +1237,10 @@ async function _boqParams() {
         sid: w.FdrFJe || null,       // f.sid
         bl: w.cfb2h || null,         // nhánh backend, vd boq_labs-ai-sandbox-frontend_…
         app: w.qwAQke || null,       // AiSandboxAngularFrontend
-        hl: w.PXcMTe || 'en-US',
+        hl: w.PXcMTe || document.documentElement.lang || 'en-US',
+        // Chrome nhiều tài khoản: mọi URL mang tiền tố /u/<N>/. Bỏ nó đi là gọi sang
+        // NGỮ CẢNH TÀI KHOẢN KHÁC — không thấy dự án, hoặc 401.
+        userPrefix: (location.pathname.match(/^\/u\/\d+/) || [''])[0],
         path: location.pathname,
       };
     },
@@ -1247,30 +1250,57 @@ async function _boqParams() {
 }
 
 /**
- * Tách phản hồi batchexecute. Định dạng: bỏ tiền tố `)]}'`, rồi lặp "một dòng ĐỘ DÀI, tiếp
- * theo là chừng ấy ký tự JSON". Mỗi khối là mảng envelope, cái mình cần có dạng
- * ["wrb.fr","<rpcid>","<payload JSON dạng chuỗi>", …] — payload phải parse LẦN HAI.
+ * Tách phản hồi batchexecute.
+ *
+ * Định dạng trên giấy là "một dòng ĐỘ DÀI rồi tới chừng ấy ký tự JSON", nhưng số đó KHÔNG
+ * đáng tin: đo trên phản hồi thật của `nzlxg`, khối ghi 127 trong khi dòng JSON dài 125
+ * (126 kể cả xuống dòng). Bám theo nó thì cắt lẹm sang khối sau và parse hỏng im lặng.
+ * Nên bỏ qua số đếm, quét thẳng từng mảng JSON cân ngoặc — có để ý chuỗi và ký tự thoát
+ * nên dấu ngoặc nằm trong chuỗi không làm lệch.
  */
-function parseBoqResponse(text) {
+function _scanJsonArrays(s) {
   const out = [];
-  const s = text.replace(/^\)\]\}'\n?/, '');
   let i = 0;
   while (i < s.length) {
-    const nl = s.indexOf('\n', i);
-    if (nl < 0) break;
-    const n = parseInt(s.slice(i, nl).trim(), 10);
-    if (!Number.isFinite(n) || n <= 0) break;
-    const chunk = s.substr(nl + 1, n);
-    i = nl + 1 + n;
-    let envelopes;
-    try { envelopes = JSON.parse(chunk); } catch { continue; }
-    for (const env of envelopes) {
-      if (!Array.isArray(env) || env[0] !== 'wrb.fr') continue;
-      let payload = env[2];
-      if (typeof payload === 'string') {
-        try { payload = JSON.parse(payload); } catch { /* để nguyên chuỗi */ }
+    const start = s.indexOf('[', i);
+    if (start < 0) break;
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let j = start; j < s.length; j++) {
+      const ch = s[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch.charCodeAt(0) === 92) esc = true;   // 92 = dấu chéo ngược
+        else if (ch === '"') inStr = false;
+        continue;
       }
-      out.push({ rpcid: env[1], data: payload });
+      if (ch === '"') inStr = true;
+      else if (ch === '[') depth++;
+      else if (ch === ']' && --depth === 0) { end = j; break; }
+    }
+    if (end < 0) break;
+    try { out.push(JSON.parse(s.slice(start, end + 1))); } catch { /* khối vỡ — bỏ */ }
+    i = end + 1;
+  }
+  return out;
+}
+
+function parseBoqResponse(text) {
+  const out = [];
+  for (const envelopes of _scanJsonArrays(text.replace(/^\)\]\}'/, ''))) {
+    if (!Array.isArray(envelopes)) continue;
+    for (const env of envelopes) {
+      if (!Array.isArray(env)) continue;
+      // "wrb.fr" = kết quả của một rpcid; "er" = lỗi của chính rpcid đó, phải giữ lại
+      // chứ không phải bỏ qua — đó là chỗ đọc ra vì sao lời gọi hỏng.
+      if (env[0] === 'wrb.fr') {
+        let payload = env[2];
+        if (typeof payload === 'string') {
+          try { payload = JSON.parse(payload); } catch { /* để nguyên chuỗi */ }
+        }
+        out.push({ rpcid: env[1], data: payload });
+      } else if (env[0] === 'er') {
+        out.push({ rpcid: env[1] ?? null, error: env.slice(2) });
+      }
     }
   }
   return out;
@@ -1294,7 +1324,7 @@ async function boqExecute(rpcid, args, { sourcePath } = {}) {
     at: p.at,
   });
 
-  const resp = await fetch(`${BOQ_ORIGIN}/_/${p.app}/data/batchexecute?${qs}`, {
+  const resp = await fetch(`${BOQ_ORIGIN}${p.userPrefix || ''}/_/${p.app}/data/batchexecute?${qs}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' },
@@ -1324,6 +1354,7 @@ const boqLog = [];
 
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
+    if (!details.url.includes('/data/batchexecute')) return;
     try {
       const raw = details.requestBody?.formData?.['f.req']?.[0];
       const entry = {
@@ -1339,7 +1370,9 @@ chrome.webRequest.onBeforeRequest.addListener(
       }
     } catch { /* recon chỉ để quan sát — hỏng thì bỏ qua */ }
   },
-  { urls: [`${BOQ_ORIGIN}/_/*/data/batchexecute*`] },
+  // Lọc rộng rồi kiểm trong hàm: URL thật mang tiền tố tài khoản `/u/2/_/…` nên mẫu
+  // `/_/*/data/batchexecute*` KHÔNG khớp, bỏ lọt đúng những lượt cần xem nhất.
+  { urls: [`${BOQ_ORIGIN}/*`] },
   ['requestBody'],
 );
 
