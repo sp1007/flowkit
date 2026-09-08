@@ -192,8 +192,16 @@ nhận đã chọn 16:9), **4 → 896×1200 (3:4 dọc)**.
 - Khối prompt vẫn lồng ba lớp `[[["…"]]]` kể cả khi có reference, nên **ba lớp đó KHÔNG phải
   chỗ dành cho ảnh tham chiếu** như tôi đoán ban đầu.
 - **`NARWHAL` = Nano Banana 2**; `GEM_PIX_2` là mặc định. Cùng bộ khoá model với đường cũ.
-- Tỉ lệ khung `args[1][0][4]`: **1 → 1024×1024 (1:1)**, **2 → 768×1376 (9:16 dọc)**,
-  **3 → 1376×768 (16:9 ngang)**, **4 → 896×1200 (3:4 dọc)**.
+- Tỉ lệ khung `args[1][0][4]`, đo đủ cả năm giá trị:
+
+  | giá trị | 1 | 2 | 3 | 4 | 5 |
+  |---|---|---|---|---|---|
+  | kích thước | 1024×1024 | 768×1376 | 1376×768 | 896×1200 | 1200×896 |
+  | khung | 1:1 | 9:16 | 16:9 | 3:4 | 4:3 |
+
+  **Giá trị ngoài dải KHÔNG báo lỗi.** `0` và `6` đều lặng lẽ trả `1408×768` — khung 11:6
+  không có trong menu của UI. Luôn gửi 1–5 tường minh; để trống hay `0` mà tưởng sẽ có mặc
+  định hợp lý là ra ảnh sai khung mà không có gì cảnh báo.
 - Nhiều ảnh tham chiếu = nhiều mục trong cùng danh sách, và **thứ tự danh sách chính là
   "ảnh thứ nhất / ảnh thứ hai"** mà prompt nhắc tới (kiểm bằng prompt ghép mèo từ ảnh 1
   vào giỏ xe đạp từ ảnh 2 — ra đúng).
