@@ -361,12 +361,35 @@ dự án. Đo bằng cách hạ xuống 3: trang đầu ra 3 dự án + token, �
 Bẫy: nhét token vào ô [3] thì nó **lặng lẽ trả lại trang đầu**, không báo lỗi — vòng lặp phân
 trang đặt nhầm ô sẽ chạy mãi trên cùng một trang.
 
+## Tạo và đổi tên dự án
+
+```
+jHPbke  ["projects/*", [null, ["<tên dự án>"]], [null, 22]]   -> ["<projectId mới>", ["<tên>"]]
+o8DA4   ["projects/<id>", ["<tên mới>"], [["project_title"]], [null, 22]]
+```
+
+- **Một lời gọi là xong, KHÔNG cần reCAPTCHA.** Tên do CLIENT đặt: giao diện tự sinh
+  `"Tháng 9 08 - 23:12"` rồi gửi lên, nên mình đặt tên gì cũng được ngay từ lượt tạo — không
+  phải tạo xong rồi đổi tên thành hai lượt như tôi đoán ban đầu.
+- Tham số thứ hai là bản ghi dự án chưa có id `[null, <projectInfo>]`, **cùng hình dạng với
+  mục trong phản hồi `UpteDb`**. Sau khi tạo, trang tự chuyển sang `/u/2/project/<id mới>`.
+- Đổi tên dùng lại `o8DA4` (rpcid của ảnh bìa), chỉ khác mặt nạ: `project_title` — đúng
+  snake_case của `projectInfo.projectTitle` bên đường cũ.
+
+### Mặt nạ sai tên thì IM LẶNG không làm gì
+
+Đây là bẫy nguy hiểm nhất gặp tới giờ. Thử bốn tên trường cho lệnh đổi tên: chỉ
+`project_title` có tác dụng; `title`, `display_name`, `name` và cả một tên **bịa hoàn toàn**
+đều trả **200, không lỗi, không đổi gì**, và phản hồi là trạng thái HIỆN TẠI.
+
+Hệ quả khi port: gõ sai tên trường là một lệnh ghi **không bao giờ chạy** mà không có gì báo.
+Nên thử mặt nạ mới thì **phải đọc lại để xác nhận**, và mỗi lượt thử phải dùng **giá trị khác
+nhau** — lần đầu tôi dùng chung một tên đích cho cả bốn mặt nạ, thế là cả bốn "thành công"
+vì lượt đầu đã đổi rồi, ba lượt sau chỉ đang trả lại đúng giá trị đó.
+
 ## Còn thiếu cho mảng ảnh
 
-Chỉ còn mấy việc cấp **dự án**: **tạo dự án**, **xoá dự án**, **đổi tên dự án**. FlowKit tạo
-một dự án cho mỗi video nên thiếu "tạo dự án" là không chạy được từ đầu. Đổi tên nhiều khả
-năng là `o8DA4` với mask khác — nên thử sau khi biết cách tạo dự án mới, đừng thử trên dự án
-thật.
+Chỉ còn **xoá dự án**. Tạo và đổi tên đã xong (xem trên).
 
 ## rpcid đổi thì sao
 
