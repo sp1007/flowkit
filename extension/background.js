@@ -1342,6 +1342,39 @@ async function boqExecute(rpcid, args, { sourcePath } = {}) {
  *  agent nhét chỗ trống rồi extension điền, agent khỏi phải biết gì về reCAPTCHA. */
 const CAPTCHA_SLOT = '__CAPTCHA__';
 
+// Site key của Flow — GIỐNG nhau ở labs.google và flow.google.com (đo trực tiếp trong
+// WIZ_global_data của trang mới).
+const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
+
+/**
+ * Lấy token reCAPTCHA bằng cách chạy THẲNG trong MAIN world của tab, không qua
+ * content.js → injected.js → CustomEvent → sendMessage.
+ *
+ * Cầu nối cũ có bốn mắt xích và mắt nào đứt cũng ra một lỗi khó đọc: lượt đầu chạy trên
+ * flow.google.com trả "message channel closed before a response was received", tức
+ * content script nhận tin rồi biến mất trước khi trả lời — không nói được là thiếu
+ * grecaptcha hay injected.js chưa nạp. executeScript trả thẳng kết quả (Chrome tự chờ
+ * Promise mà `func` trả về) nên lỗi nói đúng nguyên nhân.
+ */
+async function captchaFromMainWorld(tab, action) {
+  try {
+    const [r] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      args: [RECAPTCHA_SITE_KEY, action],
+      func: async (key, act) => {
+        const g = window.grecaptcha;
+        if (!g?.enterprise?.execute) return { error: 'NO_GRECAPTCHA' };
+        try { return { token: await g.enterprise.execute(key, { action: act }) }; }
+        catch (e) { return { error: String(e?.message || e) }; }
+      },
+    });
+    return r?.result || { error: 'NO_RESULT' };
+  } catch (e) {
+    return { error: e?.message || 'EXECUTE_SCRIPT_FAILED' };
+  }
+}
+
 function _fillCaptcha(node, token) {
   if (node === CAPTCHA_SLOT) return token;
   if (Array.isArray(node)) return node.map((x) => _fillCaptcha(x, token));
@@ -1366,8 +1399,15 @@ async function handleBoqRequest(msg) {
   const captchaAction = params?.captcha_action || 'IMAGE_GENERATION';
   if (!rpcid) { sendToAgent({ id, error: 'MISSING_RPCID' }); return; }
   if (_needsCaptcha(args)) {
-    const cap = await solveCaptcha(`boq-${id}`, captchaAction);
-    if (!cap?.token) { sendToAgent({ id, error: `CAPTCHA_FAILED: ${cap?.error || 'NO_TOKEN'}` }); return; }
+    // Cùng tab sẽ gửi batchexecute, nên token sinh ra đúng origin đang gọi.
+    const tab = (await pickFlowTab(FLOW_APP_TAB_URLS)) || (await pickFlowTab(BOQ_TAB_URLS));
+    if (!tab) { sendToAgent({ id, error: 'NO_FLOW_APP_TAB' }); return; }
+    let cap = await captchaFromMainWorld(tab, captchaAction);
+    if (!cap?.token) cap = await solveCaptcha(`boq-${id}`, captchaAction);   // cầu nối cũ
+    if (!cap?.token) {
+      sendToAgent({ id, error: `CAPTCHA_FAILED: ${cap?.error || 'NO_TOKEN'} @${_tabOrigin(tab)}${tab.url ? '' : ' (tab.url rỗng)'}` });
+      return;
+    }
     args = _fillCaptcha(args, cap.token);
   }
   try {
