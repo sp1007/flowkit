@@ -76,7 +76,12 @@
     },
     "update_project": {
       "rpcid": "Kcr7Ub",
-      "note": "[\"projects/<id>\", [...], [[\"<trường>\"]]] — cùng dạng field mask"
+      "note": "[\"projects/<id>\", [...], [[\"agent_toggle_state\"]]] — cũng resource+mask nhưng KHÁC o8DA4: Kcr7Ub không có clientContext ở cuối và mask trỏ tới trạng thái UI. Nhiều rpcid sửa cùng một resource path, phân theo NHÓM TRƯỜNG chứ không phải một rpcid dùng chung."
+    },
+    "set_project_cover": {
+      "rpcid": "o8DA4",
+      "note": "[\"projects/<id>\", [<tên dự án>, <mediaId bìa>], [[\"thumbnail_media_key\"]], [null,22]] — sửa DỰ ÁN theo field mask. Đối tượng dự án: [0]=tên, [1]=mediaId ảnh bìa. Trả về chính đối tượng đã cập nhật.",
+      "verified": "Chạy lại qua POST /api/flow/boq với đúng giá trị cũ (idempotent) -> 200, trả [tên, mediaId]."
     }
   },
   "unknown": {
@@ -97,5 +102,6 @@
     "qJcgMc",
     "yBhWQ",
     "o30O0e"
-  ]
+  ],
+  "_field_names": "Tên trường trong field mask là bản snake_case của tên trường REST đường cũ: mask \"thumbnail_media_key\" ứng với updateMask=thumbnailMediaKey của PATCH /v1/projects/{pid}. Giả thuyết (CHƯA kiểm hết): các trường khác cũng ánh xạ như vậy, nên có thể suy tên trường từ API cũ thay vì phải bắt từng cái."
 }

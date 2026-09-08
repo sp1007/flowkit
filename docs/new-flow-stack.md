@@ -215,6 +215,26 @@ nhận đã chọn 16:9), **4 → 896×1200 (3:4 dọc)**.
 ra đúng con mèo đó đội mũ rơm giữa đồng hướng dương, 768×1376. Reference có tác dụng thật,
 không chỉ được API chấp nhận.
 
+## Đặt ảnh bìa — và tên trường thì suy được từ API cũ
+
+```
+o8DA4  [ "projects/<id>",
+         [ "<tên dự án>", "<mediaId bìa>" ],     // đối tượng dự án: [0]=tên, [1]=ảnh bìa
+         [ ["thumbnail_media_key"] ],            // field mask
+         [ null, 22 ] ]                          // clientContext rút gọn
+```
+
+Hai điều đáng chú ý:
+
+1. **Mask là `thumbnail_media_key`** — chính là `updateMask=thumbnailMediaKey` của
+   `PATCH /v1/projects/{pid}` bên đường cũ, chỉ đổi sang snake_case. Nếu quy tắc này đúng
+   chung (CHƯA kiểm hết), ta **suy được tên trường từ API cũ** thay vì phải bắt từng cái.
+2. **Không phải một rpcid sửa dùng chung.** `o8DA4` và `Kcr7Ub` cùng nhận
+   `["projects/<id>", <đối tượng>, <mask>]` nhưng là hai rpcid khác nhau — `Kcr7Ub` không có
+   clientContext ở cuối và mask của nó trỏ tới trạng thái UI (`agent_toggle_state`). Tức là
+   nhiều rpcid cùng sửa một resource path, chia theo NHÓM TRƯỜNG. Dự đoán ban đầu của tôi
+   rằng mọi thao tác sửa dự án đi qua một `Kcr7Ub` là SAI.
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:
