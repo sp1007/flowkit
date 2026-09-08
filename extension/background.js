@@ -1220,8 +1220,12 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
 const BOQ_ORIGIN = 'https://flow.google.com';
 
 /** Khoá WIZ_global_data — tên do BOQ đặt, giống nhau ở mọi app Google. */
+// Tab nào của flow.google.com cũng có WIZ_global_data — kể cả trang chủ. Chỉ reCAPTCHA mới
+// đòi trang /project/*, đừng bắt batchexecute chịu chung ràng buộc đó.
+const BOQ_TAB_URLS = ['https://flow.google.com/*'];
+
 async function _boqParams() {
-  const tab = await pickFlowTab(FLOW_APP_TAB_URLS);
+  const tab = (await pickFlowTab(FLOW_APP_TAB_URLS)) || (await pickFlowTab(BOQ_TAB_URLS));
   if (!tab) return null;
   const [r] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
