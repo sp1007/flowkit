@@ -71,6 +71,7 @@ host permission của extension, `webapp/vite.config.ts`.
 | rpcid | args | việc |
 |---|---|---|
 | `ogiZ0b` | xem dưới | **tạo ảnh** |
+| `mYWVGd` | `[<workflow>, [["metadata.display_name"]]]` | **sửa workflow theo field mask** (đổi tên ảnh) |
 | `UpteDb` | `["projects/*", 21, null, null, null, null, [1]]` | liệt kê dự án |
 | `Zzl0ze` | `["projects/<id>", null, null, null, [1]]` | đọc một dự án |
 | `ngNC2` | `["tools/PINHOLE/projects/<id>"]` | trạng thái dự án theo tool |
@@ -81,6 +82,29 @@ host permission của extension, `webapp/vite.config.ts`.
 | `Kcr7Ub` / `DA4VGb` | `…["agent_toggle_state"]` | lưu trạng thái UI |
 | `WuwhI` | `PAGE_VIEW …` | telemetry, bỏ qua |
 | `DTaVef`, `NfrxTb`, `KV2T2d`, `LPzVkd`, `cPZSdc`, `Yizz8d`, `ve2Lsc`, `HTrJv`, `tRARke`, `qJcgMc`, `yBhWQ` | hằng số nhỏ | cấu hình / cờ tính năng |
+
+### API mới là CRUD tài nguyên + FIELD MASK, không phải một rpcid cho mỗi việc
+
+Đây là quy luật quan trọng nhất đọc ra được — nó quyết định cách port:
+
+```
+mYWVGd  [ [ "<workflowId>", null, null, ["<tên mới>"], "<projectId>" ],   // tài nguyên
+          [ ["metadata.display_name"] ] ]                                 // field mask
+Kcr7Ub  [ "projects/<id>", [ … ], [ ["agent_toggle_state"] ] ]            // cùng dạng
+```
+
+Tham số thứ hai là **mặt nạ trường** kiểu `updateMask` của Google API. Nghĩa là không phải
+dò một rpcid riêng cho mỗi thao tác sửa: cùng `mYWVGd` đổi được trường khác chỉ bằng cách
+đổi tên trường trong mặt nạ. Tương tự, `UpteDb` (`"projects/*"`) và `Zzl0ze`
+(`"projects/<id>"`) là list/get dùng chung theo ĐƯỜNG DẪN TÀI NGUYÊN.
+
+Đối tượng workflow (trả về ở cả `mYWVGd` lẫn `ogiZ0b`) có dạng:
+
+```
+[ "<workflowId>", null, null,
+  [ "<tên hiển thị>", [<ts tạo>], null, null, "<mediaId chính>", "<UUID phiên>", [<ts sửa>] ],
+  "<projectId>" ]
+```
 
 ### `ogiZ0b` — tạo ảnh
 
@@ -131,6 +155,8 @@ nào. Số `3` truyền vào ở vị trí thứ 5 là **tỉ lệ khung**: ra 1
 - **`ogiZ0b` TẠO ẢNH THẬT qua đường này** — prompt tự chọn, token reCAPTCHA tự lấy bằng
   `chrome.scripting.executeScript` ở MAIN world, KHÔNG dùng token ya29 nào. Trả về
   media_id `37896937-…`, tải xuống được 127KB JPEG 1376×768, đúng prompt.
+
+- **`mYWVGd` đổi tên được** ảnh do chính mình tạo, phản hồi trả về đối tượng đã cập nhật.
 
 Tức là đường mới không chỉ ĐỌC được mà GHI được. Đây là bằng chứng đủ để port từng lời gọi.
 
