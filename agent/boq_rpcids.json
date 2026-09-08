@@ -160,7 +160,8 @@
   "poll_video": {
    "rpcid": "jwpduf",
    "note": "[null, null, [[\"<mediaId>\"]]] — POLL. Giao diện gọi mỗi 5 giây cho tới khi xong (clip 8s hết ~45 giây, 9 lượt). Trả về bản ghi media đang cập nhật; khi xong có kích thước byte thật. KHÔNG chứa URL — xong rồi phải gọi as29s mới lấy được URL, đúng như giao diện làm.",
-   "verified": "Poll 18 lượt tới khi bản ghi đủ dữ liệu, rồi as29s trả URL."
+   "verified": "Poll 18 lượt tới khi bản ghi đủ dữ liệu, rồi as29s trả URL.",
+   "status_enum": "Trang thai nam o workflow[5][8]: [6] = dang cho/dang chay, [3] = XONG. Khi xong thi workflow[5][12] co kich thuoc byte that (khop chinh xac voi Content-Length luc tai). Truoc day chi biet 'poll toi khi ban ghi du du lieu'; nay co co tan minh bach."
   },
   "create_scene": {
    "rpcid": "rqZuUc",
@@ -181,6 +182,13 @@
    "models": "veo_3_1_extension_lite = 10/10/5 theo tier; veo_3_1_extension_lite_low_priority = 0 (chỉ tier 3). GIAO DIỆN CHỈ CHO CHỌN BẢN TRẢ TIỀN — bản 0 đồng vẫn được backend nhận, đã đo: submit xong credit đứng nguyên 12434.",
    "from_to": "Hai số nguyên sau mediaId nguồn (giao diện gửi 169 và 192 cho clip 8 giây). 192 = 8s × 24fps nên nhiều khả năng là CHỈ SỐ KHUNG HÌNH, 169..192 là ~1 giây cuối làm mồi. CHƯA kiểm bằng giá trị khác — mới chỉ chép lại nguyên giá trị của giao diện và nó chạy.",
    "verified": "Phát lại với veo_3_1_extension_lite_low_priority + captcha_action VIDEO_GENERATION: 200, scene có clip thứ 3, credit không đổi."
+  },
+  "edit_video": {
+   "rpcid": "jIps6",
+   "args": "[[[ [null,\"<mediaId nguon>\",<from>,<to>], [null,null,[[[\"<prompt>\"]]]], \"abra_edit\", <ti le>, [null,\"<workflowId>\",null,null,\"<UUID>\"] ]], <ctx>, [\"<batch id>\", 2]]",
+   "note": "SUA VIDEO bang prompt. CHI Omni Flash lam duoc: model key la abra_edit / abra_edit_360p, khong co ban Veo. Khac fZytfe (noi dai) o o thu 5: day la [null,<workflowId>,...] nham vao MOT WORKFLOW CO SAN, con noi dai la [<sceneId>,...]. Ket qua sinh ra la mot ban ghi moi NAM TRONG workflow do; anh dai dien cua workflow KHONG doi cho toi khi goi mYWVGd voi mask metadata.primary_media_id — giao dien tu goi ngay sau khi render xong, ta thi khong bat buoc.",
+   "gia": "abra_edit = 20 credit moi tier; abra_edit_360p = 10. Do bang so du that: 12434 -> 12414 cho luot cua giao dien (abra_edit), 12414 -> 12404 cho luot phat lai (abra_edit_360p).",
+   "verified": "Phat lai voi abra_edit_360p + captcha_action VIDEO_GENERATION: 200, tru dung 10 credit, sinh ban ghi moi duoi workflow cu."
   }
  },
  "unknown": {
@@ -206,5 +214,11 @@
  "_todo_images": "Mảng ảnh đã đủ, TRỪ mấy việc cấp DỰ ÁN chưa bắt được: tạo dự án, xoá dự án, đổi tên dự án. FlowKit tạo một dự án cho mỗi video nên không có tạo dự án là không chạy được từ đầu. Đổi tên dự án nhiều khả năng là o8DA4 với mask khác — thử được sau khi biết cách tạo dự án mới (đừng thử trên dự án thật của người dùng).",
  "_mask_gotcha": "MẶT NẠ SAI TÊN THÌ IM LẶNG KHÔNG LÀM GÌ — trả 200, trả về trạng thái HIỆN TẠI, không báo lỗi. Đo trên o8DA4: chỉ 'project_title' đổi được tên; 'title', 'display_name', 'name' và cả một tên bịa đều trả 200 mà không đổi gì. Hệ quả khi port: gõ sai tên trường là một lệnh ghi KHÔNG BAO GIỜ chạy mà không có gì báo. Thử mặt nạ mới thì phải ĐỌC LẠI để xác nhận, và mỗi lượt thử phải dùng GIÁ TRỊ KHÁC NHAU — dùng chung một giá trị đích thì lượt sau trả về đúng giá trị đó dù chẳng làm gì, nhìn như thành công.",
  "_tier_numbering": "Tier trong danh mục đánh 1/2/3, KHÔNG trùng tên PAYGATE_TIER_* của đường cũ. Suy ra 3 = Ultra từ hai bằng chứng khớp nhau: veo_3_1_*_lite_low_priority (CLAUDE.md ghi '0đ, chỉ Ultra') chỉ có tier 3, và GEM_PIX_2_UPSAMPLE_4K cũng chỉ có tier 3 — đúng lúc người dùng báo tài khoản Pro không lấy được ảnh 4K. Vậy nhiều khả năng 2 = Pro (PAYGATE_TIER_ONE), 3 = Ultra (PAYGATE_TIER_TWO). ĐỪNG ánh xạ thẳng số sang tên tier cũ mà chưa kiểm.",
- "_media_urls": "Một mediaId video cho HAI URL: `flow-content.google/video/<id>` là clip (video/mp4) và `flow-content.google/image/<id>` là ẢNH BÌA (JPEG ~42KB). Cả hai đều ký sẵn, tải bằng GET trơn. Ảnh bìa CÓ SẴN nghĩa là bỏ được cả đường dựng poster bằng ffmpeg của bản chính (GET /shots/{sid}/poster, cache theo tên file, tối đa 3 tiến trình) — thứ vốn dựng ra chỉ vì nhúng <video> làm treo trình duyệt. Clip vẫn có moov ở CUỐI file (ftyp/uuid/mdat/moov, không faststart) y như đường cũ, nên vẫn KHÔNG được nhúng <video> vào lưới shot."
+ "_media_urls": "Một mediaId video cho HAI URL: `flow-content.google/video/<id>` là clip (video/mp4) và `flow-content.google/image/<id>` là ẢNH BÌA (JPEG ~42KB). Cả hai đều ký sẵn, tải bằng GET trơn. Ảnh bìa CÓ SẴN nghĩa là bỏ được cả đường dựng poster bằng ffmpeg của bản chính (GET /shots/{sid}/poster, cache theo tên file, tối đa 3 tiến trình) — thứ vốn dựng ra chỉ vì nhúng <video> làm treo trình duyệt. Clip vẫn có moov ở CUỐI file (ftyp/uuid/mdat/moov, không faststart) y như đường cũ, nên vẫn KHÔNG được nhúng <video> vào lưới shot.",
+ "_frame_range": {
+  "what": "Cap so [from, to] dung sau mediaId nguon trong fZytfe (noi dai) va jIps6 (sua video).",
+  "evidence": "Cung mot do dai clip 8 giay: noi dai gui 169..192, sua video gui 0..192. 192 = 8s x 24fps, va 0 = dau clip. Hai thao tac doc lap cung ket thuc o 192 nen day la CHI SO KHUNG HINH tren clip nguon, 24 hinh/giay.",
+  "meaning": "Sua video lay TOAN BO clip (0..192). Noi dai lay ~1 giay cuoi lam moi (169..192). Chua thu gia tri khac nen chua biet server co kiem bien hay khong.",
+  "confirmed": "ffprobe tren chinh file tai ve: 640x360, r_frame_rate = 24/1, duration = 8.000000. Vay 192 = 8 x 24 la CHAC, khong con la suy dien tu con so tron."
+ }
 }
