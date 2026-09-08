@@ -6,6 +6,7 @@ extension executes them in browser context (residential IP, cookies, reCAPTCHA).
 """
 import asyncio
 import json
+import os
 import logging
 import re
 import time
@@ -25,6 +26,9 @@ from agent.services.headers import random_headers
 
 logger = logging.getLogger(__name__)
 
+# Nhật ký recon batchexecute — mỗi dòng một JSON, ghi tiếp chứ không đè.
+BOQ_LOG_PATH = os.environ.get("FLOWKIT_BOQ_LOG", "boq_calls.jsonl")
+
 
 class FlowClient:
     """Sends commands to Chrome extension via WebSocket."""
@@ -43,6 +47,8 @@ class FlowClient:
         # and corrupting rate-limit/captcha state. Read-only polls (check-status, credits) opt
         # out (serialize=False) so they don't block submits — they run on their own cadence.
         self._flow_lock = asyncio.Lock()
+        # Recon batchexecute: rpcid mà giao diện mới vừa gọi (xem handle_message).
+        self.boq_calls: list[dict] = []
         # WS stats
         self._ws_connect_count = 0
         self._ws_disconnect_count = 0
@@ -126,6 +132,19 @@ class FlowClient:
             ident = data.get("identity") or {}
             if ident.get("email") or ident.get("sub"):
                 self._set_identity(ident)
+            return
+
+        if data.get("type") == "boq_call":
+            # Recon: giao diện mới gọi rpcid nào. Giữ trong bộ nhớ + ghi ra file để đọc lại
+            # sau khi agent tắt — đây là nguồn DUY NHẤT cho biết rpcid nào làm việc gì.
+            entry = data.get("entry") or {}
+            self.boq_calls.append(entry)
+            del self.boq_calls[:-500]
+            try:
+                with open(BOQ_LOG_PATH, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            except OSError:
+                pass
             return
 
         if data.get("type") == "extension_ready":
@@ -306,6 +325,23 @@ class FlowClient:
                 "accept": "*/*",
             },
         }, timeout=30)
+
+    async def boq_request(self, rpcid: str, args=None, source_path: str | None = None,
+                          timeout: float = 120) -> dict:
+        """Gọi một RPC của giao diện mới qua batchexecute (cookie phiên, không cần token).
+
+        Đường dự phòng cho ngày labs.google tắt — xem docs/new-flow-stack.md. Cần một tab
+        flow.google.com/project/* đang mở vì `at`/`f.sid`/`bl` nằm trong WIZ_global_data.
+        """
+        return await self._send("boq_request", {
+            "rpcid": rpcid,
+            "args": args,
+            "source_path": source_path,
+        }, timeout=timeout)
+
+    async def boq_log(self, limit: int = 100) -> dict:
+        """Danh sách rpcid mà giao diện thật vừa gọi (recon)."""
+        return await self._send("boq_log", {"limit": limit}, timeout=30, serialize=False)
 
     async def get_direct_media(self, primary_media_id: str) -> dict:
         """Get media URL redirect."""

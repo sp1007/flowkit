@@ -20,7 +20,10 @@ window.fetch = async function (...args) {
     if (url.includes('/fx/api/trpc/') && response.ok) {
       const clone = response.clone();
       clone.text().then(text => {
-        if (text.includes('storage.googleapis.com/ai-sandbox-videofx/')) {
+        // Host media đã đổi: ảnh mới ở flow-content.google (Cloud CDN), host GCS cũ chỉ
+        // còn gặp ở media đời trước. Xem MEDIA_URL_RE ở background.js.
+        if (text.includes('flow-content.google/') ||
+            text.includes('storage.googleapis.com/ai-sandbox-videofx/')) {
           window.dispatchEvent(new CustomEvent('TRPC_MEDIA_URLS', {
             detail: { url, body: text },
           }));

@@ -122,6 +122,40 @@ class CreateProjectRequest(BaseModel):
     tool_name: str = "PINHOLE"
 
 
+class BoqRequest(BaseModel):
+    """Một lời gọi batchexecute của giao diện flow.google.com."""
+    rpcid: str
+    args: object | None = None
+    source_path: str | None = None
+
+
+@router.post("/boq")
+async def boq_request(body: BoqRequest):
+    """Gọi thẳng một RPC của giao diện mới (cookie phiên, không dùng token ya29).
+
+    Đường dự phòng cho ngày labs.google tắt. Cần một tab flow.google.com/project/* đang mở.
+    """
+    client = get_flow_client()
+    if not client.connected:
+        raise HTTPException(503, "Extension not connected")
+    result = await client.boq_request(body.rpcid, body.args, body.source_path)
+    if result.get("error"):
+        raise HTTPException(502, result["error"])
+    return result.get("data", result)
+
+
+@router.get("/boq/log")
+async def boq_log(limit: int = 100):
+    """rpcid mà giao diện thật vừa gọi — dùng để dò xem rpcid nào làm việc gì."""
+    client = get_flow_client()
+    live = []
+    if client.connected:
+        res = await client.boq_log(limit)
+        if isinstance(res.get("result"), list):
+            live = res["result"]
+    return {"seen": client.boq_calls[-limit:], "extension": live}
+
+
 @router.get("/status")
 async def extension_status():
     """Check if extension is connected."""

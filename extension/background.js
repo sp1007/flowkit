@@ -30,6 +30,14 @@ const FLOW_TAB_URLS = [...LABS_TAB_URLS, ...FLOW_APP_TAB_URLS];
 const FLOW_TAB_OPEN_URL = 'https://labs.google/fx/tools/flow';
 const LABS_ORIGIN = 'https://labs.google';
 
+// Host phát media ĐÃ ĐỔI và sẽ còn đổi. Đo ngày 2026-09-08: ảnh mới sinh trả về
+// `https://flow-content.google/image/<uuid>?Expires=…&KeyName=labs-flow-prod-cdn-key&Signature=…`
+// (Cloud CDN ký), video trên giao diện mới lấy từ `googlevideo.com/videoplayback`
+// (`source=contrib_service_ai_sandbox`, URL RÀNG THEO IP người xem + hết hạn ~2 tiếng).
+// `storage.googleapis.com/ai-sandbox-videofx` là host CŨ, còn gặp ở media đời trước.
+// Đừng hardcode một host: khớp cả ba, và thêm host mới vào ĐÂY chứ không rải regex.
+const MEDIA_URL_RE = /https:\/\/(?:flow-content\.google|storage\.googleapis\.com\/ai-sandbox-videofx)\/(?:image|video)\/[0-9a-f-]{36}\?[^"'\s]+/g;
+
 let ws = null;
 let flowKey = null;
 let identity = null;   // { email, name, picture, sub } — Google account signed into Flow
@@ -430,6 +438,10 @@ function connectToAgent() {
         await handleMusicApiRequest(msg);
       } else if (msg.method === 'music_stream_request') {
         await handleMusicStreamRequest(msg);
+      } else if (msg.method === 'boq_request') {
+        await handleBoqRequest(msg);
+      } else if (msg.method === 'boq_log') {
+        sendToAgent({ id: msg.id, result: boqLog.slice(0, msg.params?.limit || 100) });
       } else if (msg.method === 'solve_captcha') {
         await handleSolveCaptcha(msg);
       } else if (msg.method === 'get_status') {
@@ -1192,13 +1204,146 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
   return true;
 });
 
+// ─── BOQ batchexecute — tầng vận chuyển của giao diện mới ───
+//
+// flow.google.com KHÔNG gọi aisandbox-pa từ trình duyệt. Mọi thao tác đi qua một endpoint
+// cùng origin:
+//   POST /_/AiSandboxAngularFrontend/data/batchexecute?rpcids=<id>&source-path=/project/<pid>
+//        &bl=<backend release>&f.sid=<session>&hl=<locale>&_reqid=<số>&rt=c
+//   body: f.req=[[["<rpcid>","<json args>",null,"generic"]]]&at=<xsrf>
+// Auth = COOKIE phiên + `at`, KHÔNG có Authorization: Bearer. Đây là lý do phải chuẩn bị:
+// ngày labs.google tắt thì không còn ai phát token ya29 nữa, mà đường này thì không cần token.
+//
+// Ba tham số bắt buộc (`at`, `f.sid`, `bl`) nằm trong `WIZ_global_data` của trang, đọc bằng
+// executeScript ở MAIN world. POST thì để service worker làm: có host permission nên cookie
+// vẫn được gửi và không vướng CORS.
+const BOQ_ORIGIN = 'https://flow.google.com';
+
+/** Khoá WIZ_global_data — tên do BOQ đặt, giống nhau ở mọi app Google. */
+async function _boqParams() {
+  const tab = await pickFlowTab(FLOW_APP_TAB_URLS);
+  if (!tab) return null;
+  const [r] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: 'MAIN',
+    func: () => {
+      const w = window.WIZ_global_data || {};
+      return {
+        at: w.SNlM0e || null,        // token XSRF
+        sid: w.FdrFJe || null,       // f.sid
+        bl: w.cfb2h || null,         // nhánh backend, vd boq_labs-ai-sandbox-frontend_…
+        app: w.qwAQke || null,       // AiSandboxAngularFrontend
+        hl: w.PXcMTe || 'en-US',
+        path: location.pathname,
+      };
+    },
+  });
+  const p = r?.result;
+  return p?.at && p?.app ? p : null;
+}
+
+/**
+ * Tách phản hồi batchexecute. Định dạng: bỏ tiền tố `)]}'`, rồi lặp "một dòng ĐỘ DÀI, tiếp
+ * theo là chừng ấy ký tự JSON". Mỗi khối là mảng envelope, cái mình cần có dạng
+ * ["wrb.fr","<rpcid>","<payload JSON dạng chuỗi>", …] — payload phải parse LẦN HAI.
+ */
+function parseBoqResponse(text) {
+  const out = [];
+  const s = text.replace(/^\)\]\}'\n?/, '');
+  let i = 0;
+  while (i < s.length) {
+    const nl = s.indexOf('\n', i);
+    if (nl < 0) break;
+    const n = parseInt(s.slice(i, nl).trim(), 10);
+    if (!Number.isFinite(n) || n <= 0) break;
+    const chunk = s.substr(nl + 1, n);
+    i = nl + 1 + n;
+    let envelopes;
+    try { envelopes = JSON.parse(chunk); } catch { continue; }
+    for (const env of envelopes) {
+      if (!Array.isArray(env) || env[0] !== 'wrb.fr') continue;
+      let payload = env[2];
+      if (typeof payload === 'string') {
+        try { payload = JSON.parse(payload); } catch { /* để nguyên chuỗi */ }
+      }
+      out.push({ rpcid: env[1], data: payload });
+    }
+  }
+  return out;
+}
+
+async function boqExecute(rpcid, args, { sourcePath } = {}) {
+  const p = await _boqParams();
+  if (!p) return { error: 'NO_FLOW_APP_TAB' };   // cần một tab flow.google.com/project/*
+
+  const qs = new URLSearchParams({
+    rpcids: rpcid,
+    'source-path': sourcePath || p.path || '/',
+    bl: p.bl || '',
+    'f.sid': p.sid || '',
+    hl: p.hl,
+    _reqid: String(Math.floor(Math.random() * 900000) + 100000),
+    rt: 'c',
+  });
+  const body = new URLSearchParams({
+    'f.req': JSON.stringify([[[rpcid, JSON.stringify(args), null, 'generic']]]),
+    at: p.at,
+  });
+
+  const resp = await fetch(`${BOQ_ORIGIN}/_/${p.app}/data/batchexecute?${qs}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: body.toString(),
+  });
+  const text = await resp.text();
+  return { status: resp.status, results: parseBoqResponse(text), raw: text.slice(0, 40000) };
+}
+
+async function handleBoqRequest(msg) {
+  const { id, params } = msg;
+  const { rpcid, args = null, source_path: sourcePath } = params || {};
+  if (!rpcid) { sendToAgent({ id, error: 'MISSING_RPCID' }); return; }
+  try {
+    const out = await boqExecute(rpcid, args, { sourcePath });
+    if (out.error) sendToAgent({ id, error: out.error });
+    else sendToAgent({ id, status: out.status, data: out });
+  } catch (e) {
+    sendToAgent({ id, error: e?.message || 'BOQ_FAILED' });
+  }
+}
+
+// ─── Recon: ghi lại rpcid mà giao diện thật dùng ────────────
+// Không có tài liệu nào cho biết rpcid nào ứng với việc gì; cách duy nhất là xem chính app
+// gọi gì khi người dùng thao tác. Nghe thụ động, không chặn, không sửa request.
+const boqLog = [];
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    try {
+      const raw = details.requestBody?.formData?.['f.req']?.[0];
+      const entry = {
+        ts: Date.now(),
+        rpcids: new URL(details.url).searchParams.get('rpcids'),
+        sourcePath: new URL(details.url).searchParams.get('source-path'),
+        req: raw ? raw.slice(0, 4000) : null,
+      };
+      boqLog.unshift(entry);
+      if (boqLog.length > 300) boqLog.pop();
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'boq_call', entry }));
+      }
+    } catch { /* recon chỉ để quan sát — hỏng thì bỏ qua */ }
+  },
+  { urls: [`${BOQ_ORIGIN}/_/*/data/batchexecute*`] },
+  ['requestBody'],
+);
+
 // ─── TRPC Media URL Extractor ──────────────────────────────
 
 function handleTrpcMediaUrls(trpcUrl, bodyText) {
   try {
-    // Extract all fresh GCS signed URLs
-    const urlRegex = /https:\/\/storage\.googleapis\.com\/ai-sandbox-videofx\/(?:image|video)\/[0-9a-f-]{36}\?[^"'\s]+/g;
-    const matches = bodyText.match(urlRegex) || [];
+    const matches = bodyText.match(MEDIA_URL_RE) || [];
     if (!matches.length) return;
 
     // Deduplicate and parse
