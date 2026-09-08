@@ -557,20 +557,6 @@ async function pickFlowTab(urls = FLOW_TAB_URLS) {
   return best;
 }
 
-/**
- * Tab để hỏi reCAPTCHA — ƯU TIÊN labs.google, flow.google.com chỉ là đường lùi.
- *
- * Giao diện mới nạp grecaptcha theo chunk LƯỜI: cả shell HTML lẫn bundle gốc của
- * flow.google.com đều KHÔNG có `recaptcha/enterprise.js`, site key chỉ nằm trong WIZ config.
- * Nên tab trang chủ (hoặc app chưa boot xong) không có `window.grecaptcha` → injected.js chờ
- * 10s rồi trả "grecaptcha not available" → CAPTCHA_FAILED. labs.google nhúng sẵn nên luôn hỏi
- * được. Bỏ ưu tiên này là mọi lượt sinh hỏng ngay khi người dùng đang mở tab flow.google.com
- * (pickFlowTab chuộng tab ACTIVE).
- */
-async function pickCaptchaTab() {
-  return (await pickFlowTab(LABS_TAB_URLS)) || (await pickFlowTab(FLOW_TAB_URLS));
-}
-
 function _tabOrigin(tab) {
   try { return new URL(tab.url || '').hostname; } catch { return '?'; }
 }
@@ -582,26 +568,50 @@ async function _captchaFromTab(tab, requestId, captchaAction) {
   ]);
 }
 
-async function solveCaptcha(requestId, captchaAction) {
-  let tab = await pickCaptchaTab();
-
-  if (!tab) {
-    // Auto-open Flow tab and wait briefly before returning error
-    try {
-      await chrome.tabs.create({ url: FLOW_TAB_OPEN_URL, active: false });
-      await sleep(3000);
-      tab = await pickCaptchaTab();
-      if (!tab) return { error: 'NO_FLOW_TAB' };
-    } catch (e) {
-      return { error: e.message || 'NO_FLOW_TAB' };
+/** Mở một tab labs.google rồi chờ nó xuất hiện. Trả về tab, hoặc null nếu labs.google đã
+ *  chuyển hướng sang giao diện mới (lúc đó không còn nguồn grecaptcha nào chắc chắn). */
+async function _openLabsTab() {
+  if (_openingFlowTab) return null;
+  _openingFlowTab = true;
+  try {
+    await chrome.tabs.create({ url: FLOW_TAB_OPEN_URL, active: false });
+    for (let i = 0; i < 20; i++) {
+      await sleep(500);
+      const tab = await pickFlowTab(LABS_TAB_URLS);
+      if (tab) return tab;
     }
+    return null;
+  } catch (e) {
+    console.warn('[FlowAgent] Không mở được tab labs.google:', e?.message || e);
+    return null;
+  } finally {
+    _openingFlowTab = false;
   }
+}
+
+/**
+ * Tab để hỏi reCAPTCHA — ƯU TIÊN labs.google, flow.google.com chỉ là đường lùi.
+ *
+ * Giao diện mới nạp grecaptcha theo chunk LƯỜI: cả shell HTML lẫn bundle gốc của
+ * flow.google.com đều KHÔNG có `recaptcha/enterprise.js`, site key chỉ nằm trong WIZ config.
+ * Nên tab trang chủ (hoặc app chưa boot xong) không có `window.grecaptcha` → injected.js chờ
+ * 10s rồi trả "grecaptcha not available" → CAPTCHA_FAILED. labs.google nhúng sẵn nên luôn hỏi
+ * được. Bỏ ưu tiên này là mọi lượt sinh hỏng ngay khi người dùng đang mở tab flow.google.com
+ * (pickFlowTab chuộng tab ACTIVE).
+ */
+async function solveCaptcha(requestId, captchaAction) {
+  // Thứ tự: tab labs đang mở → TỰ MỞ một tab labs → mới tới tab flow.google.com.
+  // Bước giữa là bước hay bị bỏ sót: trước đây chỉ tự mở tab khi KHÔNG có tab Flow nào, nên
+  // một tab flow.google.com đang mở là đủ để chặn việc mở labs, rồi hỏng vì trang mới không
+  // có grecaptcha.
+  let tab = (await pickFlowTab(LABS_TAB_URLS)) || (await _openLabsTab()) || (await pickFlowTab(FLOW_TAB_URLS));
+  if (!tab) return { error: 'NO_FLOW_TAB' };
 
   try {
     const resp = await _captchaFromTab(tab, requestId, captchaAction);
     if (resp?.token) return resp;
-    // Tab đầu không cho token (trang mới chưa nạp grecaptcha chẳng hạn) — thử domain còn lại
-    // trước khi bỏ cuộc. Lỗi kèm HOSTNAME để lần sau không phải đoán tab nào đã hỏng.
+    // Tab đầu không cho token — thử nốt domain còn lại trước khi bỏ cuộc. Lỗi kèm HOSTNAME
+    // để lần sau không phải đoán tab nào đã hỏng.
     const other = await _otherDomainTab(tab);
     if (other) {
       const retry = await _captchaFromTab(other, requestId, captchaAction);
