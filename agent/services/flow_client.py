@@ -327,7 +327,7 @@ class FlowClient:
         }, timeout=30)
 
     async def boq_request(self, rpcid: str, args=None, source_path: str | None = None,
-                          timeout: float = 120) -> dict:
+                          captcha_action: str = "IMAGE_GENERATION", timeout: float = 120) -> dict:
         """Gọi một RPC của giao diện mới qua batchexecute (cookie phiên, không cần token).
 
         Đường dự phòng cho ngày labs.google tắt — xem docs/new-flow-stack.md. Cần một tab
@@ -337,6 +337,7 @@ class FlowClient:
             "rpcid": rpcid,
             "args": args,
             "source_path": source_path,
+            "captcha_action": captcha_action,
         }, timeout=timeout)
 
     async def boq_log(self, limit: int = 100) -> dict:

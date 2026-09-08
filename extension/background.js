@@ -1337,10 +1337,39 @@ async function boqExecute(rpcid, args, { sourcePath } = {}) {
   return { status: resp.status, results: parseBoqResponse(text), raw: text.slice(0, 40000) };
 }
 
+/** Thay mọi chuỗi `__CAPTCHA__` trong args bằng token vừa lấy. Token reCAPTCHA dùng MỘT
+ *  lần và sống ~2 phút, nên không thể chép lại token bắt được — phải lấy mới mỗi lượt. Để
+ *  agent nhét chỗ trống rồi extension điền, agent khỏi phải biết gì về reCAPTCHA. */
+const CAPTCHA_SLOT = '__CAPTCHA__';
+
+function _fillCaptcha(node, token) {
+  if (node === CAPTCHA_SLOT) return token;
+  if (Array.isArray(node)) return node.map((x) => _fillCaptcha(x, token));
+  if (node && typeof node === 'object') {
+    const out = {};
+    for (const k of Object.keys(node)) out[k] = _fillCaptcha(node[k], token);
+    return out;
+  }
+  return node;
+}
+
+function _needsCaptcha(node) {
+  if (node === CAPTCHA_SLOT) return true;
+  if (Array.isArray(node)) return node.some(_needsCaptcha);
+  if (node && typeof node === 'object') return Object.values(node).some(_needsCaptcha);
+  return false;
+}
+
 async function handleBoqRequest(msg) {
   const { id, params } = msg;
-  const { rpcid, args = null, source_path: sourcePath } = params || {};
+  let { rpcid, args = null, source_path: sourcePath } = params || {};
+  const captchaAction = params?.captcha_action || 'IMAGE_GENERATION';
   if (!rpcid) { sendToAgent({ id, error: 'MISSING_RPCID' }); return; }
+  if (_needsCaptcha(args)) {
+    const cap = await solveCaptcha(`boq-${id}`, captchaAction);
+    if (!cap?.token) { sendToAgent({ id, error: `CAPTCHA_FAILED: ${cap?.error || 'NO_TOKEN'}` }); return; }
+    args = _fillCaptcha(args, cap.token);
+  }
   try {
     const out = await boqExecute(rpcid, args, { sourcePath });
     if (out.error) sendToAgent({ id, error: out.error });

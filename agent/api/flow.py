@@ -125,8 +125,11 @@ class CreateProjectRequest(BaseModel):
 class BoqRequest(BaseModel):
     """Một lời gọi batchexecute của giao diện flow.google.com."""
     rpcid: str
+    # Chuỗi "__CAPTCHA__" ở bất kỳ đâu trong args sẽ được extension thay bằng token
+    # reCAPTCHA lấy mới — token dùng một lần nên không chép lại được token đã bắt.
     args: object | None = None
     source_path: str | None = None
+    captcha_action: str = "IMAGE_GENERATION"
 
 
 @router.post("/boq")
@@ -138,7 +141,8 @@ async def boq_request(body: BoqRequest):
     client = get_flow_client()
     if not client.connected:
         raise HTTPException(503, "Extension not connected")
-    result = await client.boq_request(body.rpcid, body.args, body.source_path)
+    result = await client.boq_request(body.rpcid, body.args, body.source_path,
+                                      body.captcha_action)
     if result.get("error"):
         raise HTTPException(502, result["error"])
     return result.get("data", result)

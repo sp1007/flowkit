@@ -66,6 +66,55 @@ host permission của extension, `webapp/vite.config.ts`.
   `boq_calls.jsonl`. Đọc bằng `GET /api/flow/boq/log`.
 - Host media không còn hardcode GCS (`MEDIA_URL_RE`).
 
+## Bảng rpcid (đo trực tiếp, 2026-09-08)
+
+| rpcid | args | việc |
+|---|---|---|
+| `ogiZ0b` | xem dưới | **tạo ảnh** |
+| `UpteDb` | `["projects/*", 21, null, null, null, null, [1]]` | liệt kê dự án |
+| `Zzl0ze` | `["projects/<id>", null, null, null, [1]]` | đọc một dự án |
+| `ngNC2` | `["tools/PINHOLE/projects/<id>"]` | trạng thái dự án theo tool |
+| `nzlxg` | `[]` → `[12439,2,3,3,null,12439]` | credit còn lại |
+| `mrlkwd` | `["<projectId>"]` | chưa rõ |
+| `xI9TVb` | `["userPreferences/"]` | tuỳ chọn người dùng |
+| `o30O0e` | `[["me"], …person.name/email…]` | hồ sơ tài khoản |
+| `Kcr7Ub` / `DA4VGb` | `…["agent_toggle_state"]` | lưu trạng thái UI |
+| `WuwhI` | `PAGE_VIEW …` | telemetry, bỏ qua |
+| `DTaVef`, `NfrxTb`, `KV2T2d`, `LPzVkd`, `cPZSdc`, `Yizz8d`, `ve2Lsc`, `HTrJv`, `tRARke`, `qJcgMc`, `yBhWQ` | hằng số nhỏ | cấu hình / cờ tính năng |
+
+### `ogiZ0b` — tạo ảnh
+
+```
+[ null,
+  [[ null, null, null,
+     943801078,            // seed
+     3,                    // ? (chưa xác định: tỉ lệ khung hay số ảnh)
+     "GEM_PIX_2",          // khoá model — GIỐNG đường cũ
+     null,
+     [ null, 22, null, null, null, "<projectId>", null, null, null, null,
+       [ "<token reCAPTCHA ~2.4KB>", 1 ] ],       // clientContext
+     [[["<prompt>"]]],     // prompt, lồng ba lớp
+     null, null, null,
+     "<uuid>", "<uuid>" ]],
+  1,                       // ? (số ảnh)
+  [ …clientContext lặp lại… ],
+  [ "<uuid>" ] ]
+```
+
+Khoá model và tham số bên dưới KHÔNG đổi so với đường cũ — chỉ tầng vận chuyển đổi.
+
+## Đã xác minh chạy được
+
+- `POST /api/flow/boq {"rpcid":"nzlxg","args":[]}` → `[12439,2,3,3,null,12439]`
+- `POST /api/flow/boq {"rpcid":"UpteDb","args":["projects/*",21,null,null,null,null,[1]]}`
+  → danh sách dự án thật, kèm tên/thời gian/thumbnail
+- Ảnh `https://flow-content.google/image/<uuid>?Expires=…&Signature=…` tải bằng GET trơn từ
+  agent: 200, `image/jpeg`, 333KB. Không cookie, không token, không ràng IP →
+  `media_store._download` giữ nguyên là chạy.
+
+Token reCAPTCHA dùng MỘT lần, sống ~2 phút, nên không chép lại token bắt được: đặt chuỗi
+`"__CAPTCHA__"` vào bất kỳ đâu trong `args`, extension tự lấy token mới và điền vào.
+
 ## Việc còn lại
 
 1. **Dò rpcid.** Mở `flow.google.com/project/<id>`, thao tác thật (tạo ảnh, tạo video, mở
