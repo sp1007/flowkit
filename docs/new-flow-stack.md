@@ -192,8 +192,14 @@ nhận đã chọn 16:9), **4 → 896×1200 (3:4 dọc)**.
 - Khối prompt vẫn lồng ba lớp `[[["…"]]]` kể cả khi có reference, nên **ba lớp đó KHÔNG phải
   chỗ dành cho ảnh tham chiếu** như tôi đoán ban đầu.
 - **`NARWHAL` = Nano Banana 2**; `GEM_PIX_2` là mặc định. Cùng bộ khoá model với đường cũ.
-- Tỉ lệ khung `args[1][0][4]`: **2 → 768×1376 (9:16 dọc)**, **3 → 1376×768 (16:9 ngang)**,
-  **4 → 896×1200 (3:4 dọc)**.
+- Tỉ lệ khung `args[1][0][4]`: **1 → 1024×1024 (1:1)**, **2 → 768×1376 (9:16 dọc)**,
+  **3 → 1376×768 (16:9 ngang)**, **4 → 896×1200 (3:4 dọc)**.
+- Nhiều ảnh tham chiếu = nhiều mục trong cùng danh sách, và **thứ tự danh sách chính là
+  "ảnh thứ nhất / ảnh thứ hai"** mà prompt nhắc tới (kiểm bằng prompt ghép mèo từ ảnh 1
+  vào giỏ xe đạp từ ảnh 2 — ra đúng).
+- Khoá model đo thêm: **`HARBOR_SEAL` = Nano Banana 2 Lite**, khoá MỚI chưa có trong
+  `models.json` của bản chính. Là tên riêng chứ không phải hậu tố `_lite` như bên video —
+  đừng suy từ quy tắc đặt tên của video sang.
 - Cả 4 lời gọi dùng **chung một ảnh tham chiếu và chung một batch id**, khác nhau ở seed,
   UUID và token reCAPTCHA — giống hệt lô không có reference.
 

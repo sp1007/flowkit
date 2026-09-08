@@ -65,6 +65,7 @@
   },
   "image_models": {
     "NANO_BANANA_PRO": "GEM_PIX_2",
-    "NANO_BANANA_2": "NARWHAL"
+    "NANO_BANANA_2": "NARWHAL",
+    "NANO_BANANA_2_LITE": "HARBOR_SEAL"
   }
 }
