@@ -198,6 +198,18 @@ async def boq_verify():
     return {"learned_from_bl": _boq_ops().get("learned_from_bl"), "results": out}
 
 
+@router.get("/boq/tabs")
+async def boq_tabs():
+    """Tab Flow đang mở + tab nào có reCAPTCHA — chỗ soi khi lượt sinh báo CAPTCHA_FAILED."""
+    client = get_flow_client()
+    if not client.connected:
+        raise HTTPException(503, "Extension not connected")
+    res = await client.probe_tabs()
+    if res.get("error"):
+        raise HTTPException(502, res["error"])
+    return {"tabs": res.get("result")}
+
+
 @router.get("/boq/log")
 async def boq_log(limit: int = 100):
     """rpcid mà giao diện thật vừa gọi — dùng để dò xem rpcid nào làm việc gì."""

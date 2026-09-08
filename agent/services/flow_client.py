@@ -340,6 +340,10 @@ class FlowClient:
             "captcha_action": captcha_action,
         }, timeout=timeout)
 
+    async def probe_tabs(self) -> dict:
+        """Tab Flow nào đang mở, tab nào có grecaptcha."""
+        return await self._send("probe_tabs", {}, timeout=60, serialize=False)
+
     async def boq_log(self, limit: int = 100) -> dict:
         """Danh sách rpcid mà giao diện thật vừa gọi (recon)."""
         return await self._send("boq_log", {"limit": limit}, timeout=30, serialize=False)

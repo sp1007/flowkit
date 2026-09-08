@@ -416,6 +416,8 @@ function connectToAgent() {
         await handleMusicStreamRequest(msg);
       } else if (msg.method === 'boq_request') {
         await handleBoqRequest(msg);
+      } else if (msg.method === 'probe_tabs') {
+        await handleProbeTabs(msg);
       } else if (msg.method === 'boq_log') {
         sendToAgent({ id: msg.id, result: boqLog.slice(0, msg.params?.limit || 100) });
       } else if (msg.method === 'solve_captcha') {
@@ -1351,6 +1353,29 @@ function _needsCaptcha(node) {
   if (Array.isArray(node)) return node.some(_needsCaptcha);
   if (node && typeof node === 'object') return Object.values(node).some(_needsCaptcha);
   return false;
+}
+
+/** Liệt kê mọi tab Flow kèm việc trang đó CÓ grecaptcha hay không.
+ *
+ *  Đây là câu hỏi thực dụng nhất khi lượt sinh hỏng: "phải mở dự án hay trang chủ là đủ?".
+ *  Trước đây chỉ trả lời được bằng cách thử rồi đoán từ thông báo lỗi. Nay hỏi thẳng từng tab.
+ *  `projectId` nằm trong payload nên KHÔNG cần mở đúng dự án đang sinh — tab chỉ để lấy
+ *  reCAPTCHA và mấy tham số phiên. */
+async function handleProbeTabs(msg) {
+  const tabs = await chrome.tabs.query({ url: [...LABS_TAB_URLS, 'https://flow.google.com/*'] });
+  const out = [];
+  for (const t of tabs) {
+    let grecaptcha = 'khong-doc-duoc';
+    try {
+      const [r] = await chrome.scripting.executeScript({
+        target: { tabId: t.id }, world: 'MAIN',
+        func: () => !!(window.grecaptcha && window.grecaptcha.enterprise && window.grecaptcha.enterprise.execute),
+      });
+      grecaptcha = r?.result === true;
+    } catch (e) { grecaptcha = `loi: ${e?.message || e}`; }
+    out.push({ url: t.url, active: t.active, discarded: t.discarded, grecaptcha });
+  }
+  sendToAgent({ id: msg.id, result: out });
 }
 
 async function handleBoqRequest(msg) {
