@@ -324,8 +324,32 @@ Kiểm bằng cách sửa chính ảnh mình tải lên: giữ nguyên bố cụ
 | đổi media chính | `mYWVGd` | — |
 | chuyển vào thùng rác | `pGCYOe` | ✅ |
 | đặt ảnh bìa | `o8DA4` | ✅ |
-| liệt kê / đọc dự án | `UpteDb` / `Zzl0ze` | ✅ |
+| đọc nội dung dự án | `Zzl0ze` | ✅ |
+| liệt kê dự án | `UpteDb` | ✅ |
+| đọc một media | `as29s` | ✅ |
+| cấu hình model dự án | `ngNC2` | ✅ |
 | credit | `nzlxg` | ✅ |
+
+### Đọc nội dung dự án
+
+`Zzl0ze` trả về **cả kho ảnh của dự án**, tương đương `project.getProjectContents` cũ:
+
+- `data[1]` — danh sách **workflow** (32 mục trên dự án thử)
+- `data[2]` — danh sách **bản ghi media** (36 mục), mỗi mục
+  `[mediaId, projectId, workflowId, "CAE"|"CAI", …]`
+
+Nhóm media theo `workflowId` là **ra lịch sử phiên bản**, không cần rpcid riêng — đúng cái
+FlowKit đang lưu ở `media_history`.
+
+`as29s ["<mediaId>"]` đọc một media và trả cả tham số đã sinh ra nó (prompt, ảnh vào kèm kiểu,
+model) — dùng để truy nguồn một ảnh.
+
+## Còn thiếu cho mảng ảnh
+
+Chỉ còn mấy việc cấp **dự án**: **tạo dự án**, **xoá dự án**, **đổi tên dự án**. FlowKit tạo
+một dự án cho mỗi video nên thiếu "tạo dự án" là không chạy được từ đầu. Đổi tên nhiều khả
+năng là `o8DA4` với mask khác — nên thử sau khi biết cách tạo dự án mới, đừng thử trên dự án
+thật.
 
 ## rpcid đổi thì sao
 

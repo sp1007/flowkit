@@ -31,11 +31,12 @@
     },
     "get_project": {
       "rpcid": "Zzl0ze",
-      "note": "[\"projects/<id>\", null, null, null, [1]]"
+      "note": "[\"projects/<id>\", null, null, null, [1]] — ĐỌC NỘI DUNG DỰ ÁN, tương đương project.getProjectContents của đường cũ. Phản hồi: data[1] = danh sách WORKFLOW (mỗi mục [workflowId, …, metadata, …]), data[2] = danh sách BẢN GHI MEDIA (mỗi mục [mediaId, projectId, workflowId, \"CAE\"|\"CAI\", …]). Nhóm media theo workflowId là ra lịch sử phiên bản, không cần rpcid riêng.",
+      "probe_args": null
     },
     "get_tool_state": {
       "rpcid": "ngNC2",
-      "note": "[\"tools/PINHOLE/projects/<id>\"]"
+      "note": "[\"tools/PINHOLE/projects/<id>\"] — cấu hình model của dự án (đo được: \"narwhal_display\", \"abra\"), KHÔNG phải danh sách ảnh."
     },
     "user_prefs": {
       "rpcid": "xI9TVb",
@@ -110,6 +111,11 @@
     "set_primary_media": {
       "rpcid": "mYWVGd",
       "note": "[[\"<workflowId>\",null,null,[null,null,null,null,\"<mediaId mới>\"],\"<projectId>\"], [[\"metadata.primary_media_id\"]]] — trỏ workflow sang media mới sau khi sửa ảnh. Cùng rpcid với đổi tên, chỉ khác mask và ô metadata (ô [4] thay vì [0])."
+    },
+    "get_media": {
+      "rpcid": "as29s",
+      "note": "[\"<mediaId>\"] — đọc MỘT media, tương đương /v1/media/{id} cũ. Trả cả tham số đã sinh ra nó: prompt, danh sách ảnh vào kèm KIỂU, model. Dùng để truy nguồn một ảnh.",
+      "verified": "Gọi trên ảnh vừa sửa -> trả đúng prompt sửa và mediaId ảnh nền kèm kiểu 2."
     }
   },
   "unknown": {
@@ -133,5 +139,6 @@
   ],
   "_field_names": "Tên trường trong field mask là bản snake_case của tên trường REST đường cũ: mask \"thumbnail_media_key\" ứng với updateMask=thumbnailMediaKey của PATCH /v1/projects/{pid}. Giả thuyết (CHƯA kiểm hết): các trường khác cũng ánh xạ như vậy, nên có thể suy tên trường từ API cũ thay vì phải bắt từng cái.",
   "_metadata_shape": "Đối tượng metadata của workflow (ô [3]): [0]=display_name, [1]=[ts tạo], [2]=archived (bool), [3]=?, [4]=primary mediaId, [5]=UUID phiên, [6]=[ts sửa]. Suy ra từ mYWVGd (mask metadata.display_name -> ô [0]) và pGCYOe (mask metadata.archived -> ô [2]).",
-  "_errors": "Lỗi có thể nằm NGAY TRONG envelope wrb.fr: payload (ô [2]) là null còn ô [5] mang google.rpc.ErrorInfo. Không đọc ô [5] thì mọi thất bại trông giống nhau ('data: null') và sẽ đi dò sai chỗ. parseBoqResponse nay trả kèm trường `error`."
+  "_errors": "Lỗi có thể nằm NGAY TRONG envelope wrb.fr: payload (ô [2]) là null còn ô [5] mang google.rpc.ErrorInfo. Không đọc ô [5] thì mọi thất bại trông giống nhau ('data: null') và sẽ đi dò sai chỗ. parseBoqResponse nay trả kèm trường `error`.",
+  "_todo_images": "Mảng ảnh đã đủ, TRỪ mấy việc cấp DỰ ÁN chưa bắt được: tạo dự án, xoá dự án, đổi tên dự án. FlowKit tạo một dự án cho mỗi video nên không có tạo dự án là không chạy được từ đầu. Đổi tên dự án nhiều khả năng là o8DA4 với mask khác — thử được sau khi biết cách tạo dự án mới (đừng thử trên dự án thật của người dùng)."
 }
