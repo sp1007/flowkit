@@ -252,6 +252,40 @@ pGCYOe  [ [ ["<workflowId>", null, null, [null,null,1], "<projectId>"], … ],
   `[0]`=display_name, `[1]`=ts tạo, `[2]`=archived, `[4]`=mediaId chính, `[5]`=UUID phiên,
   `[6]`=ts sửa.
 
+## Tải ảnh lên và xin bản nét
+
+**`maseQ` — tải lên.** Ảnh đi **bằng base64 ngay trong `f.req`**, cùng một đường
+`batchexecute`: không có endpoint upload riêng, không có URL ký sẵn, không có resumable
+upload. Đường của mình dùng thẳng được.
+
+```
+[ <clientContext có projectId>, "<ảnh base64>", "<mime>", 1,
+  null,null,null,null, "<tên file>", null, "<UUID>", "<UUID>" ]
+```
+
+Bẫy: giao diện thật khai `"image/png"` trong khi byte là JPEG (base64 mở đầu `/9j/`). Máy chủ
+tự nhận dạng — trường mime không phải nguồn sự thật.
+
+**`SPrCad` — xin bản nét.** `["<mediaId>", <mức>, <clientContext>]`; clientContext ở đây
+**không có projectId**, khác lúc tạo ảnh.
+
+| mức | kết quả từ ảnh 1376×768 | |
+|---|---|---|
+| 1 | 2752×1536 | gấp đôi — "bản 2K" |
+| 2 | 5504×3072 | gấp bốn — "bản 4K" |
+
+Trả về **mediaId mới + ảnh dạng base64 ngay trong phản hồi**, không phải URL — giống đường cũ,
+nơi `upsampleImage` cũng trả vài MB base64. Mức 2 nặng ~920KB byte thật.
+
+Hai cái bẫy đã dính:
+
+1. **Chỉ chạy trên media do FLOW SINH.** Ảnh người dùng TẢI LÊN trả `error [3]`
+   (INVALID_ARGUMENT). Không phải thiếu quyền, không phải sai mức.
+2. **Bị chặn thì phải nghỉ.** Lần đo đầu tiên trả
+   `PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC` sau ~10 lượt bấm trong 2 phút — và càng
+   thử lại càng chặn. Nhìn từ phía người dùng nó giống hệt "tài khoản không lên được 2K",
+   trong khi tài khoản này thật ra lên được cả 4K.
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:
