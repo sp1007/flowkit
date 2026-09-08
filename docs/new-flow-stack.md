@@ -408,6 +408,42 @@ Kiểm bằng vòng đời trọn vẹn: tạo → đếm 11 dự án → xoá �
 
 Không còn gì. Toàn bộ mảng ảnh và mảng dự án đã chạy được qua đường mới.
 
+## Mảng VIDEO — biết trước gì, phải đo gì
+
+Giao diện mới (người dùng mô tả): **5 model**, 3 mức thời lượng (riêng Omni Flash 1.1 có 4),
+**2 độ phân giải: 360p (MỚI) và 720p**, có chế độ frame và reference.
+
+Đối chiếu với `models.json` của bản chính:
+
+| bản chính đang biết | khớp? |
+|---|---|
+| Veo 3.1 Lite: `veo_3_1_{i2v,interpolation,r2v,t2v}_lite_low_priority` | 1 trong 5 |
+| Veo trả tiền theo tier (`video_models`) | |
+| Omni Flash: `abra_{r2v,t2v}_{4,6,8,10}s` | ✅ đúng 4 mức thời lượng |
+| Upscale: 1080p / 4K | |
+| Độ phân giải: chỉ hardcode `VIDEO_RESOLUTION_720P` cho một nhánh t2v | ❌ **không có 360p** |
+
+Một mảnh đã khớp sẵn: `ngNC2` trả `"abra"` — chính là họ Omni Flash.
+
+### Bảng giá phẳng của bản chính SAI với model đắt
+
+`webapp/src/lib/credits.ts` dùng **một con số cho mọi clip**: `CREDIT_COST.video = 20`, chỉ
+trừ Veo Lite ra 0. Nhưng đo thật: **Veo 3.1 Quality = 100 credit cho một clip 8 giây**.
+
+Hệ quả: `creditGuard` báo thiếu **5 lần** — dựng 20 clip báo "≈400 credit" trong khi thật ra
+tốn 2000, và người dùng bấm "Vẫn chạy" vì tưởng còn dư. Khi port phải đổi thành **bảng giá
+theo model**, không phải một hằng số. Chưa đo giá của 3 model còn lại.
+
+### Kế hoạch đo
+
+Video khác hai mảng trước ở chỗ **tốn tiền thật** và **dễ bị chặn** (CLAUDE.md: bắn 4 submit
+đồng thời từng hỏng 3/4). Nên bắt MỘT lượt đủ lộ khung — model rẻ nhất, ngắn nhất, tạo từ
+một ảnh có sẵn (thấy được ô ảnh đầu vào) — rồi tự đổi tham số để dò nốt độ phân giải, thời
+lượng, tên model, chế độ reference.
+
+Thứ **chỉ capture mới trả lời được** là cách POLL: video render 30–240 giây nên submit xong
+phải hỏi lại kết quả, cơ chế đó chưa từng xuất hiện trong mảng ảnh (ảnh trả kết quả ngay).
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:
