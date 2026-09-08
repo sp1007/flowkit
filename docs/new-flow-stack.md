@@ -180,6 +180,27 @@ bằng một lời gọi. Cách giãn nhịp của bản chính (lô 4, cooldown
 Tỉ lệ khung nằm ở `args[1][0][4]`, đo được: **3 → 1376×768 (16:9 ngang)** (người dùng xác
 nhận đã chọn 16:9), **4 → 896×1200 (3:4 dọc)**.
 
+## Ảnh tham chiếu, model, tỉ lệ khung
+
+Đo trên lượt "4 ảnh, 1 ảnh tham chiếu, Nano Banana 2, 9:16":
+
+- **Ảnh tham chiếu nằm ở `args[1][0][2]`** — ô trước đó luôn `null`. Dạng danh sách:
+  `[[ "<mediaId>", null, null, null, 1 ]]`. Số cuối gần như chắc là kiểu input, ứng với
+  `IMAGE_INPUT_TYPE_*` của đường cũ.
+- **Ảnh đi bằng `mediaId`, KHÔNG phải base64 hay URL** — payload có ref chỉ dài thêm ~170 ký
+  tự. Nghĩa là không phải tải ảnh lên lại mỗi lượt, y như đường cũ.
+- Khối prompt vẫn lồng ba lớp `[[["…"]]]` kể cả khi có reference, nên **ba lớp đó KHÔNG phải
+  chỗ dành cho ảnh tham chiếu** như tôi đoán ban đầu.
+- **`NARWHAL` = Nano Banana 2**; `GEM_PIX_2` là mặc định. Cùng bộ khoá model với đường cũ.
+- Tỉ lệ khung `args[1][0][4]`: **2 → 768×1376 (9:16 dọc)**, **3 → 1376×768 (16:9 ngang)**,
+  **4 → 896×1200 (3:4 dọc)**.
+- Cả 4 lời gọi dùng **chung một ảnh tham chiếu và chung một batch id**, khác nhau ở seed,
+  UUID và token reCAPTCHA — giống hệt lô không có reference.
+
+Đã chạy lại toàn bộ qua `POST /api/flow/boq`, lấy ảnh mèo do chính mình sinh làm tham chiếu:
+ra đúng con mèo đó đội mũ rơm giữa đồng hướng dương, 768×1376. Reference có tác dụng thật,
+không chỉ được API chấp nhận.
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:
