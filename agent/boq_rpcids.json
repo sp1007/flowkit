@@ -65,7 +65,8 @@
         "data[0][0][6][0][13]": "URL flow-content.google (đã ký, dùng ngay)",
         "data[0][0][6][2]": "[rộng, cao] thật của ảnh",
         "data[1][0]": "đối tượng workflow: [id,_,_,[tên,ts,_,_,mediaId,uuid,ts], projectId]"
-      }
+      },
+      "captcha_cost": "MỘT token cho MỖI lời gọi. Xác nhận hai chiều: bốn payload của lô 4 mang bốn token khác nhau, và trên trang mỗi lượt batchexecute kèm đúng một POST recaptcha/enterprise/reload. Không gộp, không tái dùng — lô N ảnh = N lượt lấy token."
     },
     "update_workflow": {
       "rpcid": "mYWVGd",
