@@ -30,7 +30,8 @@ const FLOW_APP_TAB_URLS = [
   'https://flow.google.com/u/*/project/*',   // Chrome nhiều tài khoản: /u/2/project/<id>
 ];
 const FLOW_TAB_URLS = [...LABS_TAB_URLS, ...FLOW_APP_TAB_URLS];
-const FLOW_TAB_OPEN_URL = 'https://labs.google/fx/tools/flow';
+// Chỉ dùng cho nút bấm TAY ở popup — không còn đường nào tự mở tab nữa.
+const FLOW_TAB_OPEN_URL = 'https://flow.google.com/';
 const LABS_ORIGIN = 'https://labs.google';
 
 // Host phát media ĐÃ ĐỔI và sẽ còn đổi. Đo ngày 2026-09-08: ảnh mới sinh trả về
@@ -232,46 +233,18 @@ async function ensureFlowMusicTab() {
   return await chrome.tabs.create({ url: 'https://www.flowmusic.app/', active: false });
 }
 
-let _openingFlowTab = false;
-
 async function captureTokenFromFlowTab() {
-  const tabs = await chrome.tabs.query({
-    url: FLOW_TAB_URLS,
-  });
-  if (!tabs.length) {
-    if (_openingFlowTab) {
-      console.log('[FlowAgent] Flow tab already opening, skipping');
-      return;
-    }
-    _openingFlowTab = true;
-    try {
-      console.log('[FlowAgent] No Flow tab found — opening one in background');
-      await chrome.tabs.create({ url: FLOW_TAB_OPEN_URL, active: false });
-      await sleep(3000);
-      const retryTabs = await chrome.tabs.query({
-        url: FLOW_TAB_URLS,
-      });
-      if (!retryTabs.length) {
-        console.log('[FlowAgent] Flow tab not ready yet after open');
-        return;
-      }
-      await chrome.scripting.executeScript({
-        target: { tabId: retryTabs[0].id },
-        files: ['content.js'],
-      });
-      console.log('[FlowAgent] Token refresh triggered on newly opened Flow tab');
-    } catch (e) {
-      console.error('[FlowAgent] Token refresh failed after opening tab:', e);
-    } finally {
-      _openingFlowTab = false;
-    }
+  // KHÔNG tự mở tab. Bản dựng mới không sống bằng token ya29 nữa — batchexecute dùng cookie
+  // phiên — nên việc tự mở tab labs.google chỉ đẻ ra một đống tab: labs không còn phục vụ
+  // tài khoản này, vòng chờ 10s thất bại, lần alarm sau lại mở tiếp. Có tab thì làm mới
+  // token, không có thì thôi.
+  const tab = await pickFlowTab();
+  if (!tab) {
+    console.log('[FlowAgent] Chưa có tab Flow nào — bỏ qua lượt làm mới token');
     return;
   }
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tabs[0].id },
-      files: ['content.js'],
-    });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
     console.log('[FlowAgent] Token refresh triggered on Flow tab');
   } catch (e) {
     console.error('[FlowAgent] Token refresh failed:', e);
@@ -588,27 +561,6 @@ async function _captchaFromTab(tab, requestId, captchaAction) {
   ]);
 }
 
-/** Mở một tab labs.google rồi chờ nó xuất hiện. Trả về tab, hoặc null nếu labs.google đã
- *  chuyển hướng sang giao diện mới (lúc đó không còn nguồn grecaptcha nào chắc chắn). */
-async function _openLabsTab() {
-  if (_openingFlowTab) return null;
-  _openingFlowTab = true;
-  try {
-    await chrome.tabs.create({ url: FLOW_TAB_OPEN_URL, active: false });
-    for (let i = 0; i < 20; i++) {
-      await sleep(500);
-      const tab = await pickFlowTab(LABS_TAB_URLS);
-      if (tab) return tab;
-    }
-    return null;
-  } catch (e) {
-    console.warn('[FlowAgent] Không mở được tab labs.google:', e?.message || e);
-    return null;
-  } finally {
-    _openingFlowTab = false;
-  }
-}
-
 /**
  * Tab để hỏi reCAPTCHA — ƯU TIÊN labs.google, flow.google.com chỉ là đường lùi.
  *
@@ -624,8 +576,10 @@ async function solveCaptcha(requestId, captchaAction) {
   // Bước giữa là bước hay bị bỏ sót: trước đây chỉ tự mở tab khi KHÔNG có tab Flow nào, nên
   // một tab flow.google.com đang mở là đủ để chặn việc mở labs, rồi hỏng vì trang mới không
   // có grecaptcha.
-  let tab = (await pickFlowTab(LABS_TAB_URLS)) || (await _openLabsTab()) || (await pickFlowTab(FLOW_TAB_URLS));
-  if (!tab) return { error: 'NO_FLOW_TAB' };
+  // Chỉ dùng tab ĐANG MỞ. Tự mở tab là cách chắc chắn đẻ ra hàng chục tab khi domain
+  // được mở không phải domain phục vụ tài khoản này.
+  const tab = (await pickFlowTab(LABS_TAB_URLS)) || (await pickFlowTab(FLOW_TAB_URLS));
+  if (!tab) return { error: 'NO_FLOW_TAB — hãy mở một tab Flow rồi thử lại' };
 
   try {
     const resp = await _captchaFromTab(tab, requestId, captchaAction);
