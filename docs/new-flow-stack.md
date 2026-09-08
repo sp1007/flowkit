@@ -292,6 +292,41 @@ Hai cái bẫy đã dính:
    thử lại càng chặn. Nhìn từ phía người dùng nó giống hệt "tài khoản không lên được 2K",
    trong khi tài khoản này thật ra lên được cả 4K.
 
+## Sửa ảnh — và ý nghĩa số cuối trong mục ảnh vào
+
+Sửa ảnh **dùng chung `ogiZ0b`** với tạo ảnh, khác đúng ba chỗ:
+
+1. Ảnh vào mang **kiểu `2`** thay vì `1`. Đây là đáp án cho câu hỏi treo từ đầu:
+   `[<mediaId>, null, null, null, <kiểu>]` với **`1` = ảnh THAM CHIẾU, `2` = ảnh NỀN** — ứng
+   đúng `IMAGE_INPUT_TYPE_REFERENCE` / `IMAGE_INPUT_TYPE_BASE_IMAGE` của đường cũ.
+2. `clientContext[4]` mang **workflowId** của ảnh đang sửa (lúc tạo mới ô này là `null`).
+3. `[1][0][12]` là `null`, chỉ `[13]` có UUID.
+
+Sinh xong, giao diện gọi thêm `mYWVGd` với mask `metadata.primary_media_id` để trỏ workflow
+sang media mới. **Đó là cách "sửa tại chỗ" hoạt động: cùng workflow, đổi media chính** — chứ
+không phải ghi đè lên ảnh cũ. Ảnh cũ vẫn còn, truy lại được.
+
+Ảnh người dùng **tải lên sửa được bình thường** — giới hạn "chỉ media do Flow sinh" là riêng
+của `SPrCad`, không phải luật chung.
+
+Kiểm bằng cách sửa chính ảnh mình tải lên: giữ nguyên bố cục, bối cảnh, ánh sáng, chỉ thêm
+đúng chi tiết được yêu cầu.
+
+## Trạng thái: mảng ẢNH đã xong
+
+| việc | rpcid | đã chạy qua đường mới |
+|---|---|---|
+| tạo ảnh (kèm tham chiếu) | `ogiZ0b` | ✅ |
+| sửa ảnh | `ogiZ0b` (kiểu 2) | ✅ |
+| tải ảnh lên | `maseQ` | ✅ |
+| xin bản 2K/4K | `SPrCad` | ✅ (Ultra) |
+| đổi tên | `mYWVGd` | ✅ |
+| đổi media chính | `mYWVGd` | — |
+| chuyển vào thùng rác | `pGCYOe` | ✅ |
+| đặt ảnh bìa | `o8DA4` | ✅ |
+| liệt kê / đọc dự án | `UpteDb` / `Zzl0ze` | ✅ |
+| credit | `nzlxg` | ✅ |
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:

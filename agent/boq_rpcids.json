@@ -51,13 +51,13 @@
         "[1][0][3]": "seed (ngẫu nhiên mỗi lượt)",
         "[1][0][4]": "tỉ lệ khung — ĐO ĐỦ: 1 -> 1024x1024 (1:1) | 2 -> 768x1376 (9:16) | 3 -> 1376x768 (16:9) | 4 -> 896x1200 (3:4) | 5 -> 1200x896 (4:3). CẢNH BÁO: 0 và 6 (giá trị ngoài dải) KHÔNG báo lỗi mà lặng lẽ trả 1408x768 — một khung 11:6 không có trong menu của UI. Luôn gửi giá trị 1-5 tường minh, đừng để trống/0 mà tưởng sẽ có mặc định hợp lý.",
         "[1][0][5]": "khoá model — ĐO ĐƯỢC: GEM_PIX_2 = Nano Banana Pro (mặc định của UI), NARWHAL = Nano Banana 2, HARBOR_SEAL = Nano Banana 2 Lite (khoá MỚI, chưa có trong models.json của bản chính). Tên riêng chứ không phải hậu tố _lite như bên video.",
-        "[1][0][7]": "clientContext: [null,22,null,null,null,<projectId>,…,[<token reCAPTCHA>,1]]",
+        "[1][0][7]": "clientContext: [null,22,null,null,<workflowId>,<projectId>,…,[<token>,1]]. Ô [4] = workflowId: null khi TẠO MỚI, có giá trị khi SỬA ảnh (nối kết quả vào workflow đang có). Ô [5] = projectId.",
         "[1][0][8]": "prompt, lồng ba lớp: [[[\"…\"]]]",
         "[1][0][12], [1][0][13]": "hai UUID hoa, mới mỗi lượt",
         "[2]": "KHÔNG phải số ảnh — đặt 2 vẫn trả về 1 ảnh",
         "[3]": "clientContext lặp lại y hệt [1][0][7]",
         "[4][0]": "BATCH ID — cả lô dùng CHUNG, ứng với mediaGenerationContext.batchId của đường cũ",
-        "[1][0][2]": "ẢNH THAM CHIẾU — danh sách, NHIỀU ảnh thì nhiều mục: [[<mediaId A>,null,null,null,1],[<mediaId B>,null,null,null,1]]. THỨ TỰ trong danh sách chính là 'ảnh thứ nhất / ảnh thứ hai' mà prompt nhắc tới. Số cuối nhiều khả năng là kiểu input (ứng IMAGE_INPUT_TYPE_* đường cũ). Đi bằng mediaId, KHÔNG phải base64/URL. null khi không có ảnh tham chiếu."
+        "[1][0][2]": "ẢNH ĐẦU VÀO — danh sách, mỗi mục [<mediaId>, null, null, null, <KIỂU>]. KIỂU đã đo: 1 = ảnh THAM CHIẾU, 2 = ảnh NỀN (lượt sửa ảnh). Ứng đúng IMAGE_INPUT_TYPE_REFERENCE / IMAGE_INPUT_TYPE_BASE_IMAGE của đường cũ. Nhiều ảnh thì nhiều mục, THỨ TỰ danh sách là 'ảnh thứ nhất/thứ hai' mà prompt nhắc tới. Đi bằng mediaId, không phải base64/URL."
       },
       "batching": "Lô 4 ảnh = 4 lời gọi ogiZ0b RIÊNG, cách nhau ~1s, mỗi lời gọi có seed / UUID / token reCAPTCHA RIÊNG, chung một batch id.",
       "response_map": {
@@ -68,7 +68,8 @@
         "data[1][0]": "đối tượng workflow: [id,_,_,[tên,ts,_,_,mediaId,uuid,ts], projectId]"
       },
       "captcha_cost": "MỘT token cho MỖI lời gọi — đó là thứ đo được chắc chắn: bốn payload của lô 4 mang bốn token khác nhau, và số lượt POST recaptcha/enterprise/reload bằng số lượt batchexecute. THỨ TỰ trước/sau thì KHÔNG kết luận được từ quan sát (nhìn ở DevTools thấy reload nằm sau, nhưng token phải có trước mới nhét được vào payload — nhiều khả năng đó là lượt đúc sẵn cho lời gọi kế tiếp). Không ảnh hưởng cách làm: ta gọi grecaptcha.enterprise.execute ngay trước mỗi lượt, lấy được token nào dùng token đó.",
-      "verified": "Chạy lại qua POST /api/flow/boq hai lượt: (1) một ảnh tham chiếu, 9:16, NARWHAL -> đúng con mèo trong ảnh gốc, 768x1376; (2) HAI ảnh tham chiếu, 1:1, HARBOR_SEAL -> mèo từ ảnh 1 ngồi trong giỏ xe đạp từ ảnh 2, 1024x1024. Reference có tác dụng thật và thứ tự danh sách khớp với 'ảnh thứ nhất/thứ hai' trong prompt."
+      "verified": "Chạy lại qua POST /api/flow/boq hai lượt: (1) một ảnh tham chiếu, 9:16, NARWHAL -> đúng con mèo trong ảnh gốc, 768x1376; (2) HAI ảnh tham chiếu, 1:1, HARBOR_SEAL -> mèo từ ảnh 1 ngồi trong giỏ xe đạp từ ảnh 2, 1024x1024. Reference có tác dụng thật và thứ tự danh sách khớp với 'ảnh thứ nhất/thứ hai' trong prompt. (3) SỬA ảnh tải lên bằng kiểu 2 -> giữ nguyên bố cục/bối cảnh, chỉ thêm chi tiết được yêu cầu. Đúng nghĩa sửa, không phải sinh lại.",
+      "edit_mode": "SỬA ẢNH DÙNG CHUNG rpcid ogiZ0b, khác đúng ba chỗ: ảnh vào mang KIỂU 2 thay vì 1, clientContext[4] mang workflowId của ảnh đang sửa, và [1][0][12] là null (chỉ [13] có UUID). Sau khi sinh xong, giao diện gọi thêm mYWVGd mask metadata.primary_media_id để trỏ workflow sang media mới — đó là cách 'sửa tại chỗ' hoạt động: cùng workflow, đổi media chính. Ảnh do người dùng TẢI LÊN sửa được bình thường (khác SPrCad vốn từ chối)."
     },
     "update_workflow": {
       "rpcid": "mYWVGd",
@@ -105,6 +106,10 @@
       "response": "[[<bản ghi media: mediaId, projectId, workflowId, …, [rộng,cao]>], <đối tượng workflow>]",
       "verified": "Tải ảnh 127KB lên qua POST /api/flow/boq -> mediaId c9902ae1…, kích thước [1376,768] đúng ảnh gốc.",
       "gotcha": "Giao diện thật khai \"image/png\" trong khi byte là JPEG (base64 mở đầu /9j/). Máy chủ tự nhận dạng, trường mime không phải nguồn sự thật — đừng dựa vào nó."
+    },
+    "set_primary_media": {
+      "rpcid": "mYWVGd",
+      "note": "[[\"<workflowId>\",null,null,[null,null,null,null,\"<mediaId mới>\"],\"<projectId>\"], [[\"metadata.primary_media_id\"]]] — trỏ workflow sang media mới sau khi sửa ảnh. Cùng rpcid với đổi tên, chỉ khác mask và ô metadata (ô [4] thay vì [0])."
     }
   },
   "unknown": {
