@@ -192,6 +192,17 @@
    "note": "SUA VIDEO bang prompt. CHI Omni Flash lam duoc: model key la abra_edit / abra_edit_360p, khong co ban Veo. Khac fZytfe (noi dai) o o thu 5: day la [null,<workflowId>,...] nham vao MOT WORKFLOW CO SAN, con noi dai la [<sceneId>,...]. Ket qua sinh ra la mot ban ghi moi NAM TRONG workflow do; anh dai dien cua workflow KHONG doi cho toi khi goi mYWVGd voi mask metadata.primary_media_id — giao dien tu goi ngay sau khi render xong, ta thi khong bat buoc.",
    "gia": "abra_edit = 20 credit moi tier; abra_edit_360p = 10. Do bang so du that: 12434 -> 12414 cho luot cua giao dien (abra_edit), 12414 -> 12404 cho luot phat lai (abra_edit_360p).",
    "verified": "Phat lai voi abra_edit_360p + captcha_action VIDEO_GENERATION: 200, tru dung 10 credit, sinh ban ghi moi duoi workflow cu."
+  },
+  "upscale_video": {
+   "rpcid": "p0UkFb",
+   "args": "[[ <o dau 32 PHAN TU> ], <ctx>, [\"<batch id>\"]]",
+   "o_dau": "Mang 32 phan tu, hau het la null. Chi 5 o co gia tri: [0]=[null,\"<mediaId nguon>\"], [2]=<ti le>, [4]=[null,\"<workflowId>\",null,null,\"<UUID>\"], [6]=<2 cho 1080p | 3 cho 4K>, [31]=\"<model key>\". SO O PHAI DUNG 32 — dung 31 (key roi ve index 30) thi tra error [3] INVALID_ARGUMENT, da dinh mot lan.",
+   "tail": "Duoi chi co MOT phan tu [\"<batch id>\"], khac edit_video ([batchId, 2]) va extend_video ([batchId, 2, null, [sceneId, n]]).",
+   "model_keys": "veo_3_1_upsampler_1080p = 0 credit (tier 2 va 3); veo_3_1_upsampler_4k = 50 credit, CHI TIER 3. Bang gia khong co muc tier 1/2 cho 4K va nguoi dung xac nhan chi acc Ultra dung duoc — bang chung doc lap thu ba cho tier 3 = Ultra. Con co omni_upsampler_360p (0 credit) chua thu.",
+   "media_id_ra": "KHONG phai UUID moi ma la id DAN XUAT tu nguon: '<mediaId>_upsampled' cho 1080p va '<mediaId>_4k_upsampled' cho 4K. Hai ban CUNG TON TAI, ban 4K khong de len ban 1080p. Vi id doan truoc duoc nen co the hoi as29s thang ma khong can luu lai id tra ve.",
+   "gia_do_that": "12404 -> 12354 cho ca hai luot cua giao dien = dung 50, tuc 1080p mien phi va 4K 50. Bang HTrJv khop lan thu tu.",
+   "verified": "Phat lai 1080p tren mot clip 640x360 (san pham cua abra_edit_360p): 200, 0 credit, file ra 1920x1080 8.000 giay. Upsampler cua Veo nhan ca clip do Omni sinh.",
+   "do_that": "ffprobe tren file tai ve: 1080p = 1920x1080 (3822325 byte), 4K = 3840x2160 24fps 8.000 giay (16253997 byte)."
   }
  },
  "unknown": {
