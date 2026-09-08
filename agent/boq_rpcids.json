@@ -118,7 +118,9 @@
     "get_media": {
       "rpcid": "as29s",
       "note": "[\"<mediaId>\"] — đọc MỘT media, tương đương /v1/media/{id} cũ. Trả cả tham số đã sinh ra nó: prompt, danh sách ảnh vào kèm KIỂU, model. Dùng để truy nguồn một ảnh.",
-      "verified": "Gọi trên ảnh vừa sửa -> trả đúng prompt sửa và mediaId ảnh nền kèm kiểu 2."
+      "verified": "Gọi trên ảnh vừa sửa -> trả đúng prompt sửa và mediaId ảnh nền kèm kiểu 2.",
+      "url_ttl": "URL do as29s trả về có Expires = LÚC GỌI + 6 GIỜ (đo trên cả media mới sinh lẫn media từ dự án tạo 2026-05-21). Gọi lại as29s là có URL mới — media KHÔNG mất, chỉ URL hết hạn. Hệ quả: ĐỪNG lưu URL vào DB, chỉ lưu mediaId rồi resolve khi cần, đúng như media_store của bản chính đang làm. Kiểm: media 3,5 tháng tuổi vẫn tải về được bình thường.",
+      "rate_limit_warning": "Đường resolve của bản chính (/v1/media/{id}) BỊ giới hạn tần suất — media_store phải chặn còn 3 lời gọi song song và nghỉ sau mỗi cụm 6 lượt. Chưa đo được as29s có bị chặn như vậy không; cứ giữ nguyên mức thận trọng đó cho tới khi đo."
     },
     "create_project": {
       "rpcid": "jHPbke",

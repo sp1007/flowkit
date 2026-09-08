@@ -549,6 +549,25 @@ là mọi trang `flow.google.com`, còn `/project/*` chỉ là thứ tự ƯU TI
 
 **Tóm lại: giữ MỘT tab Flow bất kỳ đang mở và đã đăng nhập.** Đó là toàn bộ yêu cầu.
 
+## Media cũ có lấy lại được không — CÓ
+
+URL của `flow-content.google` là URL ký có hạn, nhưng đó chỉ là cái vỏ:
+
+```
+as29s ["<mediaId>"]  ->  URL mới, Expires = lúc gọi + 6 GIỜ
+```
+
+Kiểm trên dự án cũ nhất của tài khoản (tạo **2026-05-21**, hơn ba tháng trước): đọc nội dung
+dự án bằng `Zzl0ze` thấy đủ 35 media, gọi `as29s` cho một cái → URL mới, tải về được bình
+thường. **Media không mất, chỉ URL hết hạn.**
+
+Hệ quả khi port: **đừng lưu URL vào DB, chỉ lưu `mediaId`** rồi resolve khi cần — đúng thứ
+`media_store` của bản chính đang làm. Lưu URL thì 6 giờ sau cả thư viện thành ảnh vỡ.
+
+Cảnh báo: đường resolve của bản chính (`/v1/media/{id}`) **bị giới hạn tần suất** — nên
+`media_store` mới phải chặn còn 3 lời gọi song song và nghỉ sau mỗi cụm 6 lượt. Chưa đo được
+`as29s` có bị chặn tương tự không; giữ nguyên mức thận trọng đó cho tới khi đo.
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:
