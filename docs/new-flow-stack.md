@@ -163,6 +163,23 @@ Tức là đường mới không chỉ ĐỌC được mà GHI được. Đây l
 Token reCAPTCHA dùng MỘT lần, sống ~2 phút, nên không chép lại token bắt được: đặt chuỗi
 `"__CAPTCHA__"` vào bất kỳ đâu trong `args`, extension tự lấy token mới và điền vào.
 
+## Lô ảnh: N lời gọi riêng, chung một batch id
+
+Đo trên lượt "tạo 4 ảnh" thật của giao diện mới (22:10:11 → 22:10:14):
+
+- **4 lời gọi `ogiZ0b` RIÊNG**, cách nhau ~1 giây — không phải một lời gọi trả 4 ảnh.
+- Mỗi lời gọi có **seed riêng**, **hai UUID riêng**, và **token reCAPTCHA RIÊNG** (đo được
+  bốn token khác nhau, dài 2361–2468 ký tự). Không dùng chung token được.
+- `args[4][0]` là **BATCH ID, cả lô dùng CHUNG** — đúng khái niệm
+  `mediaGenerationContext.batchId` của đường cũ. Giữ nguyên cách làm đó khi port.
+- `args[2]` KHÔNG phải số ảnh: đặt 2 vẫn chỉ trả về 1 ảnh (đã thử).
+
+Hệ quả: mỗi ảnh tốn một lượt reCAPTCHA, y như đường cũ — không có đường tắt sinh nhiều ảnh
+bằng một lời gọi. Cách giãn nhịp của bản chính (lô 4, cooldown, stagger) áp thẳng sang được.
+
+Tỉ lệ khung nằm ở `args[1][0][4]`, đo được: **3 → 1376×768 (16:9 ngang)** (người dùng xác
+nhận đã chọn 16:9), **4 → 896×1200 (3:4 dọc)**.
+
 ## rpcid đổi thì sao
 
 Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:

@@ -10,22 +10,89 @@
   "learned_at": "2026-09-08",
   "learned_from_bl": "boq_labs-ai-sandbox-frontend_20260907.00_p0",
   "ops": {
-    "credits":        { "rpcid": "nzlxg",  "probe_args": [], "note": "-> [12439,2,3,3,null,12439]" },
-    "list_projects":  { "rpcid": "UpteDb", "probe_args": ["projects/*", 21, null, null, null, null, [1]] },
-    "get_project":    { "rpcid": "Zzl0ze", "note": "[\"projects/<id>\", null, null, null, [1]]" },
-    "get_tool_state": { "rpcid": "ngNC2",  "note": "[\"tools/PINHOLE/projects/<id>\"]" },
-    "user_prefs":     { "rpcid": "xI9TVb", "probe_args": ["userPreferences/"] },
-    "generate_image": { "rpcid": "ogiZ0b", "captcha": true,
-                        "note": "[null,[[null,null,null,<seed>,<aspect>,\"GEM_PIX_2\",null,<ctx>,[[[\"<prompt>\"]]],null,null,null,\"<uuid>\",\"<uuid>\"]],1,<ctx>,[\"<uuid>\"]]" },
-    "update_workflow":{ "rpcid": "mYWVGd",
-                        "note": "[[\"<workflowId>\",null,null,[\"<tên>\"],\"<projectId>\"], [[\"metadata.display_name\"]]] — field mask" },
-    "update_project": { "rpcid": "Kcr7Ub",
-                        "note": "[\"projects/<id>\", [...], [[\"<trường>\"]]] — cùng dạng field mask" }
+    "credits": {
+      "rpcid": "nzlxg",
+      "probe_args": [],
+      "note": "-> [12439,2,3,3,null,12439]"
+    },
+    "list_projects": {
+      "rpcid": "UpteDb",
+      "probe_args": [
+        "projects/*",
+        21,
+        null,
+        null,
+        null,
+        null,
+        [
+          1
+        ]
+      ]
+    },
+    "get_project": {
+      "rpcid": "Zzl0ze",
+      "note": "[\"projects/<id>\", null, null, null, [1]]"
+    },
+    "get_tool_state": {
+      "rpcid": "ngNC2",
+      "note": "[\"tools/PINHOLE/projects/<id>\"]"
+    },
+    "user_prefs": {
+      "rpcid": "xI9TVb",
+      "probe_args": [
+        "userPreferences/"
+      ]
+    },
+    "generate_image": {
+      "rpcid": "ogiZ0b",
+      "captcha": true,
+      "note": "[null,[[null,null,null,<seed>,<aspect>,\"GEM_PIX_2\",null,<ctx>,[[[\"<prompt>\"]]],null,null,null,\"<uuid>\",\"<uuid>\"]],1,<ctx>,[\"<uuid>\"]]",
+      "args_map": {
+        "[1][0][3]": "seed (ngẫu nhiên mỗi lượt)",
+        "[1][0][4]": "tỉ lệ khung — ĐO ĐƯỢC: 3 -> 1376x768 (16:9 ngang), 4 -> 896x1200 (3:4 dọc)",
+        "[1][0][5]": "khoá model, vd GEM_PIX_2 — giống đường cũ",
+        "[1][0][7]": "clientContext: [null,22,null,null,null,<projectId>,…,[<token reCAPTCHA>,1]]",
+        "[1][0][8]": "prompt, lồng ba lớp: [[[\"…\"]]]",
+        "[1][0][12], [1][0][13]": "hai UUID hoa, mới mỗi lượt",
+        "[2]": "KHÔNG phải số ảnh — đặt 2 vẫn trả về 1 ảnh",
+        "[3]": "clientContext lặp lại y hệt [1][0][7]",
+        "[4][0]": "BATCH ID — cả lô dùng CHUNG, ứng với mediaGenerationContext.batchId của đường cũ"
+      },
+      "batching": "Lô 4 ảnh = 4 lời gọi ogiZ0b RIÊNG, cách nhau ~1s, mỗi lời gọi có seed / UUID / token reCAPTCHA RIÊNG, chung một batch id.",
+      "response_map": {
+        "data[0][0][0]": "mediaId",
+        "data[0][0][2]": "workflowId",
+        "data[0][0][6][0][13]": "URL flow-content.google (đã ký, dùng ngay)",
+        "data[0][0][6][2]": "[rộng, cao] thật của ảnh",
+        "data[1][0]": "đối tượng workflow: [id,_,_,[tên,ts,_,_,mediaId,uuid,ts], projectId]"
+      }
+    },
+    "update_workflow": {
+      "rpcid": "mYWVGd",
+      "note": "[[\"<workflowId>\",null,null,[\"<tên>\"],\"<projectId>\"], [[\"metadata.display_name\"]]] — field mask"
+    },
+    "update_project": {
+      "rpcid": "Kcr7Ub",
+      "note": "[\"projects/<id>\", [...], [[\"<trường>\"]]] — cùng dạng field mask"
+    }
   },
   "unknown": {
     "mrlkwd": "args = [\"<projectId>\"], chạy lúc mở dự án — chưa rõ trả về gì",
     "DA4VGb": "ghi trạng thái UI kèm field mask (is_agent_mode_toggled, is_chat_panel_open)"
   },
-  "noise": ["WuwhI", "DTaVef", "NfrxTb", "KV2T2d", "LPzVkd", "cPZSdc", "Yizz8d",
-            "ve2Lsc", "HTrJv", "tRARke", "qJcgMc", "yBhWQ", "o30O0e"]
+  "noise": [
+    "WuwhI",
+    "DTaVef",
+    "NfrxTb",
+    "KV2T2d",
+    "LPzVkd",
+    "cPZSdc",
+    "Yizz8d",
+    "ve2Lsc",
+    "HTrJv",
+    "tRARke",
+    "qJcgMc",
+    "yBhWQ",
+    "o30O0e"
+  ]
 }
