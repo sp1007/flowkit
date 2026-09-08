@@ -1399,7 +1399,11 @@ function _elideLong(node, max = 512) {
 
 function _reconPayload(raw) {
   if (raw.length <= 20000) return raw;
-  for (const text of [raw, decodeURIComponent(raw.replace(/\+/g, ' '))]) {
+  // decodeURIComponent có thể ném URIError; dựng sẵn trong mảng thì nó ném TRƯỚC vòng lặp và
+  // giết luôn cả bản ghi. Giải mã trong try riêng.
+  const candidates = [raw];
+  try { candidates.push(decodeURIComponent(raw.replace(/\+/g, ' '))); } catch { /* bỏ qua */ }
+  for (const text of candidates) {
     try {
       const call = JSON.parse(text)?.[0]?.[0];
       if (call && typeof call[1] === 'string') {
