@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "Bảng rpcid của giao diện flow.google.com (BOQ batchexecute). ĐỂ Ở ĐÂY, KHÔNG NHÚNG VÀO CODE:",
+    "rpcid là định danh RPC phía máy chủ, bền hơn tên biến bị minify nhưng KHÔNG có gì bảo đảm.",
+    "Ngày nó đổi thì sửa file này là xong, không phải sửa code, không phải build lại.",
+    "Cách dò lại: bật extension, thao tác trên giao diện thật, đọc GET /api/flow/boq/log —",
+    "rpcid lạ nào mang payload có prompt / có projectId chính là cái vừa đổi.",
+    "Kiểm nhanh cả bảng: POST /api/flow/boq/verify (chỉ chạy các op đọc, không đụng dữ liệu)."
+  ],
+  "learned_at": "2026-09-08",
+  "learned_from_bl": "boq_labs-ai-sandbox-frontend_20260907.00_p0",
+  "ops": {
+    "credits":        { "rpcid": "nzlxg",  "probe_args": [], "note": "-> [12439,2,3,3,null,12439]" },
+    "list_projects":  { "rpcid": "UpteDb", "probe_args": ["projects/*", 21, null, null, null, null, [1]] },
+    "get_project":    { "rpcid": "Zzl0ze", "note": "[\"projects/<id>\", null, null, null, [1]]" },
+    "get_tool_state": { "rpcid": "ngNC2",  "note": "[\"tools/PINHOLE/projects/<id>\"]" },
+    "user_prefs":     { "rpcid": "xI9TVb", "probe_args": ["userPreferences/"] },
+    "generate_image": { "rpcid": "ogiZ0b", "captcha": true,
+                        "note": "[null,[[null,null,null,<seed>,<aspect>,\"GEM_PIX_2\",null,<ctx>,[[[\"<prompt>\"]]],null,null,null,\"<uuid>\",\"<uuid>\"]],1,<ctx>,[\"<uuid>\"]]" },
+    "update_workflow":{ "rpcid": "mYWVGd",
+                        "note": "[[\"<workflowId>\",null,null,[\"<tên>\"],\"<projectId>\"], [[\"metadata.display_name\"]]] — field mask" },
+    "update_project": { "rpcid": "Kcr7Ub",
+                        "note": "[\"projects/<id>\", [...], [[\"<trường>\"]]] — cùng dạng field mask" }
+  },
+  "unknown": {
+    "mrlkwd": "args = [\"<projectId>\"], chạy lúc mở dự án — chưa rõ trả về gì",
+    "DA4VGb": "ghi trạng thái UI kèm field mask (is_agent_mode_toggled, is_chat_panel_open)"
+  },
+  "noise": ["WuwhI", "DTaVef", "NfrxTb", "KV2T2d", "LPzVkd", "cPZSdc", "Yizz8d",
+            "ve2Lsc", "HTrJv", "tRARke", "qJcgMc", "yBhWQ", "o30O0e"]
+}

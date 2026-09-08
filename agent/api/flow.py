@@ -1,4 +1,7 @@
 """Direct Flow API endpoints — for manual operations outside the queue."""
+import json
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -146,6 +149,53 @@ async def boq_request(body: BoqRequest):
     if result.get("error"):
         raise HTTPException(502, result["error"])
     return result.get("data", result)
+
+
+_BOQ_OPS_PATH = Path(__file__).resolve().parent.parent / "boq_rpcids.json"
+
+
+def _boq_ops() -> dict:
+    """Bảng rpcid, đọc lại mỗi lần gọi — sửa file là có hiệu lực ngay, khỏi khởi động lại."""
+    try:
+        return json.loads(_BOQ_OPS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise HTTPException(500, f"Không đọc được boq_rpcids.json: {e}")
+
+
+@router.get("/boq/ops")
+async def boq_ops():
+    """Bảng rpcid → việc. rpcid có thể đổi bất cứ lúc nào; đây là chỗ DUY NHẤT ghi nó."""
+    return _boq_ops()
+
+
+@router.post("/boq/verify")
+async def boq_verify():
+    """Chạy thử mọi op ĐỌC trong bảng để biết rpcid nào đã chết.
+
+    Chỉ gọi op có `probe_args` — toàn là lời gọi đọc, không đụng dữ liệu. Trả về `ok` khi
+    rpcid còn sống, `moved` khi máy chủ trả envelope lỗi (dấu hiệu rpcid đã đổi).
+    """
+    client = get_flow_client()
+    if not client.connected:
+        raise HTTPException(503, "Extension not connected")
+    ops = _boq_ops().get("ops", {})
+    out = {}
+    for name, spec in ops.items():
+        if "probe_args" not in spec:
+            out[name] = {"rpcid": spec.get("rpcid"), "status": "skipped (không có probe_args)"}
+            continue
+        res = await client.boq_request(spec["rpcid"], spec["probe_args"])
+        data = res.get("data") or {}
+        results = data.get("results") if isinstance(data, dict) else None
+        if res.get("error"):
+            out[name] = {"rpcid": spec["rpcid"], "status": "error", "detail": res["error"]}
+        elif results and any("data" in r for r in results):
+            out[name] = {"rpcid": spec["rpcid"], "status": "ok"}
+        else:
+            out[name] = {"rpcid": spec["rpcid"], "status": "moved",
+                         "detail": "không có envelope wrb.fr — rpcid có thể đã đổi",
+                         "raw": (data.get("raw") if isinstance(data, dict) else None)}
+    return {"learned_from_bl": _boq_ops().get("learned_from_bl"), "results": out}
 
 
 @router.get("/boq/log")

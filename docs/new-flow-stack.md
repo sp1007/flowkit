@@ -163,6 +163,25 @@ Tức là đường mới không chỉ ĐỌC được mà GHI được. Đây l
 Token reCAPTCHA dùng MỘT lần, sống ~2 phút, nên không chép lại token bắt được: đặt chuỗi
 `"__CAPTCHA__"` vào bất kỳ đâu trong `args`, extension tự lấy token mới và điền vào.
 
+## rpcid đổi thì sao
+
+Không có gì bảo đảm `ogiZ0b` mãi là "tạo ảnh". Nhưng ba thứ khiến việc hỏng trở nên rẻ:
+
+1. **Tham số phiên đọc SỐNG từ trang mỗi lượt gọi** — `at`, `f.sid`, `bl`. `bl` chính là số
+   hiệu bản phát hành backend (`…_20260907.00_p0`), nên nó tự bám theo mỗi lần Google đẩy bản
+   mới, không phải sửa gì.
+2. **Bảng rpcid nằm ở `agent/boq_rpcids.json`, KHÔNG nhúng trong code** — đọc lại mỗi lần gọi
+   nên sửa file là có hiệu lực ngay, không phải khởi động lại agent.
+3. **`POST /api/flow/boq/verify`** chạy thử mọi op ĐỌC trong bảng (chỉ op có `probe_args`,
+   không đụng dữ liệu) và báo `ok` / `moved` / `error`. Chạy nó trước mỗi lượt dựng dài là
+   biết ngay bảng còn đúng không, thay vì hỏng giữa chừng.
+
+Khi có cái `moved`: bật extension, làm đúng thao tác đó trên giao diện thật, rồi đọc
+`GET /api/flow/boq/log`. rpcid lạ nào mang payload có prompt hoặc có `projectId` chính là cái
+vừa đổi — sửa một dòng trong `boq_rpcids.json` là xong.
+
+Đo ngày 2026-09-08: `credits`, `list_projects`, `user_prefs`, `generate_image` đều `ok`.
+
 ## Việc còn lại
 
 1. **Dò rpcid.** Mở `flow.google.com/project/<id>`, thao tác thật (tạo ảnh, tạo video, mở
