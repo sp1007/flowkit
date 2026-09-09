@@ -215,10 +215,15 @@ function _decodeJwtPayload(token) {
 }
 
 async function ensureFlowMusicTab() {
+  // KHÔNG tự mở tab. Alarm 'music-token-refresh' chạy 45 phút một lần, nên mỗi lần
+  // không thấy tab là đẻ thêm một tab nền — người dùng quay lại thấy một dãy tab
+  // flowmusic.app mình không mở. Đúng lỗi đã sửa cho tab Flow trước đây.
+  // Đổi lại: token nhạc chỉ được làm mới khi CÓ SẴN tab flowmusic.app đang mở; không có
+  // thì /api/music/* sẽ hỏng cho tới khi người dùng tự mở lại trang.
   const tabs = await chrome.tabs.query({ url: ['https://www.flowmusic.app/*'] });
   if (tabs.length) return tabs[0];
-  console.log('[FlowAgent] No Flow Music tab found — opening one in background');
-  return await chrome.tabs.create({ url: 'https://www.flowmusic.app/', active: false });
+  console.log('[FlowAgent] No Flow Music tab — skipping refresh (KHONG tu mo tab)');
+  return null;
 }
 
 let _openingFlowTab = false;
