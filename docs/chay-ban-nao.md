@@ -64,8 +64,35 @@ Cộng thêm hai chỗ bản chính đang sai mà bản mới đã đúng: **ph�
 chỉ lấy trang đầu, tài khoản 60 dự án thì mất 40 mà không báo lỗi) và **bảng giá**
 (`CREDIT_COST.video = 20` phẳng, sai cho gần như mọi model).
 
-## Còn thiếu
+## Studio cũng chạy được rồi — bật `FLOWKIT_USE_BOQ=1`
 
-Tầng `studio` của bản mới vẫn gọi đường cũ. Muốn chuyển hẳn thì phải trỏ nó sang `/v2`,
-và đó là việc chưa làm — nên tới lúc `labs.google` tắt thật, bản mới sinh được media
-nhưng chưa dựng được video hoàn chỉnh.
+```bash
+set FLOWKIT_USE_BOQ=1
+```
+
+Cờ này đổi ĐỘNG CƠ mà giữ nguyên DÂY: `boq_compat` cài lại 18 method của `FlowClient`
+trên batchexecute nhưng giữ y nguyên chữ ký và hình dạng trả về, nên **studio chạy
+nguyên không phải sửa dòng nào** — storyboard, dựng shots, hi-res, export đều đi đường
+mới.
+
+Đã chạy thật qua đúng các endpoint cũ mà studio gọi: `/credits`, `/projects`,
+`/create-project`, `/generate-image`, `/generate-video-veo-lite`, `/check-status`
+(PENDING → SUCCESSFUL sau 30s), `/media/{id}` → tải về 1280×720, 8 giây. Hết 0 credit.
+
+Tắt cờ là quay lại hành vi cũ nguyên vẹn, nên so hai đường trên cùng một đầu vào là
+chuyện dễ — cứ chạy song song một thời gian trước khi tin hẳn.
+
+## Chỗ đường mới KÉM hơn, biết trước còn hơn gặp giữa chừng
+
+**Poll video không phân biệt được HỎNG.** Trạng thái của BOQ chỉ nói "xong hay chưa".
+Nên khi Flow chặn nội dung, đường mới không báo `FAILED` mà chờ tới hết giờ
+(`VIDEO_POLL_TIMEOUT`, 420s) rồi mới bỏ cuộc. Chậm hơn, nhưng đó là đánh đổi có chủ ý:
+chờ thừa vài phút còn hơn báo hỏng oan rồi tạo lại một bản nữa và tính tiền hai lần.
+
+**`generatedImage.prompt` không còn là prompt THẬT.** Đường cũ trả về prompt sau khi
+Flow dịch — đó là chỗ duy nhất soi được "model thật sự nhận gì", và là cách phát hiện
+câu phủ định bị bản dịch nuốt. Đường BOQ không trả trường ấy, nên `boq_compat` điền lại
+prompt đã gửi. Đừng dùng nó làm bằng chứng nữa; muốn soi thì tạm tắt cờ.
+
+**Hạng tài khoản phải khai bằng tay** (`FLOWKIT_FLOW_TIER`). Chưa tự dò được vì chưa có
+mẫu `nzlxg` từ một tài khoản Pro.
