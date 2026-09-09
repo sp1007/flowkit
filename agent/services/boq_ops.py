@@ -275,7 +275,11 @@ def upsampled_media_id(media_id: str, four_k: bool = False) -> str:
 
 # ─── Đọc phản hồi ────────────────────────────────────────────
 
-# Trạng thái nằm ở workflow[5][8]. Đã đo: [6] khi đang chờ/đang chạy, [3] khi xong.
+# Trạng thái nằm ở workflow[5][8]. Ba giá trị đã gặp: [1] ngay sau lượt upscale, [6]
+# ngay sau lượt sinh, [3] khi xong. Chỉ [3] là chắc chắn có nghĩa "xong" — 1 và 6 đều
+# quan sát được ở thời điểm vừa submit nên đều là "chưa xong", còn chúng khác nhau ở
+# điểm gì thì chưa đo được. Vì vậy hàm dưới hỏi "đã xong chưa" chứ không phân loại tiếp.
+STATUS_QUEUED = 1
 STATUS_RUNNING = 6
 STATUS_DONE = 3
 
