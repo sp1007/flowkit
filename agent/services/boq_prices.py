@@ -219,6 +219,42 @@ def group(model_key: str) -> Optional[str]:
     return entry.get("nhom") if entry else None
 
 
+def usable(model_key: str, tier: int) -> Optional[str]:
+    """Khoá dùng được ở hạng này — chính nó, hoặc bản sinh đôi tương ứng. None = chịu.
+
+    Cần thiết vì `models.json` hardcode các khoá `_low_priority`, mà chúng CHỈ có ở Ultra.
+    Chạy y nguyên bảng ấy trên tài khoản Pro thì Flow trả `PUBLIC_ERROR_MODEL_ACCESS_DENIED`
+    — đo trực tiếp trên tài khoản Pro thật với `veo_3_1_t2v_lite_low_priority`.
+
+    Hai cặp sinh đôi đã biết:
+      * `<key>_low_priority` (0 đồng, chỉ Ultra)  ↔  `<key>` (bản trả tiền, mọi hạng)
+      * Fast: `<key>_ultra` (chỉ Ultra)           ↔  `<key>` (chỉ tier 1 và 2)
+
+    Hậu tố `_ultra` KHÔNG phải lúc nào cũng ở cuối (`veo_3_1_i2v_s_fast_ultra_fl`), nên
+    thử cả hai vị trí thay vì nối chuỗi một kiểu.
+    """
+    if available(model_key, tier):
+        return model_key
+    cands = []
+    if "_low_priority" in model_key:
+        base = model_key.replace("_low_priority", "")
+        cands += [base, base + "_ultra", base.replace("_fl", "_ultra_fl")]
+    if "_ultra" in model_key:
+        cands.append(model_key.replace("_ultra", ""))
+    else:
+        cands += [model_key + "_ultra", model_key.replace("_fl", "_ultra_fl")]
+    # Ưu tiên khoá CÓ THẬT trong bảng. `available()` suy được giá từ tên nên một tên bịa
+    # như `veo_3_1_i2v_s_fast_fl_ultra` cũng "khả dụng" — đúng chỗ này thì phải chọn cái
+    # Google thật sự có, không phải cái ghép chuỗi ra trước.
+    for c in cands:
+        if c != model_key and is_known(c) and available(c, tier):
+            return c
+    for c in cands:
+        if c != model_key and available(c, tier):
+            return c
+    return None
+
+
 def cheapest(model_keys, tier: int = TIER_ULTRA) -> Optional[str]:
     """Khoá rẻ nhất trong số dùng được ở tier này; None nếu không khoá nào dùng được."""
     usable = [(price(k, tier), k) for k in model_keys if available(k, tier)]

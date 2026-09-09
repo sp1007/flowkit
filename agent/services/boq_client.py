@@ -71,6 +71,7 @@ class BoqClient:
     def __init__(self, flow_client, tier: Optional[int] = None):
         self._flow = flow_client
         self.tier = tier if tier is not None else default_tier()
+        self._detected_tier: Optional[int] = None
 
     # ─── nền ─────────────────────────────────────────────────
 
@@ -114,6 +115,39 @@ class BoqClient:
     async def credits(self) -> int:
         data = await self.call("nzlxg", [], captcha_action="IMAGE_GENERATION")
         return data[0]
+
+    async def credits_and_tier(self) -> tuple[int, Optional[int]]:
+        """(số dư, hạng tài khoản) — hạng ĐỌC ĐƯỢC từ chính phản hồi, khỏi khai tay.
+
+        `nzlxg` mang CẢ HAI cách đánh số cùng lúc. Đo trên hai tài khoản thật:
+
+            Pro    [1050,  1, 2, 2, null, 1050]
+            Ultra  [12331, 2, 3, 3, null, 12331]
+
+        Ô [1] là số của nhãn `PAYGATE_TIER_ONE/TWO` (1, 2) còn ô [2] là số của bảng giá
+        mới (2, 3) — đúng chỗ lệch một bậc giữa hai cách đếm, và nay có bằng chứng chứ
+        không còn là suy diễn.
+
+        Trả None khi ô [2] không nằm trong dải đã biết, để người gọi rơi về
+        `FLOWKIT_FLOW_TIER` thay vì tin một con số lạ.
+        """
+        data = await self.call("nzlxg", [], captcha_action="IMAGE_GENERATION")
+        tier = data[2] if isinstance(data, list) and len(data) > 2 else None
+        if tier not in (prices.TIER_FREE, prices.TIER_PRO, prices.TIER_ULTRA):
+            tier = None
+        return data[0], tier
+
+    async def detect_tier(self) -> Optional[int]:
+        """Hạng đọc từ Flow; None nếu không đọc được. Nhớ lại để khỏi hỏi mỗi lần."""
+        if self._detected_tier is None:
+            try:
+                _c, tier = await self.credits_and_tier()
+            except Exception:
+                return None
+            if tier:
+                self._detected_tier = tier
+                self.tier = tier
+        return self._detected_tier
 
     async def list_projects(self, page_size: int = 20,
                             limit: Optional[int] = None) -> list:

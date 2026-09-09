@@ -180,3 +180,62 @@ def test_ma_la_bao_PENDING_chu_khong_bao_hong():
         st = res["data"]["media"][0]["mediaMetadata"]["mediaStatus"]
         assert st["mediaGenerationStatus"] == "MEDIA_GENERATION_STATUS_PENDING", st_raw
         assert "failureReasons" not in st
+
+
+# ─── tự dò hạng tài khoản ────────────────────────────────────
+
+class _FakeCredits:
+    """Giả BoqClient chỉ để kiểm việc đọc hạng từ phản hồi nzlxg."""
+
+    def __init__(self, data, tier_env):
+        self._data = data
+        self.tier = tier_env
+
+    async def credits_and_tier(self):
+        from agent.services import boq_prices as pr
+        t = self._data[2] if len(self._data) > 2 else None
+        if t not in (pr.TIER_FREE, pr.TIER_PRO, pr.TIER_ULTRA):
+            t = None
+        return self._data[0], t
+
+
+def _credits_with(data, tier_env=3):
+    c = compat.BoqCompat.__new__(compat.BoqCompat)
+    c.boq = _FakeCredits(data, tier_env)
+    return c
+
+
+def test_doc_hang_tu_chinh_phan_hoi_nzlxg():
+    """Hai mẫu THẬT, đo trên hai tài khoản khác nhau.
+
+        Pro    [1050,  1, 2, 2, null, 1050]
+        Ultra  [12331, 2, 3, 3, null, 12331]
+
+    Ô [1] là số của nhãn PAYGATE_TIER_ONE/TWO, ô [2] là số của bảng giá mới — đúng chỗ
+    lệch một bậc giữa hai cách đếm, nay có bằng chứng chứ không còn suy diễn.
+    """
+    import asyncio
+    r = asyncio.run(compat.BoqCompat.get_credits(
+        _credits_with([1050, 1, 2, 2, None, 1050], tier_env=3)))
+    assert r["data"]["credits"] == 1050
+    assert r["data"]["userPaygateTier"] == "PAYGATE_TIER_ONE"     # Pro
+
+    r = asyncio.run(compat.BoqCompat.get_credits(
+        _credits_with([12331, 2, 3, 3, None, 12331], tier_env=2)))
+    assert r["data"]["userPaygateTier"] == "PAYGATE_TIER_TWO"     # Ultra
+
+
+def test_flow_khai_gi_thi_tin_cai_do_khong_tin_bien_moi_truong():
+    """Đặt nhầm FLOWKIT_FLOW_TIER là hỏng lặng lẽ — nên số của Flow phải thắng."""
+    import asyncio
+    c = _credits_with([1050, 1, 2, 2, None, 1050], tier_env=3)   # env khai Ultra, thật là Pro
+    r = asyncio.run(compat.BoqCompat.get_credits(c))
+    assert r["data"]["userPaygateTier"] == "PAYGATE_TIER_ONE"
+    assert c.boq.tier == 2                                       # sửa lại luôn cho lần sau
+
+
+def test_khong_doc_duoc_thi_roi_ve_bien_moi_truong():
+    import asyncio
+    c = _credits_with([500, None, 99, None, None, 500], tier_env=2)
+    r = asyncio.run(compat.BoqCompat.get_credits(c))
+    assert r["data"]["userPaygateTier"] == "PAYGATE_TIER_ONE"     # tier_env=2 → Pro

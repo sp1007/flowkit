@@ -247,6 +247,21 @@ class BoqCompat:
             return lite.get("reference_frame_2_video")
         return lite.get("text_2_video")
 
+    def _fit_tier(self, key: str) -> str:
+        """Đổi sang khoá dùng được ở hạng tài khoản hiện tại.
+
+        `models.json` hardcode các khoá `_low_priority`, mà chúng CHỈ có ở Ultra. Chạy y
+        nguyên trên tài khoản Pro thì Flow trả `PUBLIC_ERROR_MODEL_ACCESS_DENIED` — đo
+        trực tiếp. Nên ở đây tự rơi về bản trả tiền sinh đôi thay vì để cả đường video
+        chết trên tài khoản Pro.
+
+        Không thay được thì GIỮ NGUYÊN khoá gốc để hàng rào giá báo lỗi nói rõ lý do,
+        thay vì âm thầm gửi một khoá khác ý người gọi.
+        """
+        if not key:
+            return key
+        return prices.usable(key, self.boq.tier) or key
+
     @_soft
     async def generate_video_veo_lite(self, prompt, project_id, scene_id="",
                                       start_media_id=None, end_media_id=None,
@@ -256,8 +271,8 @@ class BoqCompat:
         ratio = video_ratio(aspect_ratio)
         refs = list(reference_media_ids or [])
         start = start_media_id or (refs[0] if refs and not start_media_id else None)
-        key = self._veo_lite_key(start_media_id, end_media_id,
-                                 references or reference_media_ids, duration_s)
+        key = self._fit_tier(self._veo_lite_key(
+            start_media_id, end_media_id, references or reference_media_ids, duration_s))
         out = await self._dispatch_video(prompt, project_id, key, ratio,
                                          start_media_id, end_media_id,
                                          references, reference_media_ids, batch_id)
@@ -271,7 +286,8 @@ class BoqCompat:
         m = _models()
         has_ref = bool(reference_media_ids or references)
         table = "omni_flash_models" if has_ref else "omni_flash_t2v_models"
-        key = m.get(table, {}).get(str(duration_s)) or f"abra_t2v_{duration_s}s"
+        key = self._fit_tier(
+            m.get(table, {}).get(str(duration_s)) or f"abra_t2v_{duration_s}s")
         out = await self._dispatch_video(prompt, project_id, key,
                                          video_ratio(aspect_ratio),
                                          None, None, references, reference_media_ids,
@@ -289,6 +305,7 @@ class BoqCompat:
         kind = "start_end_frame_2_video" if end_image_media_id else "frame_2_video"
         key = video_model or (m.get("video_models", {}).get(tier_name, {})
                               .get(kind, {}).get(aspect_ratio))
+        key = self._fit_tier(key)
         if not key:
             raise ValueError(f"không có khoá model cho {tier_name}/{kind}/{aspect_ratio}")
         out = await self._dispatch_video(prompt, project_id, key,
@@ -433,14 +450,16 @@ class BoqCompat:
         để chọn độ phân giải upscale và khoá model. Thiếu nó thì studio rơi về mặc định
         TIER_ONE và âm thầm hạ 4K xuống 2K trên tài khoản Ultra — hỏng lặng lẽ.
 
-        Lấy từ `FLOWKIT_FLOW_TIER` chứ không dò từ phản hồi `nzlxg`: phản hồi ấy là
-        `[credits, 2, 3, 3, null, credits]` trên Ultra nên vài ô trông như số hạng, nhưng
-        chưa có mẫu từ tài khoản Pro để biết ô nào — mà đoán sai thì hỏng đúng kiểu vừa
-        nói, lại không có triệu chứng.
+        Hạng nay ĐỌC TỪ FLOW chứ không tin biến môi trường. Có mẫu từ cả hai tài khoản
+        nên biết chắc ô nào: Pro trả `[1050, 1, 2, 2, …]`, Ultra trả `[12331, 2, 3, 3, …]`
+        — ô [2] là số hạng của bảng giá mới. `FLOWKIT_FLOW_TIER` chỉ còn là lưới an toàn
+        cho lúc không đọc được.
         """
-        c = await self.boq.credits()
+        c, tier = await self.boq.credits_and_tier()
+        if tier:
+            self.boq.tier = tier          # Flow tự khai thì tin Flow, không tin biến môi trường
         return _ok({"credits": c, "remainingCredits": c,
-                    "userPaygateTier": prices.paygate_from_tier(self.boq.tier)})
+                    "userPaygateTier": prices.paygate_from_tier(tier or self.boq.tier)})
 
     @_soft
     async def get_direct_media(self, primary_media_id: str) -> dict:

@@ -162,3 +162,30 @@ def test_doi_nguoc_ve_nhan_paygate():
     # Đi vòng tròn phải về chỗ cũ.
     for t in (p.TIER_PRO, p.TIER_ULTRA):
         assert p.tier_from_paygate(p.paygate_from_tier(t)) == t
+
+
+def test_pro_tu_roi_ve_ban_tra_tien():
+    """models.json hardcode khoá _low_priority, mà chúng CHỈ có ở Ultra.
+
+    Chạy y nguyên trên tài khoản Pro thì Flow trả PUBLIC_ERROR_MODEL_ACCESS_DENIED — đo
+    trực tiếp trên tài khoản Pro thật.
+    """
+    assert p.usable("veo_3_1_t2v_lite_low_priority", p.TIER_ULTRA) == \
+        "veo_3_1_t2v_lite_low_priority"
+    assert p.usable("veo_3_1_t2v_lite_low_priority", p.TIER_PRO) == "veo_3_1_t2v_lite"
+    assert p.usable("veo_3_1_r2v_lite_low_priority", p.TIER_PRO) == "veo_3_1_r2v_lite"
+    assert p.usable("veo_3_1_extension_lite_low_priority", p.TIER_PRO) == \
+        "veo_3_1_extension_lite"
+    assert p.usable("veo_3_1_interpolation_lite_low_priority", p.TIER_PRO) == \
+        "veo_3_1_interpolation_lite"
+
+
+def test_cap_sinh_doi_ultra_hau_to_khong_o_cuoi():
+    """`veo_3_1_i2v_s_fast_ultra_fl` — _ultra nằm GIỮA, nối chuỗi kiểu thường là trượt."""
+    assert p.usable("veo_3_1_i2v_s_fast_fl", p.TIER_ULTRA) == "veo_3_1_i2v_s_fast_ultra_fl"
+    assert p.usable("veo_3_1_i2v_s_fast_ultra_fl", p.TIER_PRO) == "veo_3_1_i2v_s_fast_fl"
+
+
+def test_khong_co_ban_thay_the_thi_tra_None():
+    assert p.usable("veo_3_1_upsampler_4k", p.TIER_PRO) is None
+    assert p.usable("khoa_bia_dat", p.TIER_PRO) is None
