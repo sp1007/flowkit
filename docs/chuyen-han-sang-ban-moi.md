@@ -80,3 +80,27 @@ curl http://127.0.0.1:8200/api/studio/projects | head -c 200
 `userPaygateTier` sai là hỏng LẶNG LẼ: studio dùng nó để chọn độ phân giải upscale và
 khoá model, nên đặt nhầm `FLOWKIT_FLOW_TIER` thì 4K âm thầm bị hạ xuống 2K mà không
 lỗi nào báo.
+
+## Tài khoản: nay đọc được, và app lọc dự án đúng
+
+Extension đọc email thẳng từ tab `flow.google.com` (khoá `oPEP7c` trong
+`WIZ_global_data`, 42 khoá) — không qua `labs.google`, không cần token. Ba probe cũ đều
+chết trên giao diện mới nên probe này đứng trước chúng.
+
+Đo sau khi bật: `/health` báo đúng `sonpham82@gmail.com`, và `/api/studio/projects` lọc
+từ 63 xuống **60 dự án** — bỏ 3 cái của hai tài khoản khác. Hàng rào tài khoản cũng nói
+rõ khi chạm nhầm:
+
+> Dự án "…" thuộc tài khoản `pmh.phuc@gmail.com`, nhưng Chrome đang đăng nhập Flow bằng
+> `sonpham82@gmail.com`.
+
+Side panel bỏ ô token (bản mới không dùng `ya29` nên ô đó luôn đỏ — báo động giả). Ô tài
+khoản thay nó làm chỉ báo chính: thấy email xanh nghĩa là extension chạy và đọc được
+trang.
+
+## Chưa kiểm được
+
+`GET /api/studio/shots/{id}/poster` — trong kho hiện tại, 235 file video còn trên đĩa
+đều thuộc dự án của `pmh.phuc@gmail.com` nên lượt thử dừng ở hàng rào tài khoản trước
+khi tới ffmpeg. Đường này chỉ đọc file local + ffmpeg, không đụng BOQ, nên nhiều khả
+năng vẫn nguyên — nhưng chưa chạy qua được thì chưa nói là đã kiểm.
