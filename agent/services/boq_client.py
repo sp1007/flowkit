@@ -12,6 +12,7 @@ endpoint tRPC mà là NGUỒN TOKEN.
 from __future__ import annotations
 
 import asyncio
+import re
 import os
 from typing import Optional, Sequence
 
@@ -48,6 +49,26 @@ def error_reasons(error) -> list:
 
     walk(error[1:] if isinstance(error, list) else error)
     return out
+
+
+_QUOTA_RE = re.compile(r"resource_exhausted|quota_exceeded|quota|429", re.I)
+
+
+def is_quota_error(res) -> bool:
+    """Lỗi này có phải HẾT HẠN MỨC không — khác hẳn chặn tạm thời vì bắn quá nhanh.
+
+    Để ở đây chứ không ở `api/studio.py` vì có tới BỐN vòng thử lại gọi Flow, nằm ở hai
+    module khác nhau (`api/studio.py` và `studio/graph.py`). Lần vá đầu tôi chỉ sửa hai
+    vòng bên `api/studio.py` và tưởng xong — trong khi ⚡ tạo nhanh và mọi shot/asset CÓ
+    ĐỒ THỊ đều đi qua `graph.py`, tức phần lớn dự án thật vẫn hỏng y như cũ.
+
+    Nhận cả dict phản hồi lẫn chuỗi lỗi.
+    """
+    if isinstance(res, dict):
+        if res.get("status") == 429:
+            return True
+        res = res.get("error")
+    return bool(res and _QUOTA_RE.search(str(res)))
 
 
 class BoqError(RuntimeError):

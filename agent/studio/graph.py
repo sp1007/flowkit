@@ -12,8 +12,10 @@ import logging
 import random
 
 from agent.config import IMAGE_MODELS, VIDEO_POLL_TIMEOUT
+from agent.services.boq_client import is_quota_error
 from agent.services.flow_client import get_flow_client
 from agent.studio import db, media_store, brain, assembler, imgproc, videopoll
+from agent.studio import jobs
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +244,13 @@ async def _img_gen_retry(call, pid, exclude=None):
     last = ""
     for attempt in range(_GRAPH_IMG_RETRIES):
         res = await call()
+        # HẾT HẠN MỨC → dừng CẢ JOB, đừng thử lại. Hạn mức không đầy lại sau vài giây;
+        # thử tiếp chỉ giữ job sống và khoá nút Auto gen. `JobAbort` bay thẳng qua
+        # `GraphError` lên tầng job vì nó KHÔNG phải lỗi của riêng một item.
+        if is_quota_error(res):
+            raise jobs.JobAbort(
+                f"Hết hạn mức Flow ({str(res.get('error'))[:120]}). Đổi model khác hoặc "
+                f"chờ hạn mức đầy lại rồi chạy tiếp — thứ đã tạo được vẫn giữ nguyên.")
         if res.get("error"):
             last = str(res["error"])
         else:
@@ -360,6 +369,13 @@ async def _vid_gen_retry(submit, scene_key, pid, kind: str = "shot", flow_pid: s
     last = ""
     for attempt in range(_GRAPH_VID_RETRIES):
         res = await submit()
+        # HẾT HẠN MỨC → dừng CẢ JOB, đừng thử lại. Hạn mức không đầy lại sau vài giây;
+        # thử tiếp chỉ giữ job sống và khoá nút Auto gen. `JobAbort` bay thẳng qua
+        # `GraphError` lên tầng job vì nó KHÔNG phải lỗi của riêng một item.
+        if is_quota_error(res):
+            raise jobs.JobAbort(
+                f"Hết hạn mức Flow ({str(res.get('error'))[:120]}). Đổi model khác hoặc "
+                f"chờ hạn mức đầy lại rồi chạy tiếp — thứ đã tạo được vẫn giữ nguyên.")
         if res.get("error"):
             last = str(res["error"])
         else:

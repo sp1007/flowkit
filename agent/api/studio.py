@@ -129,16 +129,9 @@ _ABUSE_RE = re.compile(
 # và suốt thời gian ấy nút "Auto gen" bị khoá vì job vẫn đang chạy.
 #
 # Hạn mức không tự đầy lại sau vài phút. Thử lại không cứu được gì, chỉ giữ job sống.
-_QUOTA_RE = re.compile(r"resource_exhausted|quota_exceeded|quota|429", re.I)
-
-
-def _is_quota_exhausted(res: dict) -> bool:
-    if not isinstance(res, dict):
-        return False
-    if res.get("status") == 429:
-        return True
-    err = res.get("error")
-    return bool(err and _QUOTA_RE.search(str(err)))
+# Dùng CHUNG với graph.py — có bốn vòng thử lại gọi Flow nằm ở hai module, và hai bản
+# nhận diện quota riêng thì sớm muộn cũng lệch nhau.
+from agent.services.boq_client import is_quota_error as _is_quota_exhausted   # noqa: E402
 
 
 def _is_abuse_block(res: dict) -> bool:
