@@ -13,7 +13,7 @@ import json
 import os
 import re
 
-import boq_ops as ops
+from agent.services import boq_ops as ops
 
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")

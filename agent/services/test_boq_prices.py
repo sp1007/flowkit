@@ -5,7 +5,7 @@ giá phải dựng lại ĐÚNG từng dòng của bảng 104 khoá. Đó là th
 luật cho khoá Google mới thêm — nếu luật chỉ đúng "gần hết" thì nó là phỏng đoán, và
 phỏng đoán về tiền thì không nên đưa vào đường chạy.
 """
-import boq_prices as p
+from agent.services import boq_prices as p
 
 
 def _la_model_video(key: str) -> bool:

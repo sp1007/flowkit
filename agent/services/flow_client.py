@@ -1224,8 +1224,40 @@ def _build_structured_parts(prompt: str, references: list[dict],
 _client: Optional[FlowClient] = None
 
 
-def get_flow_client() -> FlowClient:
+class _BoqRouted:
+    """Bọc FlowClient, đổi các method sinh media sang đường batchexecute.
+
+    Bật bằng `FLOWKIT_USE_BOQ=1`. Mọi thứ khác (`connected`, `set_extension`,
+    `handle_message`, `boq_request`…) rơi thẳng xuống client thật qua `__getattr__`, nên
+    tầng WebSocket và các endpoint /v2 không hề biết có lớp này.
+
+    Bọc ở ĐÚNG MỘT CHỖ thay vì sửa 16 method: bề mặt thay đổi nhỏ, và tắt cờ là quay lại
+    hành vi cũ nguyên vẹn — nên so hai đường trên cùng một đầu vào là chuyện dễ.
+    """
+
+    _ROUTED = (
+        "generate_images", "edit_image", "upload_image", "upscale_image",
+        "generate_video", "generate_video_omni", "generate_video_veo_lite",
+        "upscale_video", "check_video_status", "get_credits", "get_media",
+        "get_direct_media", "get_project", "get_projects", "create_project",
+        "change_display_name", "change_project_cover", "validate_media_id",
+    )
+
+    def __init__(self, real: "FlowClient"):
+        self._real = real
+        self._compat = None
+
+    def __getattr__(self, name):
+        from .boq_compat import BoqCompat, enabled
+        if name in self._ROUTED and enabled():
+            if self._compat is None:
+                self._compat = BoqCompat(self._real)
+            return getattr(self._compat, name)
+        return getattr(self._real, name)
+
+
+def get_flow_client():
     global _client
     if _client is None:
-        _client = FlowClient()
+        _client = _BoqRouted(FlowClient())
     return _client
