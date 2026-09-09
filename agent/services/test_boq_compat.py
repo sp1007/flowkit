@@ -239,3 +239,8 @@ def test_khong_doc_duoc_thi_roi_ve_bien_moi_truong():
     c = _credits_with([500, None, 99, None, None, 500], tier_env=2)
     r = asyncio.run(compat.BoqCompat.get_credits(c))
     assert r["data"]["userPaygateTier"] == "PAYGATE_TIER_ONE"     # tier_env=2 → Pro
+
+
+def test_khong_con_co_bat_tat():
+    """Đường batchexecute là đường DUY NHẤT — không còn `enabled()` để ai đó tắt nhầm."""
+    assert not hasattr(compat, "enabled")

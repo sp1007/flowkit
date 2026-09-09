@@ -40,20 +40,25 @@ DEFAULT_CONFIG = {
     "servers": [
         {
             "id": "backend",
-            "name": "Backend (agent)",
-            "cwd": "D:\\youtube\\editor\\flowkit",
+            "name": "Backend (agent) — 8200",
+            "cwd": "D:\\youtube\\editor\\flowkit-next",
             "command": "python -m agent.main",
-            "url": "http://127.0.0.1:8200/health",
+            # Mở thẳng giao diện, không mở /health: backend phục vụ luôn bản webapp đã
+            # build ở webapp/dist, nên đây mới là địa chỉ dùng hằng ngày.
+            "url": "http://127.0.0.1:8200",
             "autostart": True,
             "own_console": False,
         },
         {
             "id": "webui",
-            "name": "Web UI (vite)",
-            "cwd": "D:\\youtube\\editor\\flowkit\\webapp",
+            "name": "Web UI (vite — chỉ khi sửa giao diện) — 5200",
+            "cwd": "D:\\youtube\\editor\\flowkit-next\\webapp",
             "command": "npm run dev",
-            "url": "http://127.0.0.1:5173",
-            "autostart": True,
+            "url": "http://127.0.0.1:5200",
+            # KHÔNG tự chạy: backend đã phục vụ bản webapp build sẵn ở 8200, nên vite chỉ
+            # cần khi ĐANG SỬA giao diện. Bật cả hai là mở hai bản UI cùng lúc — rất dễ
+            # sửa ở bản này rồi ngồi nhìn bản kia không đổi.
+            "autostart": False,
             "own_console": False,
         },
         {

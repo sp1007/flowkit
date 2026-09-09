@@ -4,10 +4,11 @@ Vì sao làm thế này thay vì sửa studio: studio đọc kết quả Flow �
 (`_extract_video_submit`, `_generated_media_id`, `videopoll._status_of`,
 `hires._upsample_operation`, `media_store.resolve_url`…). Sửa hết là một lượt thay đổi
 lớn trên đúng phần đang chạy sản xuất, mà lại không kiểm được bằng gì ngoài chạy thử.
-Đổi ĐỘNG CƠ mà giữ nguyên DÂY thì bề mặt thay đổi chỉ còn một file, và bật/tắt được
-bằng một biến môi trường — nên so sánh hai đường trên cùng một đầu vào là chuyện dễ.
+Đổi ĐỘNG CƠ mà giữ nguyên DÂY thì bề mặt thay đổi chỉ còn một file.
 
-Bật bằng `FLOWKIT_USE_BOQ=1`. Tắt (mặc định) thì `FlowClient` chạy y như cũ.
+Đây là đường DUY NHẤT của nhánh này — không còn cờ bật/tắt. Thân các method gọi
+`aisandbox-pa` đã bị xoá khỏi `flow_client.py`, vì chúng cần token `ya29` mà giao diện
+mới không phát nữa; giữ lại chỉ là một đường chết mà ai đó sẽ tưởng còn dùng được.
 
 Hình dạng phải khớp, đọc ngược từ chỗ studio dùng:
 
@@ -39,10 +40,6 @@ from . import boq_prices as prices
 from .boq_client import BoqClient, BoqError, QuotaError
 
 _MODELS_PATH = Path(__file__).resolve().parent.parent / "models.json"
-
-
-def enabled() -> bool:
-    return os.environ.get("FLOWKIT_USE_BOQ", "").strip() in ("1", "true", "yes", "on")
 
 
 def _models() -> dict:
@@ -507,3 +504,28 @@ class BoqCompat:
     async def change_project_cover(self, project_id, media_name_id) -> dict:
         await self.boq.set_project_cover(project_id, "", media_name_id)
         return _ok({"ok": True})
+
+    @_soft
+    async def delete_project(self, project_id: str) -> dict:
+        """Xoá THẬT (rpcid QI2zvc), khác `trash_workflows` vốn chỉ bật cờ archived."""
+        await self.boq.delete_project(project_id)
+        return _ok({"ok": True})
+
+    @_soft
+    async def generate_video_from_references(self, reference_media_ids, prompt,
+                                             project_id, scene_id="",
+                                             aspect_ratio=None, user_paygate_tier=None,
+                                             references=None, video_model=None,
+                                             batch_id=None) -> dict:
+        """Video từ ảnh tham chiếu, giữ chữ ký của đường cũ.
+
+        Đường này luôn bật dedupe: prompt timeline gọi lại cùng một frame ở nhiều mốc là
+        chuyện thường, mà nhiều mảnh trỏ cùng một mediaId thì Flow trả lỗi.
+        """
+        m = _models()
+        key = video_model or m.get("veo_lite_models", {}).get("reference_frame_2_video")
+        key = self._fit_tier(key)
+        out = await self._dispatch_video(prompt, project_id, key,
+                                         video_ratio(aspect_ratio), None, None,
+                                         references, reference_media_ids, batch_id)
+        return _ok(_video_submit_payload(out))
