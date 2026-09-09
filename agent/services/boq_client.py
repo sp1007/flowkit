@@ -19,14 +19,55 @@ from . import boq_ops as ops
 from . import boq_prices as prices
 
 
+# Tên mã của google.rpc.Code. Mã lạ thì in số, đừng bịa tên.
+RPC_CODE = {
+    1: "CANCELLED", 2: "UNKNOWN", 3: "INVALID_ARGUMENT", 4: "DEADLINE_EXCEEDED",
+    5: "NOT_FOUND", 6: "ALREADY_EXISTS", 7: "PERMISSION_DENIED",
+    8: "RESOURCE_EXHAUSTED", 9: "FAILED_PRECONDITION", 10: "ABORTED",
+    11: "OUT_OF_RANGE", 12: "UNIMPLEMENTED", 13: "INTERNAL", 14: "UNAVAILABLE",
+    15: "DATA_LOSS", 16: "UNAUTHENTICATED",
+}
+
+
+def error_reasons(error) -> list:
+    """Các chuỗi lý do trong một lỗi Flow.
+
+    Lý do nằm sâu trong `google.rpc.ErrorInfo`; quét MỌI chuỗi thay vì đi theo chỉ số cố
+    định, vì Google có thể kèm thêm loại detail khác và làm lệch vị trí. Bỏ qua chuỗi
+    `type.googleapis.com/...` vì đó là tên kiểu, không phải lý do.
+    """
+    out = []
+
+    def walk(node):
+        if isinstance(node, str):
+            if not node.startswith("type.googleapis.com/"):
+                out.append(node)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+
+    walk(error[1:] if isinstance(error, list) else error)
+    return out
+
+
 class BoqError(RuntimeError):
-    """Lỗi từ chính Flow (nằm trong `wrb.fr` slot [5]), không phải lỗi vận chuyển."""
+    """Lỗi từ chính Flow (nằm trong `wrb.fr` slot [5]), không phải lỗi vận chuyển.
+
+    Thông điệp phải ĐỌC ĐƯỢC. Bản đầu in nguyên mảng thô, nên thứ hiện lên ở side panel
+    là `[8,null,[["type.googleapis.` — cắt cụt đúng chỗ vô nghĩa nhất và giấu mất phần
+    duy nhất nói lên chuyện gì đã xảy ra.
+    """
 
     def __init__(self, rpcid: str, error, message: str = ""):
         self.rpcid = rpcid
         self.error = error
         self.code = error[0] if isinstance(error, list) and error else None
-        super().__init__(message or f"{rpcid} lỗi {self.code}: {error}")
+        self.reasons = error_reasons(error) if error is not None else []
+        if not message:
+            name = RPC_CODE.get(self.code, f"CODE_{self.code}") if self.code is not None else ""
+            why = ", ".join(self.reasons)
+            message = f"{rpcid}: {name}" + (f" — {why}" if why else "")
+        super().__init__(message)
 
 
 class QuotaError(RuntimeError):

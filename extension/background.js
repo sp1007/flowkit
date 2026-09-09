@@ -1508,6 +1508,41 @@ async function handleProbeTabs(msg) {
   sendToAgent({ id: msg.id, result: out });
 }
 
+/** Đổi lỗi thô của Flow thành một dòng đọc được.
+ *
+ *  Flow trả lỗi dạng `[<mã>, null, [["type.googleapis.com/google.rpc.ErrorInfo",
+ *  ["PUBLIC_ERROR_..."]]]]`. Nhét nguyên chuỗi ấy vào side panel thì thứ hiện lên là
+ *  `[8,null,[["type.googleapis.` — cắt cụt đúng chỗ vô nghĩa nhất, giấu mất phần DUY
+ *  NHẤT nói lên chuyện gì đã xảy ra.
+ *
+ *  Tên mã lấy từ google.rpc.Code. Mã lạ thì in số, đừng bịa tên.
+ */
+const _RPC_CODE = {
+  1: 'CANCELLED', 2: 'UNKNOWN', 3: 'INVALID_ARGUMENT', 4: 'DEADLINE_EXCEEDED',
+  5: 'NOT_FOUND', 6: 'ALREADY_EXISTS', 7: 'PERMISSION_DENIED', 8: 'RESOURCE_EXHAUSTED',
+  9: 'FAILED_PRECONDITION', 10: 'ABORTED', 11: 'OUT_OF_RANGE', 12: 'UNIMPLEMENTED',
+  13: 'INTERNAL', 14: 'UNAVAILABLE', 15: 'DATA_LOSS', 16: 'UNAUTHENTICATED',
+};
+
+function _boqErrorText(err) {
+  if (err == null) return 'UNKNOWN';
+  if (typeof err === 'string') return err.slice(0, 200);
+  if (!Array.isArray(err)) return String(err).slice(0, 200);
+  const code = typeof err[0] === 'number' ? err[0] : null;
+  // Lý do nằm sâu trong ErrorInfo; quét mọi chuỗi thay vì đi theo chỉ số cố định, vì
+  // Google có thể kèm thêm loại detail khác và làm lệch vị trí.
+  const reasons = [];
+  const walk = (n) => {
+    if (typeof n === 'string') {
+      if (!n.startsWith('type.googleapis.com/')) reasons.push(n);
+    } else if (Array.isArray(n)) n.forEach(walk);
+  };
+  walk(err.slice(1));
+  const name = code != null ? (_RPC_CODE[code] || `CODE_${code}`) : '';
+  const why = reasons.join(', ');
+  return (why ? `${name}: ${why}` : name || JSON.stringify(err)).slice(0, 200);
+}
+
 async function handleBoqRequest(msg) {
   const { id, params } = msg;
   let { rpcid, args = null, source_path: sourcePath } = params || {};
@@ -1533,9 +1568,9 @@ async function handleBoqRequest(msg) {
   const finish = (ok, err) => {
     if (!counts) return;
     if (ok) metrics.successCount++;
-    else { metrics.failedCount++; metrics.lastError = String(err || '').slice(0, 200); }
+    else { metrics.failedCount++; metrics.lastError = _boqErrorText(err); }
     chrome.storage.local.set({ metrics });
-    updateRequestLog(id, { status: ok ? 'success' : 'failed', error: ok ? null : String(err || '') });
+    updateRequestLog(id, { status: ok ? 'success' : 'failed', error: ok ? null : _boqErrorText(err) });
     setState('idle');
   };
   if (_needsCaptcha(args)) {
@@ -1558,7 +1593,7 @@ async function handleBoqRequest(msg) {
     // Lỗi của Flow nằm TRONG phản hồi 200 (`wrb.fr` ô [5]), không phải ở mã HTTP — chỉ
     // nhìn status thì một lượt bị lọc nội dung vẫn được tính là thành công.
     const failed = (out.results || []).find((r) => r && r.error);
-    finish(!failed, failed && JSON.stringify(failed.error));
+    finish(!failed, failed && failed.error);
     sendToAgent({ id, status: out.status, data: out });
   } catch (e) {
     finish(false, e?.message || 'BOQ_FAILED');

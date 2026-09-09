@@ -244,3 +244,28 @@ def test_khong_doc_duoc_thi_roi_ve_bien_moi_truong():
 def test_khong_con_co_bat_tat():
     """Đường batchexecute là đường DUY NHẤT — không còn `enabled()` để ai đó tắt nhầm."""
     assert not hasattr(compat, "enabled")
+
+
+# ─── thông điệp lỗi phải đọc được ────────────────────────────
+
+def test_loi_flow_hien_thanh_dong_doc_duoc():
+    """`[8,null,[["type.googleapis.` là thứ hiện lên side panel trước bản vá này —
+    cắt cụt đúng chỗ vô nghĩa nhất, giấu mất phần duy nhất nói lên chuyện gì xảy ra.
+    """
+    from agent.services.boq_client import BoqError, error_reasons
+    e = BoqError("ogiZ0b", [8, None, [["type.googleapis.com/google.rpc.ErrorInfo",
+                                       ["PUBLIC_ERROR_QUOTA_EXCEEDED"]]]])
+    assert str(e) == "ogiZ0b: RESOURCE_EXHAUSTED — PUBLIC_ERROR_QUOTA_EXCEEDED"
+    assert e.code == 8
+    assert e.reasons == ["PUBLIC_ERROR_QUOTA_EXCEEDED"]
+    # Tên kiểu không phải lý do.
+    assert error_reasons([7, None, [["type.googleapis.com/google.rpc.ErrorInfo",
+                                     ["PUBLIC_ERROR_MODEL_ACCESS_DENIED"]]]]) \
+        == ["PUBLIC_ERROR_MODEL_ACCESS_DENIED"]
+
+
+def test_loi_khong_kem_ly_do_van_doc_duoc():
+    from agent.services.boq_client import BoqError, RPC_CODE
+    assert str(BoqError("SPrCad", [3])) == "SPrCad: INVALID_ARGUMENT"
+    assert RPC_CODE.get(99) is None
+    assert str(BoqError("x", [99, None, []])) == "x: CODE_99"
