@@ -1430,6 +1430,31 @@ async function captchaFromMainWorld(tab, action) {
   }
 }
 
+/** Xin token reCAPTCHA, có THỬ LẠI cho lỗi tạm thời.
+ *
+ *  `CONTENT_TIMEOUT` là lỗi của chính grecaptcha khi nội dung thử thách không tải kịp —
+ *  hay gặp khi tab bị đẩy xuống nền và Chrome bóp hẹn giờ, hoặc mạng chậm một nhịp. Nó
+ *  tự khỏi ở lần sau, nhưng trước đây chỉ xin MỘT lần nên cả lượt sinh hỏng theo, và
+ *  người dùng thấy `CAPTCHA_FAILED: CONTENT_TIME…` mà không hiểu vì sao.
+ *
+ *  KHÔNG thử lại `NO_GRECAPTCHA`: đó là tab sai (trang giới thiệu chưa khởi động app),
+ *  thử lại mười lần cũng thế. Hỏng ngay và nói việc phải làm thì có ích hơn.
+ */
+const _CAPTCHA_RETRY_RE = /timeout|network|internal|NO_RESULT|EXECUTE_SCRIPT_FAILED/i;
+
+async function getCaptchaToken(tab, action, tries = 3) {
+  let last = null;
+  for (let i = 0; i < tries; i++) {
+    const cap = await captchaFromMainWorld(tab, action);
+    if (cap?.token) return cap;
+    last = cap;
+    if (!_CAPTCHA_RETRY_RE.test(String(cap?.error || ''))) break;   // lỗi không cứu được
+    console.warn(`[FlowAgent] captcha lỗi tạm thời (${cap?.error}), thử lại ${i + 1}/${tries}`);
+    await sleep(1500);
+  }
+  return last || { error: 'NO_RESULT' };
+}
+
 function _fillCaptcha(node, token) {
   if (node === CAPTCHA_SLOT) return token;
   if (Array.isArray(node)) return node.map((x) => _fillCaptcha(x, token));
@@ -1572,7 +1597,7 @@ async function handleBoqRequest(msg) {
     // Cùng tab sẽ gửi batchexecute, nên token sinh ra đúng origin đang gọi.
     const tab = (await pickFlowTab(FLOW_APP_TAB_URLS)) || (await pickFlowTab(BOQ_TAB_URLS));
     if (!tab) { finish(false, 'NO_FLOW_APP_TAB'); sendToAgent({ id, error: 'NO_FLOW_APP_TAB' }); return; }
-    let cap = await captchaFromMainWorld(tab, captchaAction);
+    let cap = await getCaptchaToken(tab, captchaAction);
     if (!cap?.token) cap = await solveCaptcha(`boq-${id}`, captchaAction);   // cầu nối cũ
     if (!cap?.token) {
       const err = `CAPTCHA_FAILED: ${cap?.error || 'NO_TOKEN'} @${_tabOrigin(tab)}${tab.url ? '' : ' (tab.url rỗng)'}`;

@@ -145,8 +145,12 @@ function updateRequestLog(entries) {
       badgeHtml = '<span class="badge badge-proc">&#9203; sent</span>';
     }
 
+    // `PUBLIC_ERROR_` là tiền tố chung của mọi mã lỗi Flow — không phân biệt được gì mà
+    // ăn mất 13 trong 28 ký tự hiển thị, nên phần CÓ nghĩa bị cắt đúng chỗ cần đọc:
+    // "RESOURCE_EXHAUSTED: PUBLIC_E…". Bỏ nó đi và nới ô rộng hơn.
+    const errShort = String(error).replace(/PUBLIC_ERROR_/g, '');
     const errorDisplay = error
-      ? `<td class="td-error" title="${escHtml(error)}">${escHtml(truncate(error, 28))}</td>`
+      ? `<td class="td-error" title="${escHtml(error)}">${escHtml(truncate(errShort, 44))}</td>`
       : `<td class="td-error empty">—</td>`;
 
     return `<tr>
