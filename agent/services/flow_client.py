@@ -53,12 +53,17 @@ class FlowClient:
         # một dự án vài trăm frame thì đó là chênh lệch hàng giờ.
         #
         # Song song được vì hai lẽ, cả hai đều đo được: giao thức WS ghép kênh theo
-        # `req_id` (mỗi lượt một future riêng), và CHÍNH giao diện Flow bắn 4 lời gọi
-        # ogiZ0b đồng thời cho một lô 4 — bắt tận tay trong nhật ký recon, mỗi lời gọi
-        # mang một token reCAPTCHA riêng.
+        # `req_id` (mỗi lượt một future riêng), và giao diện Flow thật cũng để bốn lượt
+        # CHỒNG NHAU.
+        #
+        # Chú ý con số: giao diện KHÔNG bắn cả bốn cùng một lúc. Đo trên nhật ký recon,
+        # bốn lô 4 ảnh có khoảng cách 0,51–1,24 giây giữa các lượt (trung bình ~0,95).
+        # Nhưng nó không CHỜ lượt trước xong — mỗi ảnh mất 5–20 giây, nên sau ~3 giây là
+        # cả bốn đang bay. Đó mới là chỗ khoá cũ sai: nó bắt chờ XONG HẲN, tức 4 lượt nối
+        # đuôi mất 20–80 giây thay vì ~20 giây.
         #
         # Vẫn giữ TRẦN chứ không thả tự do: bắn vài chục lượt cùng lúc là mời Google chặn
-        # vì "hoạt động bất thường". 4 là con số giao diện thật dùng.
+        # vì "hoạt động bất thường". 4 là số lượt tối đa cùng bay của giao diện thật.
         self._boq_sem = asyncio.Semaphore(
             int(os.environ.get("FLOWKIT_BOQ_CONCURRENCY", "4")))
         # Recon batchexecute: rpcid mà giao diện mới vừa gọi (xem handle_message).

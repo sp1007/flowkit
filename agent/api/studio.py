@@ -79,9 +79,14 @@ IMAGE_BATCH_COOLDOWN = (
 # Spread a batch's submits by up to index*random(stagger) seconds so the group doesn't hit
 # Flow at the exact same instant (dodges the 'unusual activity' heuristic) while staying mostly
 # concurrent. Set FLOWKIT_IMAGE_BATCH_STAGGER=0 to fire simultaneously, or SIZE=1 for sequential.
+# Giãn cách giữa các lượt TRONG một lô. Đo trên nhật ký recon của giao diện Flow thật:
+# bốn lô 4 ảnh có khoảng cách 0,51–1,24 giây, trung bình ~0,95. Bám theo con số ấy thay vì
+# 0,3–0,8 như trước — bắn sát hơn giao diện thật không nhanh thêm được bao nhiêu (ảnh mất
+# 5–20 giây) mà lại dồn bốn lượt xin reCAPTCHA vào cùng một khoảnh khắc, đúng thứ hay sinh
+# ra CONTENT_TIMEOUT.
 IMAGE_BATCH_STAGGER = (
-    float(os.environ.get("FLOWKIT_IMAGE_BATCH_STAGGER", "0.3")),
-    float(os.environ.get("FLOWKIT_IMAGE_BATCH_STAGGER_MAX", "0.8")),
+    float(os.environ.get("FLOWKIT_IMAGE_BATCH_STAGGER", "0.8")),
+    float(os.environ.get("FLOWKIT_IMAGE_BATCH_STAGGER_MAX", "1.2")),
 )
 
 # Batch VIDEO — cùng cơ chế batch ảnh nhưng CONSERVATIVE hơn hẳn, có lý do đo được: bắn 4

@@ -63,7 +63,7 @@
     "[4][0]": "BATCH ID — cả lô dùng CHUNG, ứng với mediaGenerationContext.batchId của đường cũ",
     "[1][0][2]": "ẢNH ĐẦU VÀO — danh sách, mỗi mục [<mediaId>, null, null, null, <KIỂU>]. KIỂU đã đo: 1 = ảnh THAM CHIẾU, 2 = ảnh NỀN (lượt sửa ảnh). Ứng đúng IMAGE_INPUT_TYPE_REFERENCE / IMAGE_INPUT_TYPE_BASE_IMAGE của đường cũ. Nhiều ảnh thì nhiều mục, THỨ TỰ danh sách là 'ảnh thứ nhất/thứ hai' mà prompt nhắc tới. Đi bằng mediaId, không phải base64/URL."
    },
-   "batching": "Lô 4 ảnh = 4 lời gọi ogiZ0b RIÊNG, cách nhau ~1s, mỗi lời gọi có seed / UUID / token reCAPTCHA RIÊNG, chung một batch id.",
+   "batching": "Lô 4 ảnh = 4 lời gọi ogiZ0b RIÊNG, mỗi lời gọi có seed / UUID / token reCAPTCHA RIÊNG, chung một batch id. ĐO LẠI trên nhật ký recon (4 lô của giao diện thật): khoảng cách giữa các lượt là 0,51–1,24 giây, trung bình ~0,95 — KHÔNG phải bắn đồng thời. Nhưng cũng KHÔNG chờ lượt trước xong: mỗi ảnh mất 5–20 giây nên sau ~3 giây là cả bốn đang bay. Hai điều đó khác nhau và tôi đã có lần nhầm: viết trong code rằng giao diện 'bắn 4 lời gọi đồng thời', trong khi chính ghi chú này nói ~1s.",
    "response_map": {
     "data[0][0][0]": "mediaId",
     "data[0][0][2]": "workflowId",
