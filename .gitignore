@@ -36,3 +36,4 @@ build_work/
 
 # Recon logs
 boq_calls.jsonl
+*.json
