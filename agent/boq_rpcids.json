@@ -216,6 +216,18 @@
    "khi_port": "Logic _build_structured_parts + dedupe_refs cua ban chinh dung duoc nguyen o day. Ca hai luat da biet ben anh deu ap: token {ten} lap lai sinh nhieu part tro cung mot mediaId thi Flow tra loi, va manh chu bi vun ra cung tra loi — phai gop manh chu lien nhau.",
    "do_that": "ffprobe file tai ve: 720x1280, 24fps, 8.000000 giay, 2014260 byte. Xac nhan ti le 1 = 9:16.",
    "toc_do": "Render xong sau 3 luot poll (~18 giay) du dung key _low_priority. Them mot bang chung nua rang hang doi 0 dong KHONG cham."
+  },
+  "generate_video_frames": {
+   "rpcid": "nprQif",
+   "args": "[[[ [null,null,[[[\"<prompt>\"]]]], \"<model key>\", <ti le>, null, <khung DAU>, <khung CUOI>, [null,null,null,null,\"<UUID>\",\"<UUID>\"] ]], <ctx>, [\"<batch id>\", 2]]",
+   "note": "TAO VIDEO TU HAI KHUNG (dau + cuoi). RPCID RIENG — ma thu tu lien tiep, sau fZytfe (noi dai), jIps6 (sua), MZZa6b (anh tham chieu). Khac MZZa6b o cho anh KHONG nam trong prompt: prompt chi co mot manh chu, con hai khung la HAI O RIENG o item[4] va item[5].",
+   "khung": "Moi khung la [null, \"<mediaId>\", null, null, null, <khung cat>].",
+   "khung_cat": "[null, <trai>, <duoi>, <phai>] chuan hoa 0..1, tuc [tren, trai, duoi, phai] voi 'tren' bo trong = 0. Giao dien TU CAT khi ti le anh khac ti le video: anh 1376x768 (16:9) ra video 9:16 thi no gui [null, 0.341796875, 1, 0.658203125] — be rong giu lai = (9/16)/(16/9) = 81/256 = 0.31640625, can giua nen 0.5 -/+ 0.158203125. Khop chinh xac tung chu so.",
+   "khung_cat_optional": "KHONG bat buoc: gui null cho ca hai khung voi ti le 2 (16:9, khop san voi anh 1376x768) thi van chay. Chi can tinh khi ti le anh khac ti le video.",
+   "gia": "Do bang so du 3 lan lien tiep: 12354 -> 12339 = 15 dung omni_flash_i2v_10s_first_last; 12339 -> 12335 = 4 va 12335 -> 12331 = 4 dung omni_flash_i2v_4s_first_last_360p. Bang HTrJv khop lan thu 5 va 6.",
+   "model_keys": "Ho omni_flash_i2v_<4|6|8|10>s_first_last, moi cai co ban _360p re hon mot nua. Do dai nam TRONG key nhu moi model Omni khac. Ben Veo co veo_3_1_interpolation_lite (5 credit tier 3) va ban _low_priority 0 dong — chua thu qua nprQif.",
+   "verified": "Phat lai hai luot: (a) ti le 1 co khung cat, (b) ti le 2 khong khung cat. Ca hai 200.",
+   "do_that": "ffprobe hai file: luot co khung cat + ti le 1 ra 360x640 (9:16); luot khung cat = null + ti le 2 ra 640x360 (16:9). Ca hai 24fps, 4.000000 giay dung theo key _4s_."
   }
  },
  "unknown": {
