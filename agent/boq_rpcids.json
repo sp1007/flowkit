@@ -227,7 +227,8 @@
    "gia": "Do bang so du 3 lan lien tiep: 12354 -> 12339 = 15 dung omni_flash_i2v_10s_first_last; 12339 -> 12335 = 4 va 12335 -> 12331 = 4 dung omni_flash_i2v_4s_first_last_360p. Bang HTrJv khop lan thu 5 va 6.",
    "model_keys": "Ho omni_flash_i2v_<4|6|8|10>s_first_last, moi cai co ban _360p re hon mot nua. Do dai nam TRONG key nhu moi model Omni khac. Ben Veo co veo_3_1_interpolation_lite (5 credit tier 3) va ban _low_priority 0 dong — chua thu qua nprQif.",
    "verified": "Phat lai hai luot: (a) ti le 1 co khung cat, (b) ti le 2 khong khung cat. Ca hai 200.",
-   "do_that": "ffprobe hai file: luot co khung cat + ti le 1 ra 360x640 (9:16); luot khung cat = null + ti le 2 ra 640x360 (16:9). Ca hai 24fps, 4.000000 giay dung theo key _4s_."
+   "do_that": "ffprobe hai file: luot co khung cat + ti le 1 ra 360x640 (9:16); luot khung cat = null + ti le 2 ra 640x360 (16:9). Ca hai 24fps, 4.000000 giay dung theo key _4s_.",
+   "veo_mien_phi": "nprQif NHAN CA KEY VEO: veo_3_1_interpolation_lite_low_priority chay 200, credit dung nguyen 12331, file ra 1280x720 24fps 8.000000 giay. Tuc HAI KHUNG cung co duong 0 dong — luot 15 credit cua nguoi dung la vi ho chon Omni Flash 10 giay. Khac biet: Veo noi suy CO DINH 8 giay, con Omni de do dai trong key nen chon duoc 4/6/8/10."
   },
   "generate_video_frame1": {
    "rpcid": "eb1hJf",
@@ -269,5 +270,19 @@
   "evidence": "Cung mot do dai clip 8 giay: noi dai gui 169..192, sua video gui 0..192. 192 = 8s x 24fps, va 0 = dau clip. Hai thao tac doc lap cung ket thuc o 192 nen day la CHI SO KHUNG HINH tren clip nguon, 24 hinh/giay.",
   "meaning": "Sua video lay TOAN BO clip (0..192). Noi dai lay ~1 giay cuoi lam moi (169..192). Chua thu gia tri khac nen chua biet server co kiem bien hay khong.",
   "confirmed": "ffprobe tren chinh file tai ve: 640x360, r_frame_rate = 24/1, duration = 8.000000. Vay 192 = 8 x 24 la CHAC, khong con la suy dien tu con so tron."
+ },
+ "_gia_video": {
+  "nguon": "agent/boq_model_catalog.json — 104 key kem gia tung tier, lay tu rpcid HTrJv. Tra o day, dung doan.",
+  "khop_bao_nhieu_lan": "Khop so du that 6 lan lien tiep (5, 20, 10, 50, 15, 4). Du de tin va BO HAN CREDIT_COST.video = 20 phang cua ban chinh khi port.",
+  "re_nhat_tier3": {
+   "khong_anh": "veo_3_1_t2v_lite_low_priority = 0",
+   "anh_tham_chieu": "veo_3_1_r2v_lite_low_priority = 0",
+   "mot_khung": "veo_3_1_i2v_s_lite_4s_low_priority = 0 (co ca _6s_)",
+   "hai_khung": "veo_3_1_interpolation_lite_low_priority = 0, co dinh 8 giay",
+   "noi_dai": "veo_3_1_extension_lite_low_priority = 0 — nhung UI CHI cho ban 5 credit",
+   "sua_video": "abra_edit_360p = 10; KHONG co duong 0 dong, va khong co ban Veo",
+   "upscale": "1080p = 0; 4K = 50, chi tier 3"
+  },
+  "ket_luan": "Moi thao tac SINH video deu co duong 0 dong. Ngoai le duy nhat la SUA VIDEO: chi Omni Flash lam duoc va re nhat la 10."
  }
 }
