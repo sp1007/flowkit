@@ -79,33 +79,26 @@ function updateStatus(data) {
   stateBadge.textContent = st;
   stateBadge.className = st; // idle | running | off
 
-  // Token status
-  const tokenEl = document.getElementById('token-status');
-  if (data.flowKeyPresent) {
-    const ageMs = data.tokenAge || 0;
-    const ageMin = Math.round(ageMs / 60000);
-    if (ageMs > 3600000) {
-      tokenEl.textContent = `token expired — open Flow to refresh`;
-      tokenEl.className = 'warn';
-    } else {
-      tokenEl.textContent = `token synced ${ageMin}m`;
-      tokenEl.className = 'ok';
-    }
-    // Auto-refresh when token age > 55 min and connected
-    if (ageMs > 3300000 && data.agentConnected) {
-      chrome.runtime.sendMessage({ type: 'REFRESH_TOKEN' });
-    }
-  } else {
-    tokenEl.textContent = 'no token';
-    tokenEl.className = 'bad';
-  }
+  // KHÔNG còn ô token. Bản dựng mới xác thực bằng COOKIE PHIÊN + `at` của chính tab
+  // flow.google.com, không dùng `Authorization: Bearer ya29.*` ở đâu cả — token ấy là do
+  // app Next.js ở labs.google phát, và đó chính là thứ ta đang thoát khỏi. Để lại ô
+  // "no token" đỏ chót là báo động giả: nó luôn đỏ, kể cả khi mọi thứ chạy hoàn hảo.
 
-  // Tài khoản Flow đang đăng nhập — dự án/media đều thuộc về nó, nên phải nhìn thấy ngay
-  // khi Chrome đang ở account nào.
+  // Tài khoản Flow đang đăng nhập. Đây là chỉ báo CHÍNH của panel này từ khi bỏ ô token:
+  // thấy đúng email nghĩa là extension chạy, đọc được trang, và app đang gắn với tài
+  // khoản nào. `project.account_id` lấy từ đây, mà đụng vào dự án của tài khoản khác là
+  // 403 — nên nhìn nhầm tài khoản là nhìn nhầm cả kho dự án.
   const accEl = document.getElementById('account-status');
   if (accEl) {
-    accEl.textContent = data.account || 'chưa rõ tài khoản';
-    accEl.className = data.account ? 'ok' : 'warn';
+    if (data.account) {
+      accEl.textContent = data.account;
+      accEl.className = 'ok';
+    } else {
+      // Nói việc phải làm, đừng chỉ báo thiếu: email đọc từ chính tab Flow, nên không có
+      // tab nào mở (hoặc đang ở trang giới thiệu chưa boot app) là không đọc được.
+      accEl.textContent = 'chưa rõ tài khoản — mở một dự án Flow';
+      accEl.className = 'warn';
+    }
   }
 
   // Metrics
@@ -279,17 +272,6 @@ document.getElementById('main-toggle').addEventListener('change', (e) => {
 document.getElementById('btn-flow').addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'OPEN_FLOW_TAB' }, () => {
     if (chrome.runtime.lastError) return;
-  });
-});
-
-document.getElementById('btn-token').addEventListener('click', () => {
-  const btn = document.getElementById('btn-token');
-  btn.textContent = 'Opening...';
-  btn.disabled = true;
-  chrome.runtime.sendMessage({ type: 'REFRESH_TOKEN' }, () => {
-    if (chrome.runtime.lastError) { /* ignore */ }
-    btn.textContent = 'Refresh Token';
-    btn.disabled = false;
   });
 });
 

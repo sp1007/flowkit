@@ -291,6 +291,58 @@ async function _identityFromSession() {
 
 /** Cùng endpoint, nhưng fetch TỪ TRONG tab Flow: request cùng origin nên cookie phiên chắc
  *  chắn được gửi kèm — dùng khi fetch từ service worker về rỗng (cookie SameSite). */
+/** Email tài khoản đọc THẲNG từ tab flow.google.com — không qua labs.google, không cần token.
+ *
+ *  Cần cho app chứ không chỉ cho side panel: `project.account_id` là thứ phân biệt dự án
+ *  của tài khoản nào, và mọi endpoint đụng tới dự án của tài khoản khác đều trả 403.
+ *  Không biết đang ở tài khoản nào thì app không lọc được, và người dùng thấy lẫn lộn dự
+ *  án của mọi tài khoản.
+ *
+ *  Ba probe cũ đều chết trên giao diện mới: `_identityFromSession` và `_identityFromFlowTab`
+ *  hỏi `/fx/api/auth/session` của app Next.js (flow.google.com trả vỏ HTML), còn
+ *  `_identityFromTokenInfo` cần `ya29` mà giao diện mới không phát. Nên probe này phải
+ *  đứng TRƯỚC.
+ */
+async function _identityFromBoqTab() {
+  const tab = (await pickFlowTab(FLOW_APP_TAB_URLS)) || (await pickFlowTab(BOQ_TAB_URLS));
+  if (!tab) return null;
+  const [res] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: 'MAIN',
+    func: () => {
+      const RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+      // WIZ_global_data mang mọi tham số phiên của trang; email nằm trong đó dưới một
+      // khoá bị minify, nên quét giá trị chứ đừng cứng hoá tên khoá — tên khoá đổi bất
+      // cứ lúc nào, còn dạng email thì không.
+      try {
+        const w = window.WIZ_global_data || {};
+        for (const v of Object.values(w)) {
+          if (typeof v === 'string') {
+            const m = v.match(RE);
+            if (m) return { email: m[0], source: 'wiz' };
+          }
+        }
+      } catch (e) { /* trang chưa boot */ }
+      try {
+        const el = document.querySelector('[aria-label*="@"], [data-email], img[alt*="@"]');
+        const s = el && (el.getAttribute('aria-label') || el.getAttribute('data-email')
+                         || el.getAttribute('alt'));
+        const m = s && s.match(RE);
+        if (m) return { email: m[0], source: 'dom' };
+      } catch (e) { /* bỏ qua */ }
+      return null;
+    },
+  });
+  const email = res?.result?.email;
+  if (!email) return null;
+  return {
+    email: String(email).trim().toLowerCase(),
+    name: null, picture: null, sub: null,
+    source: `boq-tab:${res.result.source}`,
+  };
+}
+
+
 async function _identityFromFlowTab() {
   // CHỈ tab labs.google: `/fx/api/auth/session` là route của app Next.js cũ, trên
   // flow.google.com nó trả về vỏ HTML nên JSON.parse hỏng và probe này vô nghĩa.
@@ -336,7 +388,8 @@ async function _identityFromTokenInfo() {
 /** Lấy tài khoản đang đăng nhập; báo agent khi đổi account. Trả về identity hoặc null. */
 async function fetchIdentity({ notify = true } = {}) {
   let next = null;
-  for (const probe of [_identityFromSession, _identityFromFlowTab, _identityFromTokenInfo]) {
+  for (const probe of [_identityFromBoqTab, _identityFromSession,
+                       _identityFromFlowTab, _identityFromTokenInfo]) {
     try {
       next = await probe();
       if (next) break;
@@ -1379,9 +1432,42 @@ async function handleProbeTabs(msg) {
     try {
       const [r] = await chrome.scripting.executeScript({
         target: { tabId: t.id }, world: 'MAIN',
-        func: () => !!(window.grecaptcha && window.grecaptcha.enterprise && window.grecaptcha.enterprise.execute),
+        func: () => {
+          const out = {
+            grecaptcha: !!(window.grecaptcha && window.grecaptcha.enterprise
+                           && window.grecaptcha.enterprise.execute),
+          };
+          // Dò xem email tài khoản nằm ở đâu trên trang. WIZ_global_data là chỗ chứa mọi
+          // tham số phiên nên thử trước; không có thì quét DOM.
+          const RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+          try {
+            const w = window.WIZ_global_data || {};
+            out.wizKeys = Object.keys(w).length;
+            for (const [k, v] of Object.entries(w)) {
+              if (typeof v === 'string') {
+                const m = v.match(RE);
+                if (m) { out.email = m[0]; out.wizKey = k; break; }
+              }
+            }
+          } catch (e) { out.wizError = String(e); }
+          if (!out.email) {
+            try {
+              const el = document.querySelector('[aria-label*="@"], [data-email], img[alt*="@"]');
+              const s = el && (el.getAttribute('aria-label') || el.getAttribute('data-email')
+                               || el.getAttribute('alt'));
+              const m = s && s.match(RE);
+              if (m) { out.email = m[0]; out.domHit = true; }
+            } catch (e) { out.domError = String(e); }
+          }
+          return out;
+        },
       });
-      grecaptcha = r?.result === true;
+      const res = r?.result || {};
+      grecaptcha = res.grecaptcha === true;
+      out.push({ url: t.url, active: t.active, discarded: t.discarded, grecaptcha,
+                 email: res.email || null, wizKey: res.wizKey || null,
+                 wizKeys: res.wizKeys, domHit: !!res.domHit });
+      continue;
     } catch (e) { grecaptcha = `loi: ${e?.message || e}`; }
     out.push({ url: t.url, active: t.active, discarded: t.discarded, grecaptcha });
   }

@@ -193,17 +193,8 @@
     #state-badge.running { background: rgba(245,158,11,0.15); color: var(--yellow); }
     #state-badge.off     { background: var(--border);         color: var(--muted); }
 
-    #token-status {
-      margin-left: auto;
-      font-size: 10px;
-    }
-
-    #token-status.ok   { color: var(--green); }
-    #token-status.bad  { color: var(--red); }
-    #token-status.warn { color: var(--yellow); }
-
-    #account-status      { margin-left: auto; max-width: 45%; overflow: hidden;
-                           text-overflow: ellipsis; white-space: nowrap; }
+    #account-status      { margin-left: auto; max-width: 70%; overflow: hidden;
+                           text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
     #account-status.ok   { color: var(--green); }
     #account-status.warn { color: var(--yellow); }
 
@@ -528,7 +519,6 @@
   <div class="state-bar">
     STATE
     <span id="state-badge" class="off">off</span>
-    <span id="token-status" class="bad">no token</span>
     <span id="account-status" class="warn">chưa rõ tài khoản</span>
   </div>
 
@@ -562,7 +552,6 @@
   <!-- Actions -->
   <div class="actions">
     <button class="btn btn-primary" id="btn-flow">Open Flow Tab</button>
-    <button class="btn" id="btn-token">Refresh Token</button>
   </div>
 
   <!-- Signature -->
