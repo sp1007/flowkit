@@ -791,6 +791,19 @@ const graphUrl = (
 export const graphApi = {
   get: (kind: "shot" | "entity", id: string, goal?: "image" | "video") =>
     req<{ graph: any }>(graphUrl(kind, id, "", goal)),
+  // Đồ thị MẶC ĐỊNH dựng ở SERVER. Trước đây giao diện tự dựng bằng defaultGraph() trong
+  // NodeEditor.tsx, còn server có đường dựng prompt riêng — hai bộ độc lập thì sớm muộn
+  // cũng lệch, và lúc đó ⚡/✦ ra một đằng, mở Node Editor lên thấy một nẻo.
+  defaultGraph: (
+    pid: string,
+    kind: "shot" | "entity",
+    id: string,
+    goal: "image" | "video" = "image"
+  ) =>
+    req<{ nodes: any[]; edges: any[] }>(`/studio/projects/${pid}/default-graph`, {
+      method: "POST",
+      body: JSON.stringify({ kind, id, goal }),
+    }),
   run: (
     kind: "shot" | "entity",
     id: string,

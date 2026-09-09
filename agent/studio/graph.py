@@ -987,3 +987,124 @@ async def run_graph(graph: dict, target: dict, project: dict, kind: str,
             **({"operation_json": None} if col == "video" else {})})
     return {"media_id": final["media_id"], "path": web, "ext": final.get("ext", "png"),
             "display_path": display_path, "node_outputs": node_outputs}
+
+
+# ─── Đồ thị MẶC ĐỊNH ─────────────────────────────────────────
+
+def _seed_from_row(kind: str, row: dict, goal: str) -> dict:
+    """Suy `seed` của Node Editor từ một hàng shot/entity.
+
+    Phải khớp đúng chỗ giao diện dựng seed (StoryboardTab / ShotsTab / AssetsTab), vì đây
+    là thứ quyết định đồ thị mặc định trông thế nào.
+    """
+    if kind == "entity":
+        return {
+            "kind": "entity", "id": row["id"], "title": row.get("name") or "",
+            "entity_type": row.get("type") or "",
+            "goal": "image",
+            "prompt": row.get("description") or row.get("ref_prompt") or row.get("name") or "",
+            "ref_entity_ids": [],
+            "image_media_id": row.get("media_id"),
+            "image_src": row.get("image_path"),
+            "video_src": None,
+        }
+    if goal == "video":
+        prompt = "\n\n".join(
+            p for p in (row.get("motion_prompt"), row.get("visual_prompt")) if p
+        ) or row.get("description") or row.get("title") or ""
+    else:
+        prompt = row.get("description") or row.get("visual_prompt") or row.get("title") or ""
+    refs = row.get("ref_entity_ids")
+    if isinstance(refs, str):
+        try:
+            refs = json.loads(refs)
+        except (json.JSONDecodeError, TypeError):
+            refs = []
+    return {
+        "kind": "shot", "id": row["id"], "title": row.get("title") or "",
+        "entity_type": "", "goal": goal, "prompt": prompt,
+        "ref_entity_ids": list(refs or []),
+        "image_media_id": row.get("image_media_id"),
+        "image_src": row.get("image_path"),
+        "video_src": row.get("video_path"),
+    }
+
+
+def default_graph(seed: dict, entities: list[dict], engine: str, aspect: str) -> dict:
+    """Đồ thị mặc định cho một shot/entity chưa có đồ thị riêng.
+
+    ĐÂY LÀ NGUỒN DUY NHẤT. Trước đây bộ dựng này chỉ có ở giao diện (`NodeEditor.tsx`),
+    nên server không có gì để chạy khi hàng chưa có đồ thị và phải rơi về một đường dựng
+    prompt riêng. Hai đường ấy "tương đương" trên giấy nhưng không có gì buộc chúng đi
+    cùng nhau, và người dùng chỉnh đồ thị bất cứ lúc nào — nghĩa là cùng một shot có thể
+    ra hai kết quả khác nhau tuỳ nó đã được lưu đồ thị hay chưa. Nay chỉ còn một đường.
+
+    Giữ nguyên id node của bản giao diện ("p", "i", "v", "o", "src…") để đồ thị sinh ra ở
+    server mở được trong Node Editor mà không lệch.
+    """
+    def mk(nid, ntype, x, y, data=None):
+        d = dict(data or {})
+        d["_type"] = ntype
+        return {"id": nid, "type": ntype, "position": {"x": x, "y": y}, "data": d}
+
+    by_id = {e["id"]: e for e in entities}
+    prompt = seed.get("prompt") or ""
+    goal = seed.get("goal") or ("video" if seed.get("kind") == "shot" else "image")
+
+    nodes = [mk("p", "prompt", 0, 20, {"text": prompt, "seed_prompt": prompt})]
+    edges: list[dict] = []
+
+    def wrap(gen_id):
+        # Header/footer đi bằng NODE chứ không chèn ngầm, nên đồ thị mặc định phải có sẵn
+        # chúng — thiếu là prompt ra trần trụi, khác hẳn thứ Node Editor dựng.
+        nodes.append(mk("ph", "promptHeader", -300, 20, {"text": ""}))
+        nodes.append(mk("pf", "promptFooter", -300, 170, {"text": ""}))
+        edges.append({"id": "eph", "source": "ph", "target": gen_id})
+        edges.append({"id": "epf", "source": "pf", "target": gen_id})
+
+    if goal == "video":
+        # CHỈ gieo node ảnh nguồn khi shot ĐÃ có frame. Shot chưa có ảnh mà vẫn gieo thì
+        # được một node "Nguồn ảnh" rỗng nối sẵn vào node tạo video — vô dụng, và người
+        # dùng phải xoá tay. Không có nó, đồ thị đúng bằng thứ cần cho text-to-video.
+        if seed.get("image_media_id"):
+            nodes.append(mk("src", "source", 0, 250, {
+                "media_id": seed["image_media_id"],
+                "web": seed.get("image_src") or "",
+                "label": seed.get("title") or "",
+            }))
+        nodes.append(mk("v", "video", 340, 80, {
+            # Không đặt `duration` → độ dài clip lấy từ ⚙ Cấu hình dự án.
+            "model": engine, "lite_mode": "inference", "aspect": aspect, "count": 1,
+            "_result": seed.get("video_src") or "",
+        }))
+        nodes.append(mk("o", "output", 660, 110,
+                        {"_result": seed.get("video_src") or "", "_ext": "mp4"}))
+        edges.append({"id": "ep", "source": "p", "target": "v"})
+        if seed.get("image_media_id"):
+            edges.append({"id": "es", "source": "src", "target": "v"})
+        edges.append({"id": "eo", "source": "v", "target": "o"})
+        wrap("v")
+        return {"nodes": nodes, "edges": edges}
+
+    for k, eid in enumerate(i for i in (seed.get("ref_entity_ids") or [])
+                            if (by_id.get(i) or {}).get("media_id")):
+        e = by_id[eid]
+        nodes.append(mk(f"src{k}", "source", 0, 200 + k * 150, {
+            "entity_id": e["id"], "media_id": e.get("media_id"),
+            "web": e.get("image_path"), "label": e.get("name"),
+        }))
+        edges.append({"id": f"es{k}", "source": f"src{k}", "target": "i"})
+
+    # Ảnh tham chiếu người/đồ vật đi khung DỌC; bối cảnh giữ khung NGANG. Khớp với
+    # `_entity_aspect()` bên api/studio — đừng để hai bên lệch.
+    ref_aspect = ("9:16" if seed.get("kind") == "entity"
+                  and seed.get("entity_type") in ("character", "prop") else "16:9")
+    nodes.append(mk("i", "image", 340, 80, {
+        "aspect": ref_aspect, "model": "", "count": 1,
+        "_result": seed.get("image_src") or "",
+    }))
+    nodes.append(mk("o", "output", 660, 110, {"_result": seed.get("image_src") or ""}))
+    edges.append({"id": "ep", "source": "p", "target": "i"})
+    edges.append({"id": "eo", "source": "i", "target": "o"})
+    wrap("i")
+    return {"nodes": nodes, "edges": edges}

@@ -1154,6 +1154,21 @@ async def _store_media_on_entity(entity: dict, project: dict, info: dict, label:
     return await _entity_or_404(entity["id"])
 
 
+async def _default_graph_for(kind: str, row: dict, project: dict, goal: str) -> dict:
+    """Đồ thị mặc định cho một hàng chưa có đồ thị riêng.
+
+    Dùng CHUNG với Node Editor: giao diện lấy nó qua `GET /projects/{pid}/default-graph`
+    thay vì tự dựng, nên không còn hai bộ dựng để lệch nhau.
+    """
+    entities = await db.query_all(
+        "SELECT * FROM entity WHERE project_id=?", (project["id"],))
+    seed = graph_mod._seed_from_row(kind, row, goal)
+    return graph_mod.default_graph(
+        seed, entities,
+        engine=graph_mod.video_engine(project) or "",
+        aspect=project.get("aspect_ratio") or "16:9")
+
+
 async def _gen_via_graph(kind: str, row: dict, project: dict, goal: str = "image",
                          batch_id: str | None = None) -> dict | None:
     """⚡ tạo nhanh chạy chính ĐỒ THỊ của shot/entity, thay vì tự dựng một prompt riêng.
@@ -1169,15 +1184,31 @@ async def _gen_via_graph(kind: str, row: dict, project: dict, goal: str = "image
     """
     col = "video_graph_json" if (kind == "shot" and goal == "video") else "graph_json"
     raw = row.get(col)
-    if not raw:
-        return None
-    try:
-        g = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("graph_json hỏng trên %s %s — dùng đường tạo nhanh cũ", kind, row["id"])
-        return None
+    g = None
+    if raw:
+        try:
+            g = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("%s hỏng trên %s %s — dùng đồ thị mặc định", col, kind, row["id"])
+            g = None
+    if g is None or not graph_mod.output_gen_node(g):
+        # CHƯA có đồ thị (hoặc đồ thị không có node sinh nối vào Output) → dựng đồ thị MẶC
+        # ĐỊNH và chạy nó, thay vì rơi về một đường dựng prompt riêng.
+        #
+        # Trước đây chỗ này trả None và người gọi đi đường khác. Hai đường "tương đương"
+        # trên giấy nhưng không có gì buộc chúng đi cùng nhau, và người dùng chỉnh đồ thị
+        # bất cứ lúc nào — nên cùng một shot ra hai kết quả khác nhau tuỳ nó đã được lưu
+        # đồ thị hay chưa. Đo trên kho thật: 25/12005 shot có đồ thị, tức gần như mọi ảnh
+        # đang đi đường kia và KHÔNG khớp với thứ Node Editor hiển thị.
+        g = await _default_graph_for(kind, row, project, goal)
     node_id = graph_mod.output_gen_node(g)
     if not node_id:
+        # KHÔNG còn xảy ra được: đồ thị mặc định luôn có node sinh nối vào Output (có test
+        # khoá). Nếu dòng này chạy thì đồ thị mặc định đã hỏng, và người gọi sẽ rơi về
+        # đường dựng prompt trực tiếp — vốn cho kết quả KHÁC thứ Node Editor hiển thị.
+        # Kêu to thay vì im lặng: đó đúng là loại lệch mà cả thay đổi này sinh ra để dẹp.
+        logger.error("đồ thị mặc định của %s %s không có node sinh nối Output — "
+                     "rơi về đường cũ, kết quả có thể khác Node Editor", kind, row["id"])
         return None
     try:
         out = await graph_mod.run_graph(
@@ -5569,3 +5600,28 @@ async def jobs_ws(ws: WebSocket):
         pass
     finally:
         mgr.unsubscribe(ws)
+
+
+class DefaultGraphBody(BaseModel):
+    kind: str                    # "shot" | "entity"
+    id: str
+    goal: str = "image"          # "image" | "video"
+
+
+@router.post("/projects/{pid}/default-graph")
+async def default_graph_for(pid: str, body: DefaultGraphBody):
+    """Đồ thị MẶC ĐỊNH của một shot/asset — nguồn DUY NHẤT, dùng chung server và giao diện.
+
+    Node Editor trước đây tự dựng đồ thị mặc định bằng `defaultGraph()` trong TSX, còn
+    server thì không có gì tương đương nên phải rơi về một đường dựng prompt riêng. Hai bộ
+    dựng độc lập thì sớm muộn cũng lệch, và lúc ấy ⚡/✦ ra một đằng, mở Node Editor lên
+    thấy một nẻo — không có cách nào biết ảnh cũ đã sinh bằng đường nào.
+    """
+    project = await _project_or_404(pid)
+    if body.kind == "entity":
+        row = await db.query_one("SELECT * FROM entity WHERE id=?", (body.id,))
+    else:
+        row = await db.query_one("SELECT * FROM shot WHERE id=?", (body.id,))
+    if not row:
+        raise HTTPException(404, f"Không thấy {body.kind} {body.id}")
+    return await _default_graph_for(body.kind, row, project, body.goal)

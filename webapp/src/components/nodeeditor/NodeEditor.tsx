@@ -1484,94 +1484,12 @@ const NODE_TYPES = {
 // frame là ra 20 node thừa, và với shot thêm hàng loạt từ text — nơi các prompt chẳng liên
 // quan gì nhau — thì không cái nào dùng tới. Cần một frame cụ thể thì thêm node "Nguồn ảnh"
 // rồi chọn trong danh sách của nó: nó vốn đã liệt kê sẵn toàn bộ frame của dự án.
-function defaultGraph(
-  seed: EditorTarget,
-  entities: Entity[],
-  // Engine + tỷ lệ của ⚙ Cấu hình dự án — node video của đồ thị mặc định phải khởi đầu
-  // bằng chính chúng, không phải hằng số "veo_lite"/"16:9".
-  proj: { engine: string; aspect: string }
-): { nodes: Node[]; edges: Edge[] } {
-  const mk = (id: string, type: string, x: number, y: number, data: any = {}): Node => ({
-    id,
-    type,
-    position: { x, y },
-    data: { ...data, _type: type },
-  });
-  const prompt = seed.prompt ?? "";
-  const goal = seed.goal || (seed.kind === "shot" ? "video" : "image");
-  const byId = new Map(entities.map((e) => [e.id, e]));
-
-  const nodes: Node[] = [mk("p", "prompt", 0, 20, { text: prompt, seed_prompt: prompt })];
-  const edges: Edge[] = [];
-
-  // Header/footer của ⚙ Thiết lập dự án nay đi qua HAI NODE thay vì được chèn ngầm, nên
-  // đồ thị mặc định phải có sẵn chúng — không thì graph mới lại ra prompt trần.
-  const wrapNodes = (genId: string) => {
-    nodes.push(mk("ph", "promptHeader", -300, 20, { text: "" }));
-    nodes.push(mk("pf", "promptFooter", -300, 170, { text: "" }));
-    edges.push(
-      { id: "eph", source: "ph", target: genId },
-      { id: "epf", source: "pf", target: genId }
-    );
-  };
-
-  if (goal === "video") {
-    // Frame của CHÍNH shot làm ảnh start/tham chiếu — nhưng CHỈ khi shot đã có frame.
-    // Shot chưa có ảnh (vd thêm hàng loạt từ text) mà vẫn gieo node này thì được một node
-    // "Nguồn ảnh" RỖNG nối sẵn vào node tạo video: không dùng được việc gì, và người dùng
-    // phải xoá tay. Không có nó, đồ thị mặc định đúng bằng thứ cần cho text-to-video
-    // (prompt → tạo video → output), thứ Veo Lite và Omni Flash đều làm được.
-    if (seed.imageMediaId) {
-      nodes.push(
-        mk("src", "source", 0, 250, {
-          media_id: seed.imageMediaId,
-          web: seed.imageSrc || "",
-          label: seed.title,
-        })
-      );
-    }
-    nodes.push(
-      // No `duration` → the clip length comes from ⚙ Cấu hình dự án.
-      mk("v", "video", 340, 80, {
-        model: proj.engine, lite_mode: "inference", aspect: proj.aspect, count: 1,
-        _result: seed.videoSrc || "",
-      })
-    );
-    nodes.push(mk("o", "output", 660, 110, { _result: seed.videoSrc || "", _ext: "mp4" }));
-    edges.push({ id: "ep", source: "p", target: "v" });
-    if (seed.imageMediaId) edges.push({ id: "es", source: "src", target: "v" });
-    edges.push({ id: "eo", source: "v", target: "o" });
-    wrapNodes("v");
-    return { nodes, edges };
-  }
-
-  // image goal: one source node per referenced entity (pre-filled)
-  const refIds = (seed.refEntityIds ?? []).filter((i) => byId.get(i)?.media_id);
-  refIds.forEach((eid, k) => {
-    const e = byId.get(eid)!;
-    nodes.push(
-      mk(`src${k}`, "source", 0, 200 + k * 150, {
-        entity_id: e.id, media_id: e.media_id, web: e.image_path, label: e.name,
-      })
-    );
-    edges.push({ id: `es${k}`, source: `src${k}`, target: "i" });
-  });
-  // Ảnh tham chiếu người/đồ vật đi khung DỌC: chúng cao hơn rộng, khung ngang phí gần nửa ảnh
-  // vào nền trắng hai bên và bóp nhỏ chủ thể — ít điểm ảnh trên khuôn mặt thì model lược nét,
-  // mắt to kiểu anime trôi về mắt nhỏ tả thực. Bối cảnh giữ khung NGANG (nó là con phố, và
-  // phải khớp khung hình video). Khớp với _entity_aspect() bên agent, đừng để hai bên lệch.
-  const refAspect =
-    seed.kind === "entity" && ["character", "prop"].includes(seed.entityType || "")
-      ? "9:16"
-      : "16:9";
-  nodes.push(
-    mk("i", "image", 340, 80, { aspect: refAspect, model: "", count: 1, _result: seed.imageSrc || "" })
-  );
-  nodes.push(mk("o", "output", 660, 110, { _result: seed.imageSrc || "" }));
-  edges.push({ id: "ep", source: "p", target: "i" }, { id: "eo", source: "i", target: "o" });
-  wrapNodes("i");
-  return { nodes, edges };
-}
+// defaultGraph() ĐÃ CHUYỂN SANG SERVER — xem `graph.default_graph()` bên agent và
+// endpoint POST /studio/projects/{pid}/default-graph.
+//
+// Giữ hai bộ dựng song song là mời chúng lệch nhau: server chạy bộ của nó khi ⚡/✦ sinh
+// ảnh, editor hiện bộ của mình, và không ai biết một ảnh cũ đã sinh theo đường nào. Người
+// dùng chỉnh đồ thị bất cứ lúc nào nên khoảng lệch ấy còn lớn dần.
 
 // Node "bọc prompt", và các node sinh mà chúng gắn vào. CHỈ image + video: editImage /
 // replacebg chạy prompt NGUYÊN VĂN (không qua compose_prompt) nên gắn vào đó chỉ tạo ra một
@@ -2296,13 +2214,25 @@ function Editor({
       setNodes(nodes);
       setEdges(edges);
     };
-    graphApi
-      .get(target.kind, target.id, goal)
-      .then((r) => apply(r.graph && r.graph.nodes?.length
-        ? r.graph
-        : defaultGraph(target, entities, { engine: projEngine, aspect: projAspect })))
-      .catch(() => apply(defaultGraph(target, entities,
-        { engine: projEngine, aspect: projAspect })));
+    // Đồ thị mặc định lấy từ SERVER, không dựng ở đây nữa. Trước kia hai bên có hai bộ
+    // dựng độc lập: ⚡/✦ chạy đường của server, còn editor hiện đồ thị của mình — không
+    // gì buộc chúng giống nhau, và người dùng không có cách nào biết một ảnh cũ đã sinh
+    // theo đường nào. Nay chỉ còn một bộ, ở server.
+    (async () => {
+      try {
+        const r = await graphApi.get(target.kind, target.id, goal);
+        if (r.graph && r.graph.nodes?.length) return apply(r.graph);
+      } catch {
+        /* chưa có đồ thị lưu sẵn — rơi xuống lấy bản mặc định */
+      }
+      try {
+        apply(await graphApi.defaultGraph(projectId, target.kind, target.id, goal));
+      } catch (e) {
+        // Thà để trống và báo lỗi còn hơn dựng tạm một đồ thị khác với thứ server sẽ chạy.
+        console.error("không lấy được đồ thị mặc định", e);
+        apply({ nodes: [], edges: [] });
+      }
+    })();
     return () => { cancelled = true; };
   }, [target.id, entities, goal]);
 
