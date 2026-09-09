@@ -193,3 +193,47 @@ def test_media_id_o_chi_so_7():
 def test_id_ban_nang_cap_doan_truoc_duoc():
     assert ops.upsampled_media_id("abc") == "abc_upsampled"
     assert ops.upsampled_media_id("abc", four_k=True) == "abc_4k_upsampled"
+
+
+# ─── ca HỎNG ─────────────────────────────────────────────────
+
+def _wf(status):
+    wf = [None] * 8
+    wf[5] = [None] * 9
+    wf[5][8] = status
+    wf[7] = [[None, 1], None, ["media-x"]]
+    return wf
+
+
+def test_doc_duoc_ly_do_hong():
+    """Bản ghi THẬT từ một lượt video có tên người nổi tiếng.
+
+    Tôi từng kết luận đường BOQ "không phân biệt được hỏng" và ghi cả vào tài liệu — sai,
+    chỉ vì chưa bắt được lượt nào hỏng. Prompt bạo lực không thử được vì bị chặn ngay ở
+    khâu submit (error [3]); phải là thứ qua được submit rồi mới hỏng lúc render.
+    """
+    wf = _wf([4, [3, "PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED"], ["PROMINENT_PERSON"]])
+    assert ops.workflow_failed(wf) is True
+    assert ops.workflow_done(wf) is False
+    code, reasons = ops.workflow_failure(wf)
+    assert code == "PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED"
+    assert reasons == ["PROMINENT_PERSON"]
+
+
+def test_chua_hong_thi_khong_co_ly_do():
+    for st in ([1], [2], [6], [3]):
+        assert ops.workflow_failure(_wf(st)) == (None, [])
+        assert ops.workflow_failed(_wf(st)) is False
+
+
+def test_ma_la_van_coi_la_chua_nga_ngu():
+    """Đã gặp BA mã 'đang chạy' khác nhau (1, 2, 6) nên còn mã chưa gặp là chuyện thường.
+
+    Coi mã lạ là hỏng thì bỏ rơi một bản render ĐÃ TÍNH TIỀN; chờ thừa chỉ tốn thời gian.
+    """
+    assert ops.workflow_settled(_wf([99])) is False
+    assert ops.workflow_failed(_wf([99])) is False
+    assert ops.workflow_settled(_wf([3])) is True
+    assert ops.workflow_settled(_wf([4, None, []])) is True
+    for st in ([1], [2], [6]):
+        assert ops.workflow_settled(_wf(st)) is False

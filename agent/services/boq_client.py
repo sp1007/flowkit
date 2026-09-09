@@ -33,6 +33,20 @@ class QuotaError(RuntimeError):
     """Hạng tài khoản không được phép dùng khoá model này."""
 
 
+class MediaFailed(RuntimeError):
+    """Flow báo lượt render HỎNG HẲN — chờ thêm vô ích.
+
+    Ví dụ thật: `PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED` với lý do
+    `["PROMINENT_PERSON"]`, từ một prompt video có tên người nổi tiếng.
+    """
+
+    def __init__(self, code: str, reasons: list):
+        self.code = code
+        self.reasons = reasons
+        detail = ", ".join(reasons)
+        super().__init__(f"{code}{' (' + detail + ')' if detail else ''}")
+
+
 def default_tier() -> int:
     """Hạng tài khoản dùng cho hàng rào giá.
 
@@ -156,11 +170,18 @@ class BoqClient:
 
     async def wait(self, media_id: str, interval: float = 5.0,
                    timeout: float = 600.0) -> list:
-        """Chờ tới khi render xong, trả bản ghi workflow."""
+        """Chờ tới khi ngã ngũ. Trả bản ghi workflow; ném MediaFailed nếu Flow báo hỏng.
+
+        Dừng ở cả XONG lẫn HỎNG, không chỉ xong: một lượt bị lọc nội dung mà cứ chờ tiếp
+        là chờ tới hết giờ vô ích.
+        """
         waited = 0.0
         while True:
-            done, wf = await self.poll(media_id)
-            if done:
+            _done, wf = await self.poll(media_id)
+            if wf is not None and ops.workflow_failed(wf):
+                code, reasons = ops.workflow_failure(wf)
+                raise MediaFailed(code or "không rõ", reasons)
+            if wf is not None and ops.workflow_done(wf):
                 return wf
             if waited >= timeout:
                 raise TimeoutError(f"{media_id} chưa xong sau {timeout:.0f}s")

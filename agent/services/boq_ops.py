@@ -275,13 +275,24 @@ def upsampled_media_id(media_id: str, four_k: bool = False) -> str:
 
 # ─── Đọc phản hồi ────────────────────────────────────────────
 
-# Trạng thái nằm ở workflow[5][8]. Ba giá trị đã gặp: [1] ngay sau lượt upscale, [6]
-# ngay sau lượt sinh, [3] khi xong. Chỉ [3] là chắc chắn có nghĩa "xong" — 1 và 6 đều
-# quan sát được ở thời điểm vừa submit nên đều là "chưa xong", còn chúng khác nhau ở
-# điểm gì thì chưa đo được. Vì vậy hàm dưới hỏi "đã xong chưa" chứ không phân loại tiếp.
+# Trạng thái nằm ở workflow[5][8], dạng [<mã>, <chi tiết lỗi>, <danh sách lý do>].
+#
+# Mã đã gặp:  1, 2, 6 = đang chờ/đang chạy (ba giá trị khác nhau, chưa rõ khác nhau ở
+# điểm gì)   ·   3 = XONG   ·   4 = HỎNG HẲN.
+#
+# Tôi từng kết luận nhầm rằng đường này "chỉ biết xong hay chưa, không phân biệt được
+# hỏng", và ghi cả vào tài liệu. Sai: một lượt bị lọc nội dung trả về đầy đủ
+#   [4, [3, "PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED"], ["PROMINENT_PERSON"]]
+# Kết luận cũ dựa trên việc chưa từng thấy lượt nào hỏng — mà "chưa thấy" không phải
+# "không có". Prompt bạo lực KHÔNG dùng để thử được vì nó bị chặn ngay ở khâu submit
+# (error [3]); phải là thứ qua được submit rồi mới hỏng lúc render.
 STATUS_QUEUED = 1
 STATUS_RUNNING = 6
+STATUS_WORKING = 2
 STATUS_DONE = 3
+STATUS_FAILED = 4
+
+_IN_PROGRESS = (STATUS_QUEUED, STATUS_WORKING, STATUS_RUNNING)
 
 
 def _dig(node, *path):
@@ -299,6 +310,39 @@ def workflow_status(workflow: list) -> Optional[int]:
 
 def workflow_done(workflow: list) -> bool:
     return workflow_status(workflow) == STATUS_DONE
+
+
+def workflow_failed(workflow: list) -> bool:
+    return workflow_status(workflow) == STATUS_FAILED
+
+
+def workflow_failure(workflow: list) -> tuple[Optional[str], list]:
+    """(mã lỗi đọc được, danh sách lý do) của một lượt HỎNG; (None, []) nếu chưa hỏng.
+
+    Ví dụ thật: mã `PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED`, lý do
+    `["PROMINENT_PERSON"]` — lượt sinh video có tên một người nổi tiếng.
+    """
+    st = _dig(workflow, 5, 8)
+    if not isinstance(st, list) or not st or st[0] != STATUS_FAILED:
+        return None, []
+    detail = st[1] if len(st) > 1 else None
+    code = None
+    if isinstance(detail, list):
+        code = next((x for x in detail if isinstance(x, str)), None)
+    elif isinstance(detail, str):
+        code = detail
+    reasons = st[2] if len(st) > 2 and isinstance(st[2], list) else []
+    return code, [str(r) for r in reasons]
+
+
+def workflow_settled(workflow: list) -> bool:
+    """Đã ngã ngũ (xong hoặc hỏng) — tức poll thêm cũng vô ích.
+
+    Mã LẠ được coi là CHƯA ngã ngũ, cố ý: mới khảo sát đã lòi ra ba mã "đang chạy" khác
+    nhau (1, 2, 6), nên nhiều khả năng còn mã chưa gặp. Coi mã lạ là hỏng thì sẽ bỏ rơi
+    một bản render đã tính tiền; chờ thừa thì chỉ tốn thời gian.
+    """
+    return workflow_status(workflow) in (STATUS_DONE, STATUS_FAILED)
 
 
 def workflow_media_id(workflow: list) -> Optional[str]:

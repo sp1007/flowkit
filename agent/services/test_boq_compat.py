@@ -133,3 +133,50 @@ def test_hai_khung_4s_6s_dung_khoa_fl():
     assert "_fl_" in c._veo_lite_key("a", "b", None, 4)
     assert "_fl_" in c._veo_lite_key("a", "b", None, 6)
     assert "_fl_" not in c._veo_lite_key("a", None, None, 4)
+
+
+# ─── ca HỎNG qua lớp tương thích ─────────────────────────────
+
+class _FakeBoq:
+    def __init__(self, wf):
+        self._wf = wf
+
+    async def poll(self, media_id):
+        return False, self._wf
+
+
+def _compat_with(wf):
+    c = compat.BoqCompat.__new__(compat.BoqCompat)
+    c.boq = _FakeBoq(wf)
+    return c
+
+
+def _wf(status):
+    w = [None] * 8
+    w[5] = [None] * 9
+    w[5][8] = status
+    return w
+
+
+def test_hong_thi_studio_nhan_FAILED_kem_ly_do():
+    """`videopoll._status_of` đọc mediaStatus.mediaGenerationStatus + failureReasons."""
+    import asyncio
+    c = _compat_with(_wf([4, [3, "PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED"],
+                          ["PROMINENT_PERSON"]]))
+    res = asyncio.run(compat.BoqCompat.check_video_status(
+        c, [{"name": "m", "projectId": "p"}]))
+    st = res["data"]["media"][0]["mediaMetadata"]["mediaStatus"]
+    assert st["mediaGenerationStatus"] == "MEDIA_GENERATION_STATUS_FAILED"
+    assert st["failureReasons"] == ["PROMINENT_PERSON"]
+
+
+def test_ma_la_bao_PENDING_chu_khong_bao_hong():
+    """Báo hỏng oan thì studio tạo lại một bản nữa — tính tiền hai lần."""
+    import asyncio
+    for st_raw in ([1], [2], [6], [99]):
+        c = _compat_with(_wf(st_raw))
+        res = asyncio.run(compat.BoqCompat.check_video_status(
+            c, [{"name": "m", "projectId": "p"}]))
+        st = res["data"]["media"][0]["mediaMetadata"]["mediaStatus"]
+        assert st["mediaGenerationStatus"] == "MEDIA_GENERATION_STATUS_PENDING", st_raw
+        assert "failureReasons" not in st

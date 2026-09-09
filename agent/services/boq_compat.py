@@ -36,7 +36,7 @@ from typing import Optional
 
 from . import boq_ops as ops
 from . import boq_prices as prices
-from .boq_client import BoqClient
+from .boq_client import BoqClient, BoqError, QuotaError
 
 _MODELS_PATH = Path(__file__).resolve().parent.parent / "models.json"
 
@@ -119,6 +119,33 @@ def _ok(data: dict) -> dict:
     return {"status": 200, "data": data}
 
 
+def _soft(fn):
+    """Đổi lỗi của Flow thành `{"error": …}` thay vì ném exception.
+
+    Studio bọc mọi lượt sinh trong vòng THỬ LẠI và nhận biết hỏng bằng `res.get("error")`
+    — nó không bắt exception. Để BoqError bay lên thì một ảnh bị lọc nội dung làm hỏng cả
+    job thay vì thử lại bằng seed khác. Đo trực tiếp: prompt bạo lực gửi qua
+    `POST /api/flow/generate-image` trả HTTP 500 thay vì một lượt thử lại.
+
+    Giữ nguyên văn mã lỗi, KHÔNG dịch `[3]` thành "bị lọc nội dung": cùng mã ấy còn dùng
+    cho payload sai số ô và cho ảnh tải lên không upsample được. Gắn nhãn "vi phạm chính
+    sách" lên một lỗi lập trình là giấu mất bug thật.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    async def wrapper(*a, **kw):
+        try:
+            return await fn(*a, **kw)
+        except QuotaError as e:
+            return {"status": 403, "error": str(e)}
+        except BoqError as e:
+            return {"status": 502, "error": str(e)}
+        except (ValueError, KeyError, TypeError, IndexError) as e:
+            return {"status": 500, "error": f"{type(e).__name__}: {e}"}
+    return wrapper
+
+
 # ─── các thao tác ────────────────────────────────────────────
 
 class BoqCompat:
@@ -130,6 +157,7 @@ class BoqCompat:
 
     # ---- ảnh ----
 
+    @_soft
     async def generate_images(self, prompt, project_id, aspect_ratio=None,
                               user_paygate_tier=None, character_media_ids=None,
                               references=None, image_model=None, seed=None,
@@ -153,6 +181,7 @@ class BoqCompat:
         return _ok(_image_payload(out["media_id"], prompt, out.get("url"),
                                   out.get("size")))
 
+    @_soft
     async def edit_image(self, prompt, source_media_id, project_id, aspect_ratio=None,
                          user_paygate_tier=None, character_media_ids=None,
                          references=None, base_handle="base", **_ignored) -> dict:
@@ -183,11 +212,13 @@ class BoqCompat:
             return None
         return ops._dig(rec, 0, 2) or ops._dig(rec, 2)
 
+    @_soft
     async def upload_image(self, image_base64, mime_type="image/jpeg", project_id="",
                            file_name="image.jpg") -> dict:
         out = await self.boq.upload_image(image_base64, project_id, mime_type, file_name)
         return _ok({"media": [{"name": out["media_id"]}]})
 
+    @_soft
     async def upscale_image(self, media_id, project_id, target_resolution=None,
                             user_paygate_tier=None) -> dict:
         """Xin bản nét. Mức 1 = 2K, 2 = 4K (4K chỉ Ultra).
@@ -216,6 +247,7 @@ class BoqCompat:
             return lite.get("reference_frame_2_video")
         return lite.get("text_2_video")
 
+    @_soft
     async def generate_video_veo_lite(self, prompt, project_id, scene_id="",
                                       start_media_id=None, end_media_id=None,
                                       reference_media_ids=None, references=None,
@@ -231,6 +263,7 @@ class BoqCompat:
                                          references, reference_media_ids, batch_id)
         return _ok(_video_submit_payload(out))
 
+    @_soft
     async def generate_video_omni(self, prompt, project_id, reference_media_ids,
                                   duration_s=8, aspect_ratio=None,
                                   user_paygate_tier=None, references=None,
@@ -245,6 +278,7 @@ class BoqCompat:
                                          batch_id)
         return _ok(_video_submit_payload(out))
 
+    @_soft
     async def generate_video(self, start_image_media_id, prompt, project_id, scene_id,
                              aspect_ratio=None, end_image_media_id=None,
                              user_paygate_tier=None, video_model=None,
@@ -343,6 +377,7 @@ class BoqCompat:
             return ops.crop_rect(size[0], size[1], ratio)
         return None
 
+    @_soft
     async def upscale_video(self, media_id, scene_id, aspect_ratio=None,
                             resolution=None, project_id="", user_paygate_tier=None,
                             workflow_id=None) -> dict:
@@ -354,35 +389,48 @@ class BoqCompat:
                                     "status": _PENDING}],
                     "media": [{"name": out["media_id"]}]})
 
+    @_soft
     async def check_video_status(self, media: list[dict]) -> dict:
         """Poll. Trả HÌNH DẠNG của contract mới bên đường cũ (`media[]` + trạng thái).
 
-        Trạng thái BOQ chỉ có "xong" hay "chưa" — không phân biệt được HỎNG. Nên đường
-        này không bao giờ trả FAILED, và `videopoll` sẽ chờ tới hết giờ thay vì bỏ cuộc
-        sớm. Đó là đánh đổi có ý thức: chờ thừa vài phút còn hơn báo hỏng oan rồi tạo
-        lại một bản nữa và tính tiền hai lần.
+        BOQ báo HỎNG đầy đủ, kèm mã và lý do — nên `videopoll` bỏ cuộc ngay khi Flow từ
+        chối thay vì chờ hết 420 giây. Trước đây tôi kết luận nhầm là nó không phân biệt
+        được, chỉ vì chưa từng bắt được lượt nào hỏng.
+
+        Mã LẠ vẫn coi là chưa xong (chờ tiếp), cố ý: đã gặp ba mã "đang chạy" khác nhau
+        nên nhiều khả năng còn mã chưa gặp, và báo hỏng oan thì studio tạo lại một bản
+        nữa — tính tiền hai lần.
         """
         out = []
         for item in media or []:
             mid = item.get("name")
+            status, reasons = _PENDING, []
             try:
-                done, _wf = await self.boq.poll(mid)
+                _done, wf = await self.boq.poll(mid)
             except Exception:
-                done = False
-            out.append({
-                "name": mid,
-                "projectId": item.get("projectId"),
-                "mediaMetadata": {"mediaStatus": {
-                    "mediaGenerationStatus": _OK if done else _PENDING}},
-            })
+                wf = None
+            if wf is not None:
+                if ops.workflow_failed(wf):
+                    code, reasons = ops.workflow_failure(wf)
+                    status = _FAIL
+                    reasons = reasons or ([code] if code else [])
+                elif ops.workflow_done(wf):
+                    status = _OK
+            st = {"mediaGenerationStatus": status}
+            if reasons:
+                st["failureReasons"] = reasons
+            out.append({"name": mid, "projectId": item.get("projectId"),
+                        "mediaMetadata": {"mediaStatus": st}})
         return _ok({"media": out})
 
     # ---- đọc + dự án ----
 
+    @_soft
     async def get_credits(self) -> dict:
         c = await self.boq.credits()
         return _ok({"credits": c, "remainingCredits": c})
 
+    @_soft
     async def get_direct_media(self, primary_media_id: str) -> dict:
         """media_id → URL mới. Hình dạng `{"redirected": true, "url": …}` như đường cũ."""
         rec = await self.boq.get_media(primary_media_id)
@@ -393,6 +441,7 @@ class BoqCompat:
         url = (video or image or [None])[0]
         return _ok({"redirected": bool(url), "url": url})
 
+    @_soft
     async def get_media(self, media_id: str) -> dict:
         return _ok({"media": await self.boq.get_media(media_id)})
 
@@ -403,22 +452,27 @@ class BoqCompat:
         except Exception:
             return False
 
+    @_soft
     async def get_project(self, project_id: str) -> dict:
         return _ok({"project": await self.boq.get_project(project_id)})
 
+    @_soft
     async def get_projects(self) -> dict:
         """ĐI HẾT MỌI TRANG — đường cũ chỉ lấy trang đầu rồi dừng."""
         return _ok({"projects": await self.boq.list_projects()})
 
+    @_soft
     async def create_project(self, project_title: str, tool_name="PINHOLE") -> dict:
         pid = await self.boq.create_project(project_title)
         return _ok({"projectId": pid, "project": {"projectId": pid,
                                                   "projectTitle": project_title}})
 
+    @_soft
     async def change_display_name(self, media_name_id, project_id, display_name) -> dict:
         await self.boq.rename_workflow(media_name_id, project_id, display_name)
         return _ok({"ok": True})
 
+    @_soft
     async def change_project_cover(self, project_id, media_name_id) -> dict:
         await self.boq.set_project_cover(project_id, "", media_name_id)
         return _ok({"ok": True})

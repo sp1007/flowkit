@@ -84,10 +84,21 @@ chuyện dễ — cứ chạy song song một thời gian trước khi tin hẳn
 
 ## Chỗ đường mới KÉM hơn, biết trước còn hơn gặp giữa chừng
 
-**Poll video không phân biệt được HỎNG.** Trạng thái của BOQ chỉ nói "xong hay chưa".
-Nên khi Flow chặn nội dung, đường mới không báo `FAILED` mà chờ tới hết giờ
-(`VIDEO_POLL_TIMEOUT`, 420s) rồi mới bỏ cuộc. Chậm hơn, nhưng đó là đánh đổi có chủ ý:
-chờ thừa vài phút còn hơn báo hỏng oan rồi tạo lại một bản nữa và tính tiền hai lần.
+**Mã lỗi `[3]` bị dùng chung cho nhiều nguyên nhân khác hẳn nhau** — lọc nội dung ở khâu
+submit, payload sai số ô, ảnh tải lên không upsample được. Nó không kèm lý do, nên đừng
+suy nguyên nhân từ mã. `boq_compat` giữ nguyên văn mã lỗi chứ không dịch `[3]` thành "bị
+lọc nội dung": gắn nhãn chính sách lên một lỗi lập trình là giấu mất bug thật.
+
+**~~Poll video không phân biệt được HỎNG.~~** Sai, đã sửa. BOQ báo hỏng đầy đủ kèm lý
+do: `[4, [3, "PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED"], ["PROMINENT_PERSON"]]`.
+Kết luận cũ dựa trên việc chưa từng bắt được lượt nào hỏng — mà "chưa thấy" không phải
+"không có". Nay `check_video_status` trả `FAILED` + `failureReasons` như đường cũ, nên
+`videopoll` bỏ cuộc ngay thay vì chờ hết 420 giây.
+
+Cách bắt một lượt hỏng, nếu cần thử lại: **prompt bạo lực không dùng được** vì bị chặn
+ngay ở khâu submit (`error [3]`, không có lý do). Phải là thứ QUA ĐƯỢC submit rồi mới
+hỏng lúc render — tên một người nổi tiếng trong prompt VIDEO là ca chắc ăn. Cũng chính
+người ấy trong prompt ẢNH thì Flow lại cho qua, nên đừng suy từ ảnh sang video.
 
 **`generatedImage.prompt` không còn là prompt THẬT.** Đường cũ trả về prompt sau khi
 Flow dịch — đó là chỗ duy nhất soi được "model thật sự nhận gì", và là cách phát hiện
