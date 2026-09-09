@@ -46,7 +46,21 @@ class FlowClient:
         # stops a batch and a manual op (⚡ quick-gen, Node Editor) from interleaving requests
         # and corrupting rate-limit/captcha state. Read-only polls (check-status, credits) opt
         # out (serialize=False) so they don't block submits — they run on their own cadence.
-        self._flow_lock = asyncio.Lock()
+        # Trần SỐ LƯỢT GỌI SONG SONG tới Flow — không phải khoá một-lượt-một.
+        #
+        # Trước đây `boq_request` đi qua asyncio.Lock, nên lô 4 ảnh mà tầng job bắn ra bị
+        # xếp hàng thành 4 lượt nối đuôi: ảnh sau chỉ bắt đầu khi ảnh trước xong hẳn. Với
+        # một dự án vài trăm frame thì đó là chênh lệch hàng giờ.
+        #
+        # Song song được vì hai lẽ, cả hai đều đo được: giao thức WS ghép kênh theo
+        # `req_id` (mỗi lượt một future riêng), và CHÍNH giao diện Flow bắn 4 lời gọi
+        # ogiZ0b đồng thời cho một lô 4 — bắt tận tay trong nhật ký recon, mỗi lời gọi
+        # mang một token reCAPTCHA riêng.
+        #
+        # Vẫn giữ TRẦN chứ không thả tự do: bắn vài chục lượt cùng lúc là mời Google chặn
+        # vì "hoạt động bất thường". 4 là con số giao diện thật dùng.
+        self._boq_sem = asyncio.Semaphore(
+            int(os.environ.get("FLOWKIT_BOQ_CONCURRENCY", "4")))
         # Recon batchexecute: rpcid mà giao diện mới vừa gọi (xem handle_message).
         self.boq_calls: list[dict] = []
         # WS stats
@@ -169,21 +183,21 @@ class FlowClient:
 
 
     async def _send(self, method: str, params: dict, timeout: float = 300,
-                    *, serialize: bool = True) -> dict:
+                    *, serialize: bool = False) -> dict:
         """Send request to extension and wait for response.
 
         Always returns a dict. On error, returns {"error": "<reason>"} — callers
         must check result.get("error") or use _is_ws_error() before reading data.
         Never raises; exceptions are caught and returned as error dicts.
 
-        `serialize=True` (default) routes the call through the single-flight lock so it
-        does not overlap another Flow command. Read-only polls pass `serialize=False`.
+        KHÔNG còn khoá single-flight. Việc hạn chế song song nay nằm ở `boq_request`
+        dưới dạng một TRẦN (semaphore) — khoá một-lượt-một biến lô 4 ảnh thành 4 lượt nối
+        đuôi, mà chính giao diện Flow thì bắn cả 4 cùng lúc.
+
+        Tham số `serialize` giữ lại cho tương thích chữ ký; không còn tác dụng.
         """
         if not self._extension_ws:
             return {"error": "Extension not connected"}
-        if serialize:
-            async with self._flow_lock:
-                return await self._send_raw(method, params, timeout)
         return await self._send_raw(method, params, timeout)
 
     async def _send_raw(self, method: str, params: dict, timeout: float) -> dict:
@@ -228,12 +242,13 @@ class FlowClient:
         Đường dự phòng cho ngày labs.google tắt — xem docs/new-flow-stack.md. Cần một tab
         flow.google.com/project/* đang mở vì `at`/`f.sid`/`bl` nằm trong WIZ_global_data.
         """
-        return await self._send("boq_request", {
-            "rpcid": rpcid,
-            "args": args,
-            "source_path": source_path,
-            "captcha_action": captcha_action,
-        }, timeout=timeout)
+        async with self._boq_sem:
+            return await self._send("boq_request", {
+                "rpcid": rpcid,
+                "args": args,
+                "source_path": source_path,
+                "captcha_action": captcha_action,
+            }, timeout=timeout, serialize=False)
 
     async def probe_tabs(self) -> dict:
         """Tab Flow nào đang mở, tab nào có grecaptcha."""
