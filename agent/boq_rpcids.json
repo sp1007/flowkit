@@ -211,7 +211,7 @@
    "structured_prompt": "Prompt la STRUCTURED PROMPT giong het ben anh, khong phai chuoi phang. Moi manh la [\"<chu>\"] HOAC [null,[[\"<mediaId>\",\"<ten>\"]]] — anh duoc NEO vao dung vi tri trong cau kem TEN. Nho lai: [[[\"<prompt>\"]]] cua t2v that ra la danh sach manh chi co MOT manh chu, nen hai ben cung mot cau truc.",
    "refs_list": "Ngoai cac manh, con MOT danh sach anh rieng o item[1]: [[null,\"<mediaId>\"],…]. Phai liet ke DU moi anh duoc neo trong prompt.",
    "ti_le": "1 = doc 9:16 (nguoi dung xac nhan), 2 = ngang 16:9 (do o cac vong truoc). Bang ti le cua video KHAC bang cua anh, dung dung chung.",
-   "gia": "Giao dien tu chon veo_3_1_r2v_lite_low_priority = 0 credit. Khac han nhung thao tac khac, o day UI KHONG khoa vao ban tra tien.",
+   "gia": "Luot cua giao dien dung veo_3_1_r2v_lite_low_priority = 0 credit — nhung do la NGUOI DUNG CHON muc 'Veo 3.1 Lite [Lower Priority]' trong UI, khong phai UI tu chon. Dung suy ra rang UI uu tien ban re. Cho that su dac biet van chi la noi dai (fZytfe): o do UI CHI cho mot lua chon va no la ban tra tien. NGUOI DUNG DA XAC NHAN: ca vong r2v lan vong mot-khung deu la ho tu chon muc Lower Priority.",
    "verified": "Phat lai voi 2 anh, 5 manh prompt, ti le 1: 200, credit dung nguyen 12354, sinh workflow 2062c9ba.",
    "khi_port": "Logic _build_structured_parts + dedupe_refs cua ban chinh dung duoc nguyen o day. Ca hai luat da biet ben anh deu ap: token {ten} lap lai sinh nhieu part tro cung mot mediaId thi Flow tra loi, va manh chu bi vun ra cung tra loi — phai gop manh chu lien nhau.",
    "do_that": "ffprobe file tai ve: 720x1280, 24fps, 8.000000 giay, 2014260 byte. Xac nhan ti le 1 = 9:16.",
@@ -228,6 +228,16 @@
    "model_keys": "Ho omni_flash_i2v_<4|6|8|10>s_first_last, moi cai co ban _360p re hon mot nua. Do dai nam TRONG key nhu moi model Omni khac. Ben Veo co veo_3_1_interpolation_lite (5 credit tier 3) va ban _low_priority 0 dong — chua thu qua nprQif.",
    "verified": "Phat lai hai luot: (a) ti le 1 co khung cat, (b) ti le 2 khong khung cat. Ca hai 200.",
    "do_that": "ffprobe hai file: luot co khung cat + ti le 1 ra 360x640 (9:16); luot khung cat = null + ti le 2 ra 640x360 (16:9). Ca hai 24fps, 4.000000 giay dung theo key _4s_."
+  },
+  "generate_video_frame1": {
+   "rpcid": "eb1hJf",
+   "args": "[[[ [null,null,[[[\"<prompt>\"]]]], \"<model key>\", <ti le>, null, <khung dau>, [null,null,null,null,\"<UUID>\",\"<UUID>\"] ]], <ctx>, [\"<batch id>\", 2]]",
+   "note": "TAO VIDEO TU MOT KHUNG (i2v thuan). RPCID THU NAM, van khong dung lai cai nao. Toi tung doan 'chac la nprQif voi o thu hai bo trong' — SAI. Mot khung co o anh tai item[4] va dich o item[5]; nprQif co hai o anh [4],[5] va dich o [6].",
+   "khung_cat": "Giong nprQif: [null, <trai>, <duoi>, <phai>]. Giao dien gui [null,null,1,1] (nguyen anh) khi ti le anh da khop ti le video, thay vi bo null. Phat lai voi crop = null cung chay, nen o nay khong bat buoc.",
+   "hau_to_fl": "Giai duoc mot chuyen CLAUDE.md ban chinh ghi la 'ten key khong deu': _fl = FIRST-LAST, tuc hai khung. Key mot khung khong co _fl. Doi chieu models.json ban chinh thi mapping o do DUNG (veo_lite_frame_models toan _fl/interpolation cho start+end, frame_2_video khong _fl).",
+   "thieu_o_ban_chinh": "Ban chinh chi co MOT khoa mot-khung (veo_3_1_i2v_lite_low_priority, 8 giay). Bang gia con veo_3_1_i2v_s_lite_4s_low_priority va _6s_low_priority, deu 0 credit tier 3 — tuc mot-khung cung chon duoc 4s/6s, kha nang ban chinh chua co.",
+   "verified": "Phat lai hai luot bang veo_3_1_i2v_s_lite_4s_low_priority: mot co crop [null,null,1,1], mot crop = null. Ca hai 200, credit dung nguyen 12331.",
+   "do_that": "ffprobe hai file: ca hai 1280x720, 24fps, 4.000000 giay — dung do dai trong key _4s_, va Veo Lite ra 720p."
   }
  },
  "unknown": {
