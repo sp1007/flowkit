@@ -2227,9 +2227,12 @@ function Editor({
       }
       try {
         apply(await graphApi.defaultGraph(projectId, target.kind, target.id, goal));
-      } catch (e) {
-        // Thà để trống và báo lỗi còn hơn dựng tạm một đồ thị khác với thứ server sẽ chạy.
+      } catch (e: any) {
+        // Thà để trống còn hơn dựng tạm một đồ thị khác với thứ server sẽ chạy — nhưng
+        // phải NÓI RA. Một lần gọi sai đường dẫn đã làm editor mở lên trống trơn với mọi
+        // shot chưa lưu đồ thị, và triệu chứng duy nhất là một dòng console.error.
         console.error("không lấy được đồ thị mặc định", e);
+        setErr(`Không lấy được đồ thị mặc định: ${e?.message || e}`);
         apply({ nodes: [], edges: [] });
       }
     })();

@@ -800,7 +800,9 @@ export const graphApi = {
     id: string,
     goal: "image" | "video" = "image"
   ) =>
-    req<{ nodes: any[]; edges: any[] }>(`/studio/projects/${pid}/default-graph`, {
+    // `req` đã tự thêm tiền tố `/api/studio` — viết `/studio/...` ở đây thành
+    // `/api/studio/studio/...`, và cú ngã ra 404/405 làm editor mở lên TRỐNG TRƠN.
+    req<{ nodes: any[]; edges: any[] }>(`/projects/${pid}/default-graph`, {
       method: "POST",
       body: JSON.stringify({ kind, id, goal }),
     }),
