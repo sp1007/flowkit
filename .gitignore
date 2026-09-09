@@ -29,3 +29,7 @@ output_beats.json
 
 # Sao lưu dự án (.zip vài trăm MB — không bao giờ đưa vào git)
 backup/
+
+# Bản đóng gói — sinh ra từ `pyinstaller flowkit.spec`, đừng đưa vào git.
+build_dist/
+build_work/

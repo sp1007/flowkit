@@ -106,6 +106,48 @@ function updateStatus(data) {
   document.getElementById('m-total').textContent   = m.requestCount || 0;
   document.getElementById('m-success').textContent = m.successCount || 0;
   document.getElementById('m-failed').textContent  = m.failedCount  || 0;
+
+  renderLastUsed(m.lastUsed);
+}
+
+const _LABEL_VI = {
+  GEN_IMG: 'Tạo ảnh', GEN_VID: 'Video (không ảnh)', GEN_VID_REF: 'Video (ảnh tham chiếu)',
+  GEN_VID_1F: 'Video (1 khung)', GEN_VID_2F: 'Video (2 khung)', EXTEND: 'Nối dài',
+  EDIT_VID: 'Sửa video', UPSCALE: 'Nâng cấp video', UPS_IMG: 'Nâng cấp ảnh',
+  UPLOAD: 'Tải ảnh lên', URL_REFRESH: 'Lấy URL mới',
+};
+
+/** "hôm nay 14:05" / "hôm qua 22:14" / "03/09 09:12".
+ *
+ *  Ngày giờ TUYỆT ĐỐI, không phải "3 giờ trước": câu hỏi thật là "hôm nay chức năng này
+ *  còn chạy không", và mốc tương đối bắt người đọc tự cộng trừ để trả lời.
+ */
+function fmtWhen(ts) {
+  if (!ts) return null;
+  const d = new Date(ts);
+  const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const day = new Date(d); day.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - day) / 86400000);
+  if (diff === 0) return `hôm nay ${hhmm}`;
+  if (diff === 1) return `hôm qua ${hhmm}`;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hhmm}`;
+}
+
+function renderLastUsed(lastUsed) {
+  const box = document.getElementById('last-used');
+  if (!box) return;
+  const entries = Object.entries(lastUsed || {}).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    box.innerHTML = '<div class="lu-empty">Chưa dùng chức năng nào</div>';
+    return;
+  }
+  box.innerHTML = entries.map(([k, ts]) => {
+    // Quá 24 giờ thì làm mờ: nhìn lướt là biết chức năng nào đã lâu không đụng tới.
+    const stale = Date.now() - ts > 86400000 ? ' stale' : '';
+    return `<div class="lu-row${stale}"><span class="lu-name">${_LABEL_VI[k] || k}</span>`
+         + `<span class="lu-time">${fmtWhen(ts)}</span></div>`;
+  }).join('');
 }
 
 // ── Request log ──────────────────────────────────────────────

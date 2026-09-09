@@ -176,7 +176,10 @@ _STUDIO_OUT = Path(os.environ.get("STUDIO_OUT_DIR", _REPO_ROOT / "studio_media")
 _STUDIO_OUT.mkdir(parents=True, exist_ok=True)
 app.mount("/studio-media", StaticFiles(directory=str(_STUDIO_OUT)), name="studio-media")
 
-_SPA_DIST = _REPO_ROOT / "webapp" / "dist"
+# Đọc được từ biến môi trường như DB và media. Cần cho bản đóng gói .exe: PyInstaller
+# giải nén code vào một thư mục TẠM, nên `__file__` không còn trỏ tới thư mục cài đặt —
+# thiếu chỗ ghi đè này thì exe chạy được API nhưng không tìm thấy giao diện.
+_SPA_DIST = Path(os.environ.get("FLOWKIT_SPA_DIST", _REPO_ROOT / "webapp" / "dist"))
 if _SPA_DIST.is_dir():
     app.mount("/", StaticFiles(directory=str(_SPA_DIST), html=True), name="spa")
 else:

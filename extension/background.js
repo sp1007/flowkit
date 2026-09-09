@@ -67,7 +67,41 @@ let metrics = {
   successCount: 0,
   failedCount: 0,
   lastError: null,
+  // Lần cuối dùng từng chức năng: { GEN_IMG: <ms>, GEN_VID: <ms>, … }. Trả lời câu hỏi
+  // "cái này còn chạy không, lần cuối tạo được ảnh là bao giờ" mà con số tổng không nói
+  // được — tổng vẫn tăng cả khi một chức năng đã chết từ hôm trước.
+  lastUsed: {},
 };
+
+/** rpcid của giao diện mới → tên chức năng đọc được.
+ *
+ *  Bản dựng mới KHÔNG đi qua `handleApiRequest` nữa, nên nếu chỉ đếm ở đó thì side panel
+ *  luôn hiện 0 dù máy đang chạy hết công suất — đúng tình trạng trước bản vá này.
+ *
+ *  Bảng đầy đủ ở `agent/boq_rpcids.json`; ở đây chỉ giữ những mã cần HIỆN LÊN, cố ý
+ *  không đồng bộ tự động: panel cần vài nhãn ổn định, không cần biết mọi RPC.
+ */
+const _BOQ_LABELS = {
+  ogiZ0b: 'GEN_IMG',      // sinh ảnh (và sửa ảnh — cùng rpcid)
+  YhhmEf: 'GEN_VID',      // video không ảnh
+  MZZa6b: 'GEN_VID_REF',  // video từ ảnh tham chiếu
+  eb1hJf: 'GEN_VID_1F',   // video từ một khung
+  nprQif: 'GEN_VID_2F',   // video từ hai khung
+  fZytfe: 'EXTEND',       // nối dài
+  jIps6:  'EDIT_VID',     // sửa video
+  p0UkFb: 'UPSCALE',      // nâng độ phân giải video
+  SPrCad: 'UPS_IMG',      // nâng độ phân giải ảnh
+  maseQ:  'UPLOAD',       // tải ảnh lên
+  as29s:  'URL_REFRESH',  // lấy URL mới
+};
+
+// Mã chạy liên tục (poll, số dư, đọc dự án) — đếm thì đúng nhưng lấp kín nhật ký, và cái
+// người ta cần nhìn là các lượt SINH.
+const _BOQ_QUIET = new Set(['jwpduf', 'nzlxg', 'UpteDb', 'Zzl0ze', 'uwAyfb', 'mYWVGd']);
+
+function _boqLabel(rpcid) {
+  return _BOQ_LABELS[rpcid] || rpcid;
+}
 
 // ─── URL → Log Type Classifier ─────────────────────────────
 
@@ -1479,23 +1513,55 @@ async function handleBoqRequest(msg) {
   let { rpcid, args = null, source_path: sourcePath } = params || {};
   const captchaAction = params?.captcha_action || 'IMAGE_GENERATION';
   if (!rpcid) { sendToAgent({ id, error: 'MISSING_RPCID' }); return; }
+
+  // Đếm và ghi nhật ký NGAY Ở ĐÂY. Toàn bộ lưu lượng của bản dựng mới đi qua hàm này,
+  // nên trước bản vá này side panel luôn hiện 0 và nhật ký trống dù máy đang chạy —
+  // trông y như extension đã chết.
+  const label = _boqLabel(rpcid);
+  const quiet = _BOQ_QUIET.has(rpcid);
+  const counts = !quiet;               // lượt poll/số dư chạy liên tục, đếm vào là vô nghĩa
+  if (counts) {
+    metrics.requestCount++;
+    metrics.lastUsed[label] = Date.now();
+    setState('running');
+    addRequestLog({
+      id, type: label, time: new Date().toISOString(), status: 'processing',
+      error: null, outputUrl: null, url: `boq:${rpcid}`,
+      payloadSummary: sourcePath || null,
+    });
+  }
+  const finish = (ok, err) => {
+    if (!counts) return;
+    if (ok) metrics.successCount++;
+    else { metrics.failedCount++; metrics.lastError = String(err || '').slice(0, 200); }
+    chrome.storage.local.set({ metrics });
+    updateRequestLog(id, { status: ok ? 'success' : 'failed', error: ok ? null : String(err || '') });
+    setState('idle');
+  };
   if (_needsCaptcha(args)) {
     // Cùng tab sẽ gửi batchexecute, nên token sinh ra đúng origin đang gọi.
     const tab = (await pickFlowTab(FLOW_APP_TAB_URLS)) || (await pickFlowTab(BOQ_TAB_URLS));
-    if (!tab) { sendToAgent({ id, error: 'NO_FLOW_APP_TAB' }); return; }
+    if (!tab) { finish(false, 'NO_FLOW_APP_TAB'); sendToAgent({ id, error: 'NO_FLOW_APP_TAB' }); return; }
     let cap = await captchaFromMainWorld(tab, captchaAction);
     if (!cap?.token) cap = await solveCaptcha(`boq-${id}`, captchaAction);   // cầu nối cũ
     if (!cap?.token) {
-      sendToAgent({ id, error: `CAPTCHA_FAILED: ${cap?.error || 'NO_TOKEN'} @${_tabOrigin(tab)}${tab.url ? '' : ' (tab.url rỗng)'}` });
+      const err = `CAPTCHA_FAILED: ${cap?.error || 'NO_TOKEN'} @${_tabOrigin(tab)}${tab.url ? '' : ' (tab.url rỗng)'}`;
+      finish(false, err);
+      sendToAgent({ id, error: err });
       return;
     }
     args = _fillCaptcha(args, cap.token);
   }
   try {
     const out = await boqExecute(rpcid, args, { sourcePath });
-    if (out.error) sendToAgent({ id, error: out.error });
-    else sendToAgent({ id, status: out.status, data: out });
+    if (out.error) { finish(false, out.error); sendToAgent({ id, error: out.error }); return; }
+    // Lỗi của Flow nằm TRONG phản hồi 200 (`wrb.fr` ô [5]), không phải ở mã HTTP — chỉ
+    // nhìn status thì một lượt bị lọc nội dung vẫn được tính là thành công.
+    const failed = (out.results || []).find((r) => r && r.error);
+    finish(!failed, failed && JSON.stringify(failed.error));
+    sendToAgent({ id, status: out.status, data: out });
   } catch (e) {
+    finish(false, e?.message || 'BOQ_FAILED');
     sendToAgent({ id, error: e?.message || 'BOQ_FAILED' });
   }
 }
