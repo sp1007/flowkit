@@ -33,3 +33,6 @@ backup/
 # Bản đóng gói — sinh ra từ `pyinstaller flowkit.spec`, đừng đưa vào git.
 build_dist/
 build_work/
+
+# Recon logs
+boq_calls.jsonl
