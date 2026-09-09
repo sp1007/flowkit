@@ -116,6 +116,25 @@ _ABUSE_RE = re.compile(
     r"try again later|temporarily",
     re.I)
 
+# HẾT HẠN MỨC — khác hẳn một lượt bị chặn vì bắn quá nhanh, và phải xử lý khác.
+#
+# `_ABUSE_RE` ở trên khớp cả `quota` lẫn `resource_exhausted`, nên trước đây hết hạn mức
+# bị coi là chặn tạm thời: mỗi ảnh thử 6 lần, lùi 30–60 giây giữa các lần, tất cả đều
+# hỏng — khoảng 5 phút cho MỖI ảnh. Với dự án 387 shot là hàng chục giờ job chạy vô ích,
+# và suốt thời gian ấy nút "Auto gen" bị khoá vì job vẫn đang chạy.
+#
+# Hạn mức không tự đầy lại sau vài phút. Thử lại không cứu được gì, chỉ giữ job sống.
+_QUOTA_RE = re.compile(r"resource_exhausted|quota_exceeded|quota|429", re.I)
+
+
+def _is_quota_exhausted(res: dict) -> bool:
+    if not isinstance(res, dict):
+        return False
+    if res.get("status") == 429:
+        return True
+    err = res.get("error")
+    return bool(err and _QUOTA_RE.search(str(err)))
+
 
 def _is_abuse_block(res: dict) -> bool:
     """True if a Flow response is a Google anti-abuse / rate-limit block ('unusual activity',
@@ -1015,6 +1034,12 @@ async def _generate_image_verified(gen_call, store_call, label_for_err: str) -> 
     while attempt < max_attempts:
         attempt += 1
         res = await gen_call()
+        if _is_quota_exhausted(res):
+            # Dừng CẢ JOB. Thử lại chỉ tốn thời gian và khoá nút Auto gen hàng giờ.
+            raise jobsmod.JobAbort(
+                f"Hết hạn mức Flow ({str(res.get('error'))[:120]}). "
+                f"Đổi model khác hoặc chờ hạn mức đầy lại rồi bấm Auto gen tiếp — "
+                f"ảnh đã tạo được vẫn giữ nguyên.")
         blocked = _is_abuse_block(res)
         if res.get("error"):
             last = str(res["error"])
@@ -3861,6 +3886,11 @@ async def _render_clip(client, project: dict, shot_id: str, submit, name: str) -
     while attempt < max_attempts:
         attempt += 1
         res = await submit()
+        if _is_quota_exhausted(res):
+            raise jobsmod.JobAbort(
+                f"Hết hạn mức Flow ({str(res.get('error'))[:120]}). "
+                f"Đổi model khác hoặc chờ hạn mức đầy lại rồi render tiếp — "
+                f"clip đã render vẫn giữ nguyên.")
         blocked = _is_abuse_block(res)
         if res.get("error"):
             last = str(res["error"])

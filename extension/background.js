@@ -67,10 +67,6 @@ let metrics = {
   successCount: 0,
   failedCount: 0,
   lastError: null,
-  // Lần cuối dùng từng chức năng: { GEN_IMG: <ms>, GEN_VID: <ms>, … }. Trả lời câu hỏi
-  // "cái này còn chạy không, lần cuối tạo được ảnh là bao giờ" mà con số tổng không nói
-  // được — tổng vẫn tăng cả khi một chức năng đã chết từ hôm trước.
-  lastUsed: {},
 };
 
 /** rpcid của giao diện mới → tên chức năng đọc được.
@@ -1557,7 +1553,6 @@ async function handleBoqRequest(msg) {
   const counts = !quiet;               // lượt poll/số dư chạy liên tục, đếm vào là vô nghĩa
   if (counts) {
     metrics.requestCount++;
-    metrics.lastUsed[label] = Date.now();
     setState('running');
     addRequestLog({
       id, type: label, time: new Date().toISOString(), status: 'processing',

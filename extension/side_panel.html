@@ -198,20 +198,6 @@
     #account-status.ok   { color: var(--green); }
     #account-status.warn { color: var(--yellow); }
 
-    /* ── Dùng gần nhất ──────────────────────────────── */
-    .lu-section  { margin: 8px 0; border: 1px solid var(--border); border-radius: 6px;
-                   overflow: hidden; }
-    .lu-header   { padding: 5px 8px; font-size: 10px; letter-spacing: .04em;
-                   text-transform: uppercase; color: var(--muted);
-                   border-bottom: 1px solid var(--border); }
-    .lu-row      { display: flex; justify-content: space-between; gap: 8px;
-                   padding: 3px 8px; font-size: 11px; }
-    .lu-row.stale { opacity: .45; }
-    .lu-name     { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lu-time     { color: var(--muted); font-variant-numeric: tabular-nums;
-                   white-space: nowrap; }
-    .lu-empty    { padding: 6px 8px; font-size: 11px; color: var(--muted); }
-
     /* ── Log section ────────────────────────────────── */
     .log-header {
       display: flex;
@@ -527,12 +513,6 @@
       <div class="metric-value red" id="m-failed">0</div>
       <div class="metric-label">Failed</div>
     </div>
-  </div>
-
-  <!-- Dùng gần nhất -->
-  <div class="lu-section">
-    <div class="lu-header">Dùng gần nhất</div>
-    <div id="last-used"><div class="lu-empty">Chưa dùng chức năng nào</div></div>
   </div>
 
   <!-- State bar -->

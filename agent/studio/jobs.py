@@ -47,6 +47,10 @@ class Job:
         self.created_at = time.time()
         self.updated_at = self.created_at
         self.cancel = asyncio.Event()
+        # Lý do job DỪNG HẲN giữa chừng (hết hạn mức Flow chẳng hạn) — khác với người
+        # dùng bấm huỷ. Không có nó thì job tự dừng mà màn hình chỉ hiện "12/387 xong",
+        # người ta ngồi đoán vì sao.
+        self.abort_reason: str = ""
         self.task: Optional[asyncio.Task] = None
 
     @property
@@ -63,6 +67,7 @@ class Job:
             "current": self.current, "progress": round(self.progress, 4),
             "step": self.step, "item_elapsed": round(time.time() - self.item_at, 1),
             "created_at": self.created_at, "updated_at": self.updated_at,
+            "abort_reason": self.abort_reason,
         }
 
 
@@ -85,6 +90,19 @@ async def step(text: str) -> None:
         return
     job.step = text
     await get_job_manager().note_step(job)
+
+
+class JobAbort(Exception):
+    """Lỗi khiến CẢ JOB phải dừng, không chỉ một item.
+
+    Sinh ra vì lỗi hết hạn mức. `_ABUSE_RE` khớp cả `quota` lẫn `resource_exhausted` nên
+    Flow báo hết quota bị coi là chặn tạm thời: mỗi ảnh thử 6 lần, lùi 30–60 giây giữa
+    các lần, tất cả đều hỏng. Với một dự án 387 shot là hàng chục giờ job chạy vô ích, và
+    suốt thời gian đó nút "Auto gen" bị khoá vì `jobFor()` thấy job vẫn đang chạy.
+
+    Hết hạn mức KHÔNG tự hết sau vài phút — khác hẳn một lượt bị chặn vì bắn quá nhanh.
+    Nên thứ đúng đắn là dừng ngay và nói lý do, chứ không phải kiên nhẫn thử lại.
+    """
 
 
 class JobManager:
@@ -239,6 +257,11 @@ class JobManager:
                     job.done += 1
                 except asyncio.CancelledError:
                     raise                             # cancel → stop this frame at once
+                except JobAbort as ex:
+                    logger.warning("job %s dừng hẳn: %s", job.id, ex)
+                    job.errors.append({"item": lbl, "error": str(ex)[:200]})
+                    job.abort_reason = str(ex)[:200]
+                    job.cancel.set()                  # dừng nốt các item còn lại
                 except Exception as ex:               # noqa: BLE001
                     logger.exception("job %s batch item failed: %s", job.id, lbl)
                     job.errors.append({"item": lbl, "error": str(ex)[:200]})
@@ -272,11 +295,17 @@ class JobManager:
             except Exception as ex:
                 logger.exception("job %s finalize failed", job.id)
                 job.errors.append({"item": "finalize", "error": str(ex)[:200]})
-        if job.status != "cancelled":
+        if job.abort_reason:
+            # Dừng vì hết hạn mức, KHÁC người dùng bấm huỷ — nói rõ lý do, đừng để người
+            # ta ngồi đoán vì sao đang chạy thì tự dừng.
+            job.status = "error"
+        elif job.status != "cancelled":
             job.status = "error" if job.errors and not job.done else "done"
         job.current = ""
         job.message = f"{job.done}/{job.total} xong" + (
             f", {len(job.errors)} lỗi" if job.errors else "")
+        if job.abort_reason:
+            job.message += f" — DỪNG: {job.abort_reason}"
         await self._broadcast(job)
         await self._persist(job)
         asyncio.create_task(self._reap(job.id))
@@ -299,6 +328,13 @@ class JobManager:
             try:
                 await self._run_item(job, worker(item))
                 job.done += 1
+            except JobAbort as ex:
+                logger.warning("job %s dừng hẳn: %s", job.id, ex)
+                job.errors.append(
+                    {"item": (item_label(item) if item_label else str(i)), "error": str(ex)[:200]})
+                job.abort_reason = str(ex)[:200]
+                job.cancel.set()
+                break
             except Exception as ex:
                 logger.exception("job %s item %d failed", job.id, i)
                 job.errors.append(
@@ -319,11 +355,17 @@ class JobManager:
             except Exception as ex:
                 logger.exception("job %s finalize failed", job.id)
                 job.errors.append({"item": "finalize", "error": str(ex)[:200]})
-        if job.status != "cancelled":
+        if job.abort_reason:
+            # Dừng vì hết hạn mức, KHÁC người dùng bấm huỷ — nói rõ lý do, đừng để người
+            # ta ngồi đoán vì sao đang chạy thì tự dừng.
+            job.status = "error"
+        elif job.status != "cancelled":
             job.status = "error" if job.errors and not job.done else "done"
         job.current = ""
         job.message = f"{job.done}/{job.total} xong" + (
             f", {len(job.errors)} lỗi" if job.errors else "")
+        if job.abort_reason:
+            job.message += f" — DỪNG: {job.abort_reason}"
         await self._broadcast(job)
         await self._persist(job)
         asyncio.create_task(self._reap(job.id))
