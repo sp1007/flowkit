@@ -39,6 +39,10 @@ function statusTone(j: Job): string {
 
 export default function JobProgress() {
   const { jobs, cancel } = useJobs();
+  // Job nào đã bấm Dừng. Việc dọn dẹp phía server mất một hai giây (đóng lượt gọi Flow
+  // đang dở), và nút im lìm trong lúc đó là thứ khiến người ta bấm đi bấm lại rồi kết
+  // luận là nút hỏng.
+  const [stopping, setStopping] = useState<Record<string, boolean>>({});
   const running = jobs.some((j) => j.status === "running");
   const now = useTick(running);
   // Show running jobs + briefly-lingering finished ones (server reaps after a while).
@@ -73,10 +77,11 @@ export default function JobProgress() {
               </span>
               {j.status === "running" && (
                 <button
-                  onClick={() => cancel(j.id)}
-                  className="ml-auto rounded bg-black/30 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-black/50"
+                  disabled={!!stopping[j.id]}
+                  onClick={() => { setStopping((s) => ({ ...s, [j.id]: true })); cancel(j.id); }}
+                  className="ml-auto rounded bg-black/30 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-black/50 disabled:opacity-50"
                 >
-                  Dừng
+                  {stopping[j.id] ? "Đang dừng…" : "Dừng"}
                 </button>
               )}
               {j.status !== "running" && (

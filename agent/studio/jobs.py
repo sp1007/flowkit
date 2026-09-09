@@ -92,6 +92,10 @@ async def step(text: str) -> None:
     await get_job_manager().note_step(job)
 
 
+class JobCancelled(Exception):
+    """Item bị cắt ngang vì người dùng bấm Dừng — không phải lỗi, đừng đếm vào `errors`."""
+
+
 class JobAbort(Exception):
     """Lỗi khiến CẢ JOB phải dừng, không chỉ một item.
 
@@ -153,11 +157,28 @@ class JobManager:
         thời gian không có gói tin nào ra WebSocket nên banner đứng im và người dùng tưởng treo.
         Mỗi nhịp gửi lại `item_elapsed` (+ `step` hiện tại) để đồng hồ trên banner chạy."""
         task = asyncio.create_task(coro)
-        while True:
-            done, _ = await asyncio.wait({task}, timeout=_HEARTBEAT)
-            if done:
-                break
-            await self._broadcast(job)          # nhịp: chứng tỏ tiến trình còn chạy
+        # Chờ ĐỒNG THỜI worker và lệnh huỷ. Trước đây chỉ chờ worker, nên bấm Dừng xong
+        # phải đợi hết item hiện tại — mà một item đang trong nhịp lùi chống-chặn là
+        # 30–60 giây MỖI lần thử, tới sáu lần. Người dùng bấm nút rồi ngồi nhìn nó chạy
+        # tiếp vài phút, và kết luận là nút hỏng.
+        waiter = asyncio.create_task(job.cancel.wait())
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {task, waiter}, timeout=_HEARTBEAT,
+                    return_when=asyncio.FIRST_COMPLETED)
+                if task in done:
+                    break
+                if waiter in done:              # người dùng bấm Dừng
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):   # noqa: BLE001
+                        pass
+                    raise JobCancelled()
+                await self._broadcast(job)      # nhịp: chứng tỏ tiến trình còn chạy
+        finally:
+            waiter.cancel()
         await task                              # ném lại lỗi của worker cho vòng gọi
 
     def get(self, job_id: str) -> Optional[Job]:
@@ -167,6 +188,14 @@ class JobManager:
         j = self._jobs.get(job_id)
         if j and j.status == "running":
             j.cancel.set()
+            # Báo NGAY, đừng đợi nhịp kế tiếp: người bấm nút cần thấy nút đã ăn. Việc dọn
+            # dẹp có thể mất vài giây (đóng lượt gọi Flow đang dở), và im lặng trong lúc
+            # đó là thứ khiến người ta bấm đi bấm lại.
+            j.current = "Đang dừng…"
+            try:
+                asyncio.create_task(self._broadcast(j))
+            except RuntimeError:
+                pass          # không có event loop (gọi từ test) — bỏ qua
             return True
         return False
 
@@ -257,6 +286,8 @@ class JobManager:
                     job.done += 1
                 except asyncio.CancelledError:
                     raise                             # cancel → stop this frame at once
+                except JobCancelled:
+                    job.status = "cancelled"          # không phải lỗi, đừng đếm vào errors
                 except JobAbort as ex:
                     logger.warning("job %s dừng hẳn: %s", job.id, ex)
                     job.errors.append({"item": lbl, "error": str(ex)[:200]})
@@ -328,6 +359,9 @@ class JobManager:
             try:
                 await self._run_item(job, worker(item))
                 job.done += 1
+            except JobCancelled:
+                job.status = "cancelled"              # không phải lỗi, đừng đếm vào errors
+                break
             except JobAbort as ex:
                 logger.warning("job %s dừng hẳn: %s", job.id, ex)
                 job.errors.append(
