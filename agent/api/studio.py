@@ -5573,8 +5573,15 @@ async def list_jobs(project_id: Optional[str] = None):
 
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str):
-    """Dừng một batch đang chạy (sau item hiện tại)."""
+    """Dừng một batch đang chạy (sau item hiện tại).
+
+    GHI LOG cả hai chiều: một lần người dùng báo "bấm dừng mà không dừng" mà không có gì
+    trong log để biết lệnh có tới server hay không — phải đo bằng cách gọi tay API mới
+    biết đường huỷ vẫn tốt. Một dòng log ở đây trả lời ngay câu ấy lần sau.
+    """
     ok = get_job_manager().cancel(job_id)
+    logger.info("cancel job %s → %s", job_id, "đã nhận" if ok
+                else "KHÔNG có job đó trong bộ nhớ")
     if not ok:
         raise HTTPException(404, "Job không tồn tại hoặc đã kết thúc")
     return {"ok": True}

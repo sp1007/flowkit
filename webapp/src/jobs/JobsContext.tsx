@@ -17,10 +17,10 @@ import { api, type Job } from "../api/client";
 type Ctx = {
   jobs: Job[];
   jobFor: (type: string) => Job | undefined;
-  cancel: (id: string) => void;
+  cancel: (id: string) => Promise<void>;
 };
 
-const JobsCtx = createContext<Ctx>({ jobs: [], jobFor: () => undefined, cancel: () => {} });
+const JobsCtx = createContext<Ctx>({ jobs: [], jobFor: () => undefined, cancel: async () => {} });
 
 const FAST_MS = 1200; // a job is running → poll snappily
 const IDLE_MS = 4000; // nothing running → poll lazily to catch newly-started jobs
@@ -73,9 +73,10 @@ export function JobsProvider({ projectId, children }: { projectId: string; child
   const jobFor = (type: string) =>
     [...jobs].reverse().find((j) => j.type === type && j.status === "running");
 
-  const cancel = (id: string) => {
-    api.cancelJob(id).catch(() => {});
-  };
+  // TRẢ VỀ promise, và để lỗi bay lên. Trước đây `.catch(() => {})` nuốt sạch: lệnh dừng
+  // không tới được server thì giao diện vẫn đổi nút thành "Đang dừng…" rồi khoá luôn, còn
+  // job thì chạy tiếp — người bấm ngồi nhìn một cái nút nói dối và không bấm lại được.
+  const cancel = (id: string) => api.cancelJob(id).then(() => undefined);
 
   return <JobsCtx.Provider value={{ jobs, jobFor, cancel }}>{children}</JobsCtx.Provider>;
 }
