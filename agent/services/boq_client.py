@@ -58,9 +58,14 @@ def is_quota_error(res) -> bool:
     """Lỗi này có phải HẾT HẠN MỨC không — khác hẳn chặn tạm thời vì bắn quá nhanh.
 
     Để ở đây chứ không ở `api/studio.py` vì có tới BỐN vòng thử lại gọi Flow, nằm ở hai
-    module khác nhau (`api/studio.py` và `studio/graph.py`). Lần vá đầu tôi chỉ sửa hai
-    vòng bên `api/studio.py` và tưởng xong — trong khi ⚡ tạo nhanh và mọi shot/asset CÓ
-    ĐỒ THỊ đều đi qua `graph.py`, tức phần lớn dự án thật vẫn hỏng y như cũ.
+    module khác nhau (`api/studio.py` và `studio/graph.py`), và hai bản nhận diện riêng
+    thì sớm muộn cũng lệch nhau.
+
+    Về tỉ lệ hai đường, đo trên CSDL thật thay vì đoán: ⚡ tạo nhanh, ✦ auto gen và Node
+    Editor cùng gọi `run_graph`, nhưng `_gen_via_graph` trả None khi hàng đó CHƯA CÓ đồ
+    thị và người gọi rơi về đường dựng prompt trực tiếp. Trong kho hiện tại chỉ 25/12005
+    shot và 28/1318 asset có đồ thị — nên đường trực tiếp (`api/studio.py`) mới là đường
+    chạy gần như mọi lúc, còn `graph.py` là phần thiểu số nhưng vẫn phải bịt.
 
     Nhận cả dict phản hồi lẫn chuỗi lỗi.
     """
