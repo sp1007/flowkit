@@ -12,6 +12,7 @@ endpoint tRPC mà là NGUỒN TOKEN.
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Optional, Sequence
 
 from . import boq_ops as ops
@@ -32,10 +33,30 @@ class QuotaError(RuntimeError):
     """Hạng tài khoản không được phép dùng khoá model này."""
 
 
+def default_tier() -> int:
+    """Hạng tài khoản dùng cho hàng rào giá.
+
+    Lấy từ biến môi trường `FLOWKIT_FLOW_TIER` (1 = miễn phí, 2 = Pro, 3 = Ultra). Đặt
+    sai là hỏng theo hai kiểu khác nhau: đặt cao hơn thực tế thì hàng rào thả cho lượt
+    gọi chắc chắn hỏng đi qua và chỉ nhận `error [3]`; đặt thấp hơn thì chặn oan.
+
+    CHƯA tự dò được. `nzlxg` trả `[credits, 2, 3, 3, null, credits]` trên tài khoản
+    Ultra nên vài ô trong đó trông như số hạng, nhưng chưa có mẫu từ tài khoản Pro để
+    biết ô nào — mà đoán sai chỗ này thì hỏng đúng kiểu vừa nói. Đo trên một tài khoản
+    Pro rồi hãy thay chỗ này bằng dò tự động.
+    """
+    raw = os.environ.get("FLOWKIT_FLOW_TIER")
+    try:
+        tier = int(raw) if raw else prices.TIER_ULTRA
+    except ValueError:
+        tier = prices.TIER_ULTRA
+    return tier if tier in (prices.TIER_FREE, prices.TIER_PRO, prices.TIER_ULTRA)         else prices.TIER_ULTRA
+
+
 class BoqClient:
-    def __init__(self, flow_client, tier: int = prices.TIER_ULTRA):
+    def __init__(self, flow_client, tier: Optional[int] = None):
         self._flow = flow_client
-        self.tier = tier
+        self.tier = tier if tier is not None else default_tier()
 
     # ─── nền ─────────────────────────────────────────────────
 
@@ -149,11 +170,19 @@ class BoqClient:
     # ─── sinh video ──────────────────────────────────────────
 
     async def _submit(self, rpcid: str, args, project_id: str, model_key: str) -> dict:
+        """Boc phan hoi cua mot luot submit.
+
+        Phan hoi co HAI doi tuong de lan: `data[2][0]` la WORKFLOW, con `data[3][0]` la
+        ban ghi LUOT SINH. Voi luot sinh moi, id cua luot sinh trung luon voi mediaId nen
+        `gen[0]` nhin nhu workflowId — nhung khong phai, workflowId nam o `gen[2]`. Tra
+        nham o nay thi moi thu van chay cho toi luc tao scene, va o do Flow tra
+        `error [9]` khong noi gi them.
+        """
         data = await self.call(rpcid, args, project_id=project_id)
-        wf = ops._dig(data, 3, 0)
+        gen = ops._dig(data, 3, 0)
         return {
-            "media_id": ops.workflow_media_id(wf) or ops._dig(wf, 0),
-            "workflow_id": ops._dig(wf, 0),
+            "media_id": ops.workflow_media_id(gen) or ops._dig(gen, 0),
+            "workflow_id": ops._dig(data, 2, 0, 0) or ops._dig(gen, 2),
             "credits_left": ops.credits_left(data),
             "model_key": model_key,
             "raw": data,
@@ -278,3 +307,126 @@ class BoqClient:
             [[workflow_id, None, None, [None, None, None, None, media_id], project_id],
              [["metadata.primary_media_id"]]],
             project_id=project_id, captcha_action="IMAGE_GENERATION")
+
+    # ─── ảnh ─────────────────────────────────────────────────
+
+    async def generate_image(self, prompt: str, project_id: str,
+                             ratio: int = 3, model_key: str = "GEM_PIX_2",
+                             references: Optional[Sequence[dict]] = None,
+                             workflow_id: Optional[str] = None,
+                             seed: Optional[int] = None,
+                             batch_id: Optional[str] = None) -> dict:
+        """Sinh MỘT ảnh. Lô 4 ảnh = bốn lời gọi riêng chung một `batch_id`.
+
+        `ratio` dùng bảng của ẢNH (1..5), KHÁC bảng của video. Giá trị ngoài dải KHÔNG
+        báo lỗi mà lặng lẽ trả 1408x768 — một khung 11:6 không có trong menu — nên chặn
+        tại đây thay vì để người gọi phát hiện qua kích thước ảnh.
+
+        `references` là danh sách {"media_id", "type"} với type 1 = ảnh tham chiếu,
+        2 = ảnh nền (lượt sửa). Mọi thao tác ảnh đều 0 credit.
+        """
+        if ratio not in ops.IMAGE_RATIO_WH:
+            raise ValueError(
+                f"tỉ lệ ảnh {ratio} ngoài dải 1..5; Flow sẽ im lặng trả 1408x768")
+        inputs = [[r["media_id"], None, None, None, r.get("type", ops.IMAGE_INPUT_REFERENCE)]
+                  for r in (references or [])] or None
+        ctx = ops.client_context(project_id, workflow_id)
+        import random
+        item = [None, None, inputs, seed if seed is not None else random.randrange(10 ** 6),
+                ratio, model_key, None, ctx, [[[prompt]]], None, None, None,
+                None if workflow_id else ops._uid(), ops._uid()]
+        args = [None, [item], 1, ctx, [batch_id or ops._uid()]]
+        data = await self.call("ogiZ0b", args, project_id=project_id,
+                               captcha_action="IMAGE_GENERATION")
+        media = ops._dig(data, 0, 0)
+        return {
+            "media_id": ops._dig(media, 0),
+            "workflow_id": ops._dig(media, 2),
+            "url": ops._dig(media, 6, 0, 13),
+            "size": ops._dig(media, 6, 2),
+            "raw": data,
+        }
+
+    async def edit_image(self, prompt: str, source_media_id: str, workflow_id: str,
+                         project_id: str, ratio: int = 3,
+                         model_key: str = "GEM_PIX_2",
+                         extra_refs: Optional[Sequence[dict]] = None,
+                         batch_id: Optional[str] = None) -> dict:
+        """Sửa ảnh: cùng rpcid với sinh ảnh, ảnh nguồn mang KIỂU 2 và có workflowId.
+
+        Prompt sửa ảnh phải viết bằng TIẾNG ANH và mô tả KẾT QUẢ. Flow dịch prompt không
+        phải tiếng Anh và bản dịch đánh rơi câu PHỦ ĐỊNH — "xoá người khỏi ảnh" từng bị
+        dịch thành một câu chú thích rồi cho ra ảnh ĐÔNG người hơn ảnh gốc.
+        """
+        refs = [{"media_id": source_media_id, "type": ops.IMAGE_INPUT_BASE}]
+        refs += list(extra_refs or [])
+        return await self.generate_image(prompt, project_id, ratio, model_key,
+                                         references=refs, workflow_id=workflow_id,
+                                         batch_id=batch_id)
+
+    async def upload_image(self, image_base64: str, project_id: str,
+                           mime_type: str = "image/jpeg",
+                           file_name: str = "upload.jpg") -> dict:
+        """Tải ảnh lên. Ảnh đi BẰNG BASE64 ngay trong `f.req` — không có endpoint riêng."""
+        args = [ops.client_context(project_id, captcha=False), image_base64, mime_type, 1,
+                None, None, None, None, file_name, None, ops._uid(), ops._uid()]
+        data = await self.call("maseQ", args, project_id=project_id,
+                               captcha_action="IMAGE_GENERATION", timeout=180)
+        return {"media_id": ops._dig(data, 0, 0) or ops._dig(data, 0), "raw": data}
+
+    async def upsample_image(self, media_id: str, level: int = 1) -> dict:
+        """Xin bản nét (mức 1 = 2K, 2 = 4K). 0 credit, nhưng 4K chỉ tài khoản Ultra.
+
+        clientContext ở đây KHÔNG mang projectId — khác lúc tạo ảnh.
+
+        Cẩn thận khi đọc lỗi: ảnh do người dùng TẢI LÊN bị từ chối với `error [3]`, và
+        tài khoản Pro xin mức 2 nhiều khả năng cũng `error [3]`. Hai nguyên nhân khác
+        hẳn nhau nhưng nhìn giống hệt, nên đừng suy nguyên nhân từ mã lỗi.
+        """
+        args = [media_id, level, ops.client_context("", captcha=True)]
+        args[2][5] = None
+        data = await self.call("SPrCad", args, captcha_action="IMAGE_GENERATION")
+        return {"raw": data}
+
+    # ─── dự án ───────────────────────────────────────────────
+
+    async def create_project(self, title: str) -> str:
+        data = await self.call("jHPbke", ["projects/*", [None, [title]], [None, 22]],
+                               captcha_action="IMAGE_GENERATION")
+        return ops._dig(data, 0, 0) or ops._dig(data, 0)
+
+    async def delete_project(self, project_id: str) -> None:
+        """Xoá THẬT (khác `trash_workflow` chỉ bật cờ archived)."""
+        await self.call("QI2zvc", [f"projects/{project_id}"],
+                        captcha_action="IMAGE_GENERATION")
+
+    async def rename_project(self, project_id: str, title: str) -> list:
+        return await self.call("o8DA4", [f"projects/{project_id}", [title],
+                                         [["project_title"]], [None, 22]],
+                               captcha_action="IMAGE_GENERATION")
+
+    async def set_project_cover(self, project_id: str, title: str,
+                                media_id: str) -> list:
+        """Đặt ảnh bìa. Mặt mask phải đúng `thumbnail_media_key`.
+
+        Mặt mask SAI không báo lỗi — Flow trả 200 rồi lặng lẽ không làm gì. Tôi từng
+        tưởng bốn mặt mask đều chạy vì thử cả bốn với CÙNG một giá trị đích; thử lại với
+        giá trị khác nhau thì chỉ đúng một cái có tác dụng.
+        """
+        return await self.call("o8DA4", [f"projects/{project_id}", [title, media_id],
+                                         [["thumbnail_media_key"]], [None, 22]],
+                               project_id=project_id, captcha_action="IMAGE_GENERATION")
+
+    async def rename_workflow(self, workflow_id: str, project_id: str,
+                              name: str) -> list:
+        return await self.call(
+            "mYWVGd", [[workflow_id, None, None, [name], project_id],
+                       [["metadata.display_name"]]],
+            project_id=project_id, captcha_action="IMAGE_GENERATION")
+
+    async def trash_workflows(self, workflow_ids: Sequence[str],
+                              project_id: str) -> list:
+        """Chuyển vào thùng rác. KHÔNG phải xoá — chỉ bật cờ `metadata.archived`."""
+        items = [[wid, None, None, [None, None, 1], project_id] for wid in workflow_ids]
+        return await self.call("pGCYOe", [items, [["metadata.archived"]]],
+                               project_id=project_id, captcha_action="IMAGE_GENERATION")

@@ -30,10 +30,36 @@ from typing import Optional
 _CATALOG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                              "boq_model_catalog.json")
 
-# Tier 3 = Ultra. Ba bằng chứng độc lập: bảng chỉ cho tier 3 mua 4K trong khi người dùng
-# xác nhận chỉ Ultra tải được 4K; các khoá *_low_priority chỉ có giá ở tier 3 và tài
-# khoản Ultra dùng được; và giá tier 3 của Lite/Fast đúng bằng nửa tier 1.
+# Hạng tài khoản theo cách đánh số của bảng giá mới.
+#
+# ĐỪNG lẫn với `PAYGATE_TIER_*` của API cũ: nhãn cũ chỉ đếm hạng TRẢ TIỀN nên lệch đúng
+# một bậc — API cũ gọi Ultra là `PAYGATE_TIER_TWO` và Pro là `PAYGATE_TIER_ONE`.
+#
+# Ultra = 3: bảng chỉ cho hạng 3 mua 4K và người dùng xác nhận chỉ Ultra tải được 4K;
+# các khoá *_low_priority chỉ có giá ở hạng 3 và tài khoản Ultra dùng được.
+#
+# Pro = 2, KHÔNG phải 1. Suýt nhầm chỗ này: `veo_3_1_upsampler_1080p` chỉ có giá ở hạng
+# 2 và 3, nên nếu coi Pro là hạng 1 thì hàng rào giá sẽ chặn oan — trong khi đã đo thật
+# trên tài khoản Pro rằng upscale 1080p chạy và KHÔNG trừ credit (914 → 914). Hạng 1 là
+# bản miễn phí.
+TIER_FREE = 1
+TIER_PRO = 2
 TIER_ULTRA = 3
+
+# Nhãn của API cũ → cách đánh số của bảng mới.
+PAYGATE_TO_TIER = {
+    "PAYGATE_TIER_ONE": TIER_PRO,
+    "PAYGATE_TIER_TWO": TIER_ULTRA,
+}
+
+
+def tier_from_paygate(paygate: Optional[str], default: int = TIER_PRO) -> int:
+    """Đổi nhãn `PAYGATE_TIER_*` của API cũ sang số hạng của bảng giá mới.
+
+    Mặc định rơi về Pro chứ không phải Ultra: đoán cao hơn thực tế thì hàng rào giá thả
+    cho một lượt gọi chắc chắn hỏng đi qua, và Flow chỉ trả `error [3]` trống rỗng.
+    """
+    return PAYGATE_TO_TIER.get(paygate or "", default)
 
 _catalog_cache: Optional[dict] = None
 _catalog_mtime: float = 0.0

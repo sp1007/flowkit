@@ -120,3 +120,35 @@ def test_cheapest():
                        "veo_3_1_extension_lite_low_priority"], 1) \
         == "veo_3_1_extension_lite"
     assert p.cheapest(["veo_3_1_upsampler_4k"], 1) is None
+
+
+def test_anh_xa_hang_lech_mot_bac_so_voi_paygate():
+    """Nhãn PAYGATE_TIER_* của API cũ chỉ đếm hạng TRẢ TIỀN nên lệch một bậc.
+
+    Bằng chứng: API cũ gọi Ultra là PAYGATE_TIER_TWO (CLAUDE.md bản chính), còn bảng giá
+    mới cho Ultra là 3. Và veo_3_1_upsampler_1080p chỉ có giá ở hạng 2 và 3, trong khi
+    đã đo thật trên tài khoản Pro rằng upscale 1080p chạy và không trừ credit — nên Pro
+    phải là 2, không phải 1.
+    """
+    assert p.tier_from_paygate("PAYGATE_TIER_ONE") == p.TIER_PRO == 2
+    assert p.tier_from_paygate("PAYGATE_TIER_TWO") == p.TIER_ULTRA == 3
+    assert p.tier_from_paygate(None) == p.TIER_PRO       # đoán thấp, không đoán cao
+    assert p.tier_from_paygate("gì đó lạ") == p.TIER_PRO
+
+
+def test_pro_upscale_1080p_duoc_4k_thi_khong():
+    assert p.price("veo_3_1_upsampler_1080p", p.TIER_PRO) == 0
+    assert p.price("veo_3_1_upsampler_4k", p.TIER_PRO) is None
+    assert p.price("veo_3_1_upsampler_4k", p.TIER_ULTRA) == 50
+    # Hạng miễn phí thì không có cả hai.
+    assert p.price("veo_3_1_upsampler_1080p", p.TIER_FREE) is None
+
+
+def test_pro_khong_co_ban_0_dong():
+    """Mọi khoá *_low_priority chỉ có ở Ultra — Pro phải rơi về bản trả tiền."""
+    for key in ("veo_3_1_t2v_lite_low_priority", "veo_3_1_r2v_lite_low_priority",
+                "veo_3_1_extension_lite_low_priority"):
+        assert p.price(key, p.TIER_PRO) is None
+    assert p.cheapest(["veo_3_1_extension_lite_low_priority",
+                       "veo_3_1_extension_lite"], p.TIER_PRO) == "veo_3_1_extension_lite"
+    assert p.price("veo_3_1_extension_lite", p.TIER_PRO) == 10

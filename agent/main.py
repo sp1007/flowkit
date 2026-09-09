@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from agent.config import API_HOST, API_PORT, WS_HOST, WS_PORT
 from agent.api.flow import router as flow_router
+from agent.api.flow_v2 import router as flow_v2_router
 from agent.api.tts import router as tts_router
 from agent.api.ai_agent import router as agent_router
 from agent.api.studio import router as studio_router
@@ -119,6 +120,7 @@ app.add_middleware(
 )
 
 app.include_router(flow_router, prefix="/api")
+app.include_router(flow_v2_router, prefix="/api")
 app.include_router(tts_router, prefix="/api")
 app.include_router(agent_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
