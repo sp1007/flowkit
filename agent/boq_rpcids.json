@@ -283,6 +283,14 @@
    "sua_video": "abra_edit_360p = 10; KHONG co duong 0 dong, va khong co ban Veo",
    "upscale": "1080p = 0; 4K = 50, chi tier 3"
   },
-  "ket_luan": "Moi thao tac SINH video deu co duong 0 dong. Ngoai le duy nhat la SUA VIDEO: chi Omni Flash lam duoc va re nhat la 10."
+  "ket_luan": "Moi thao tac SINH video deu co duong 0 dong. Ngoai le duy nhat la SUA VIDEO: chi Omni Flash lam duoc va re nhat la 10.",
+  "cau_truc": {
+   "veo": "Gia CHI phu thuoc NHOM CHAT LUONG, khong phu thuoc do dai hay kieu dau vao. Ca 11 key Lite deu 5 tren tier 3; ca 26 key Fast deu 10; ca 14 key Quality deu 100. Lite: tier1/2 = 10, tier3 = 5. Fast: 20 -> 10. Quality: 100 o MOI tier. Lite [Lower Priority]: 0, chi tier 3.",
+   "veo_ultra": "Ultra giam NUA GIA cho Lite va Fast nhung KHONG giam cho Quality — 100 van la 100. Dung gia dinh 'Ultra re hon' mot cach chung chung.",
+   "omni": "Gia phu thuoc DO DAI + DO PHAN GIAI, khong phu thuoc kieu dau vao (t2v/i2v/r2v/first_last giong het nhau) va KHONG phu thuoc tier. 720p: 4s=7, 6s=10, 8s=12, 10s=15, edit=20. 360p dung nua: 4, 5, 6, 7, 10.",
+   "ham_gia": "Nen viet thanh hai ham chu dung tra bang 104 dong: veo -> f(nhom, tier); omni -> f(do dai, do phan giai).",
+   "so_sanh": "O 8 giay tren Ultra: Veo Lite 5 < Veo Fast 10 < Omni 12 < Veo Quality 100. Omni chi re hon khi can 360p (6) hoac clip 4s (7)."
+  },
+  "nguoi_dung_xac_nhan": "Nguoi dung doc gia trong prompt box: 3.1 lite 8s = 5, fast 8s = 10, quality 8s = 100. Khop dung tier 3 cua bang."
  }
 }
