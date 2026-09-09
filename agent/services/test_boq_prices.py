@@ -152,3 +152,13 @@ def test_pro_khong_co_ban_0_dong():
     assert p.cheapest(["veo_3_1_extension_lite_low_priority",
                        "veo_3_1_extension_lite"], p.TIER_PRO) == "veo_3_1_extension_lite"
     assert p.price("veo_3_1_extension_lite", p.TIER_PRO) == 10
+
+
+def test_doi_nguoc_ve_nhan_paygate():
+    """studio._current_tier() đọc userPaygateTier — thiếu là âm thầm hạ 4K xuống 2K."""
+    assert p.paygate_from_tier(p.TIER_ULTRA) == "PAYGATE_TIER_TWO"
+    assert p.paygate_from_tier(p.TIER_PRO) == "PAYGATE_TIER_ONE"
+    assert p.paygate_from_tier(p.TIER_FREE) == "PAYGATE_TIER_ONE"   # thấp hơn, không cao hơn
+    # Đi vòng tròn phải về chỗ cũ.
+    for t in (p.TIER_PRO, p.TIER_ULTRA):
+        assert p.tier_from_paygate(p.paygate_from_tier(t)) == t

@@ -53,6 +53,19 @@ PAYGATE_TO_TIER = {
 }
 
 
+TIER_TO_PAYGATE = {TIER_PRO: "PAYGATE_TIER_ONE", TIER_ULTRA: "PAYGATE_TIER_TWO"}
+
+
+def paygate_from_tier(tier: int) -> str:
+    """Số hạng của bảng mới → nhãn `PAYGATE_TIER_*` mà tầng studio đang dùng.
+
+    Studio quyết định độ phân giải upscale và chọn model theo nhãn này, nên thiếu nó là
+    âm thầm hạ 4K xuống 2K trên tài khoản Ultra — hỏng lặng lẽ, không lỗi nào báo.
+    Hạng miễn phí không có nhãn tương ứng nên xếp chung với Pro, là mức thấp hơn.
+    """
+    return TIER_TO_PAYGATE.get(tier, "PAYGATE_TIER_ONE")
+
+
 def tier_from_paygate(paygate: Optional[str], default: int = TIER_PRO) -> int:
     """Đổi nhãn `PAYGATE_TIER_*` của API cũ sang số hạng của bảng giá mới.
 

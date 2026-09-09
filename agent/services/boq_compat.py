@@ -427,8 +427,20 @@ class BoqCompat:
 
     @_soft
     async def get_credits(self) -> dict:
+        """Số dư + HẠNG TÀI KHOẢN.
+
+        `userPaygateTier` bắt buộc phải có: `studio._current_tier()` đọc đúng trường này
+        để chọn độ phân giải upscale và khoá model. Thiếu nó thì studio rơi về mặc định
+        TIER_ONE và âm thầm hạ 4K xuống 2K trên tài khoản Ultra — hỏng lặng lẽ.
+
+        Lấy từ `FLOWKIT_FLOW_TIER` chứ không dò từ phản hồi `nzlxg`: phản hồi ấy là
+        `[credits, 2, 3, 3, null, credits]` trên Ultra nên vài ô trông như số hạng, nhưng
+        chưa có mẫu từ tài khoản Pro để biết ô nào — mà đoán sai thì hỏng đúng kiểu vừa
+        nói, lại không có triệu chứng.
+        """
         c = await self.boq.credits()
-        return _ok({"credits": c, "remainingCredits": c})
+        return _ok({"credits": c, "remainingCredits": c,
+                    "userPaygateTier": prices.paygate_from_tier(self.boq.tier)})
 
     @_soft
     async def get_direct_media(self, primary_media_id: str) -> dict:
